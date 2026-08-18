@@ -383,6 +383,17 @@ footer p { margin: 0; }
 .company-option strong { font-size: 12px; }
 .company-option small { margin-top: 4px; color: var(--muted); font-size: 9px; font-weight: 500; }
 .company-option i { color: var(--green); font-size: 17px; font-style: normal; }
+.company-options:empty { display: none; }
+.company-empty { margin: 0 28px 18px; padding: 14px; border: 1px dashed #b7c8bf; border-radius: 11px; color: var(--muted); background: #f8faf9; font-size: 10px; line-height: 1.5; }
+.super-admin-company { margin: 0 28px 20px; overflow: hidden; border: 1px solid #c8dbd1; border-radius: 13px; background: #f7fbf9; }
+.super-admin-heading { padding: 16px 18px 13px; border-bottom: 1px solid #dbe7e1; }
+.super-admin-heading > span { display: block; margin-bottom: 5px; color: var(--orange); font-size: 8px; font-weight: 900; letter-spacing: .1em; }
+.super-admin-heading strong { display: block; font-size: 14px; }
+.super-admin-heading p { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.company-create-form { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; padding: 16px 18px 18px; }
+.company-create-form label > span { display: block; margin-bottom: 5px; color: #52655d; font-size: 8px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.company-create-form input, .company-create-form select { width: 100%; min-height: 39px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: white; font: inherit; font-size: 10px; }
+.company-create-form .wide { grid-column: 1 / -1; }
 .dialog-footnote { margin: 0; padding: 0 28px 24px; color: var(--muted); font-size: 9px; line-height: 1.55; }
 .compact-dialog { width: min(92vw, 520px); }
 #environmentForm { padding: 20px 28px 26px; }
@@ -576,6 +587,9 @@ footer p { margin: 0; }
   .login-form-panel { min-height: auto; padding: 22px 14px 40px; }
   .login-card { margin-top: -1px; padding: 27px 22px; border-radius: 16px; }
   .dialog-heading, .company-options, #environmentForm { padding-right: 18px; padding-left: 18px; }
+  .super-admin-company { margin-right: 18px; margin-left: 18px; }
+  .company-create-form { grid-template-columns: 1fr; }
+  .company-create-form .wide { grid-column: auto; }
   .dialog-footnote { padding-right: 18px; padding-left: 18px; }
   .master-stats { grid-template-columns: repeat(2,1fr); }
   .inventory-stats,.inventory-toolbar,.inventory-operation-form { grid-template-columns: 1fr; }

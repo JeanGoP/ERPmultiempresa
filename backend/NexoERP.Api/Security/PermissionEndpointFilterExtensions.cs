@@ -2,6 +2,15 @@ namespace NexoERP.Api.Security;
 
 public static class PermissionEndpointFilterExtensions
 {
+    public static RouteHandlerBuilder RequireSuperAdministrator(this RouteHandlerBuilder builder)
+        => builder.AddEndpointFilter(async (context,next) =>
+        {
+            var http=context.HttpContext;
+            if(!http.Items.TryGetValue("EsSuperAdministrador",out var value)||value is not true)
+                return Results.Json(new { error="Esta operación requiere un superadministrador global." },statusCode:StatusCodes.Status403Forbidden);
+            return await next(context);
+        });
+
     public static RouteHandlerBuilder RequireErpPermission(this RouteHandlerBuilder builder,string permission)
         => builder.AddEndpointFilter(async (context,next) =>
         {

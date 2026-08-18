@@ -80,8 +80,9 @@ app.Use(async (context,next) =>
         return;
     }
     context.Items["UsuarioId"]=user.UsuarioId;
+    context.Items["EsSuperAdministrador"]=user.EsSuperAdministrador;
     if(context.Request.RouteValues.TryGetValue("empresaId",out var rawEmpresa) && long.TryParse(Convert.ToString(rawEmpresa),out var empresaId)
-       && !await auth.HasCompanyAccessAsync(user.UsuarioId,empresaId,context.RequestAborted))
+       && !user.EsSuperAdministrador && !await auth.HasCompanyAccessAsync(user.UsuarioId,empresaId,context.RequestAborted))
     {
         context.Response.StatusCode=StatusCodes.Status403Forbidden;
         await context.Response.WriteAsJsonAsync(new { error="El usuario no tiene acceso a la empresa solicitada." });
@@ -101,7 +102,7 @@ app.MapGet("/api/v1/health", async (TenantConnectionFactory connections, Cancell
 app.MapGet("/api/v1/health/live",()=>Results.Ok(new { status="live",utc=DateTime.UtcNow }));
 app.MapGet("/api/v1/health/ready",async(ProductionOperationsRepository operations,IOptions<OutboxOptions> options,CancellationToken ct)=>
 {
-    var health=await operations.GetPlatformHealthAsync(ct);var ready=health.Migrations>=37&&health.DiscardedOutbox==0;
+    var health=await operations.GetPlatformHealthAsync(ct);var ready=health.Migrations>=38&&health.DiscardedOutbox==0;
     var productionIntegration=string.Equals(options.Value.DeliveryMode,"Webhook",StringComparison.OrdinalIgnoreCase)&&Uri.IsWellFormedUriString(options.Value.WebhookUrl,UriKind.Absolute);
     return Results.Json(new { status=ready?"ready":"degraded",database="connected",health.Migrations,health.PendingOutbox,health.DiscardedOutbox,health.OldestPendingUtc,integrationMode=options.Value.DeliveryMode,productionIntegration },statusCode:ready?200:503);
 });
@@ -116,6 +117,15 @@ app.MapPost("/api/v1/auth/login", async (LoginRequest input,HttpContext context,
 
 app.MapGet("/api/v1/companies", async (HttpContext context,AuthRepository auth,CancellationToken cancellationToken) =>
     Results.Ok(await auth.GetCompaniesAsync(Convert.ToInt64(context.Items["UsuarioId"]),cancellationToken)));
+app.MapPost("/api/v1/companies",async(CreateCompanyRequest input,HttpContext context,AuthRepository auth,CancellationToken ct)=>
+{
+    if(string.IsNullOrWhiteSpace(input.Codigo)||string.IsNullOrWhiteSpace(input.Nit)||string.IsNullOrWhiteSpace(input.RazonSocial))
+        return Results.ValidationProblem(new Dictionary<string,string[]> { ["empresa"]=["Código, NIT y razón social son obligatorios."] });
+    if(input.Codigo.Trim().Length>20||input.Nit.Trim().Length>20||input.RazonSocial.Trim().Length>200)
+        return Results.ValidationProblem(new Dictionary<string,string[]> { ["empresa"]=["Uno de los campos excede la longitud permitida."] });
+    var created=await auth.CreateCompanyAsync(Convert.ToInt64(context.Items["UsuarioId"]),input,ct);
+    return Results.Created($"/api/v1/companies/{created.EmpresaId}",created);
+}).RequireSuperAdministrator();
 app.MapGet("/api/v1/companies/{empresaId:long}/operations/status",async(long empresaId,ProductionOperationsRepository operations,OperationalMetrics metrics,CancellationToken ct)=>Results.Ok(new { company=await operations.GetCompanyStatusAsync(empresaId,ct),runtime=metrics.Snapshot() })).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
 app.MapGet("/api/v1/companies/{empresaId:long}/operations/alerts",async(long empresaId,ProductionOperationsRepository operations,CancellationToken ct)=>Results.Ok(await operations.GetAlertsAsync(empresaId,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
 app.MapPost("/api/v1/companies/{empresaId:long}/operations/outbox/{eventId:long}/retry",async(long empresaId,long eventId,ProductionOperationsRepository operations,CancellationToken ct)=>{await operations.RetryAsync(empresaId,eventId,ct);return Results.Accepted();}).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");

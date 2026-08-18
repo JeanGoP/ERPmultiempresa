@@ -78,7 +78,7 @@ UPDATE seg.UsuarioEmpresaRol SET Activo=0 WHERE EmpresaId=@EmpresaId AND Usuario
         try { $health=Invoke-RestMethod -Uri "$baseUrl/api/v1/health" -Method Get; $healthy=$true; break } catch { if($apiProcess.HasExited){ break } }
     }
     if(-not $healthy){ throw "La API no inicio. $(Get-Content $errorLog -Raw -ErrorAction SilentlyContinue)" }
-    if($health.status -ne 'ok' -or $health.migrations -ne 37){ throw 'La salud de la API no reporto las 37 migraciones esperadas.' }
+    if($health.status -ne 'ok' -or $health.migrations -ne 38){ throw 'La salud de la API no reporto las 38 migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
 

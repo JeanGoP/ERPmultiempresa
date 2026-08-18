@@ -16,7 +16,7 @@ try{
     $logRow=$rows|Where-Object{$_ -match '\|L\|'}|Select-Object -First 1
     if(!$dataRow-or!$logRow){throw 'No se identificaron los archivos logicos del respaldo.'}
     $dataLogical=($dataRow-split '\|')[0].Trim().Replace("'","''");$logLogical=($logRow-split '\|')[0].Trim().Replace("'","''")
-    $restore="RESTORE DATABASE [$safeDb] FROM DISK=N'$safeBackup' WITH MOVE N'$dataLogical' TO N'$dataPath',MOVE N'$logLogical' TO N'$logPath',RECOVERY; DBCC CHECKDB([$safeDb]) WITH NO_INFOMSGS; IF (SELECT COUNT(*) FROM [$safeDb].core.SchemaMigration)<37 THROW 52002,'El respaldo no contiene las migraciones productivas esperadas.',1;"
+    $restore="RESTORE DATABASE [$safeDb] FROM DISK=N'$safeBackup' WITH MOVE N'$dataLogical' TO N'$dataPath',MOVE N'$logLogical' TO N'$logPath',RECOVERY; DBCC CHECKDB([$safeDb]) WITH NO_INFOMSGS; IF (SELECT COUNT(*) FROM [$safeDb].core.SchemaMigration)<38 THROW 52002,'El respaldo no contiene las migraciones productivas esperadas.',1;"
     & sqlcmd -S $Instance -E -b -Q $restore
     if($LASTEXITCODE-ne 0){throw 'La restauracion aislada o DBCC CHECKDB fallaron.'}
     [ordered]@{backup=$backup;restoredDatabase=$databaseName;integrity='OK';minimumMigrations=37;verifiedAtUtc=(Get-Date).ToUniversalTime().ToString('o')}|ConvertTo-Json

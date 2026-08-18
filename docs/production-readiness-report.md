@@ -9,7 +9,7 @@ Resultado automatizado: **TECHNICALLY_READY**. Este resultado no equivale a auto
 | Control | Resultado |
 |---|---|
 | Cliente, parser XML y API | Correcto; API con 0 errores y 0 advertencias |
-| Migraciones | 37 aplicadas idempotentemente |
+| Migraciones | 38 aplicadas idempotentemente |
 | Regresión SQL | Todos los escenarios, incluido `production-operations.sql`, correctos |
 | Prueba HTTP | Puntos 1 a 9, readiness, permisos, operaciones y Outbox correctos |
 | Outbox | Reclamo concurrente, entrega idempotente, reintento y alerta correctos |
@@ -17,7 +17,7 @@ Resultado automatizado: **TECHNICALLY_READY**. Este resultado no equivale a auto
 | Volumen | 5.000 movimientos, 20 trabajadores, 43,68 s, 114,48 ops/s |
 | Integridad bajo carga | Sin pérdida de cantidad, valor ni secuencia |
 | Respaldo | `BACKUP CHECKSUM` y `RESTORE VERIFYONLY` correctos |
-| Restauración | Base aislada, 37 migraciones y `DBCC CHECKDB` correctos |
+| Restauración | Base aislada, 38 migraciones y `DBCC CHECKDB` correctos |
 
 Último respaldo del ensayo: `database/backups/NexoErpDev-20260816-172609.bak`. Su manifiesto contiene tamaño, SHA-256 y hora UTC.
 

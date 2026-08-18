@@ -65,7 +65,7 @@ El modo local del lector y sus borradores se conservan. La escritura en SQL Serv
 - Motor, chasis y VIN vinculados a unidades serializadas.
 - Eventos Outbox y deterioros.
 - Compilación .NET sin advertencias.
-- Prueba HTTP aislada sobre una base temporal con las 37 migraciones.
+- Prueba HTTP aislada sobre una base temporal con las 38 migraciones.
 - Salud, login, permisos, rechazo anónimo `401`, denegación `403` y aislamiento entre empresas.
 - Consultas HTTP de saldos, inventario histórico y unidades serializadas.
 - Validaciones HTTP y traducción uniforme de errores de negocio.

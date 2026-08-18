@@ -1,5 +1,5 @@
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
-const state = { document: null, containerDocument: null, invoice: null, json: null, fields: [], headers: [], details: [], fileName: '', registrationMode: 'xml', manualLineSequence: 0, erpSession: null, pendingEmail: '', pendingName: '', runtimeMode: 'api', masterView: 'suppliers', inventoryView: 'stock', inventoryData: [], advancedView: 'landed', advancedData: [], apiContext: null, purchaseWorkflow: null, manualWorkflow: null, manualDraft: null };
+const state = { document: null, containerDocument: null, invoice: null, json: null, fields: [], headers: [], details: [], fileName: '', registrationMode: 'xml', manualLineSequence: 0, erpSession: null, pendingEmail: '', pendingName: '', pendingSuperAdmin: false, runtimeMode: 'api', masterView: 'suppliers', inventoryView: 'stock', inventoryData: [], advancedView: 'landed', advancedData: [], apiContext: null, purchaseWorkflow: null, manualWorkflow: null, manualDraft: null };
 const $ = (selector) => document.querySelector(selector);
 const elements = {
   fileInput: $('#fileInput'), dropZone: $('#dropZone'), browseButton: $('#browseButton'),
@@ -22,7 +22,8 @@ const elements = {
   advancedControlsModule:$('#advancedControlsModule'),controlsNav:$('#controlsNav'),advancedStats:$('#advancedStats'),advancedTable:$('#advancedTable'),advancedAction:$('#advancedAction'),advancedNotice:$('#advancedNotice'),advancedAudit:$('#advancedAudit'),advancedStatus:$('#advancedStatus'),advancedViewKicker:$('#advancedViewKicker'),advancedViewTitle:$('#advancedViewTitle'),advancedViewSubtitle:$('#advancedViewSubtitle'),
   masterStats: $('#masterStats'), masterViewTitle: $('#masterViewTitle'), masterViewSubtitle: $('#masterViewSubtitle'),
   masterTable: $('#masterTable'), masterSearch: $('#masterSearch'), masterCount: $('#masterCount'), addMasterRecord: $('#addMasterRecord'),
-  masterRecordDialog: $('#masterRecordDialog'), masterRecordForm: $('#masterRecordForm'), masterFormFields: $('#masterFormFields'), masterFormError: $('#masterFormError'), masterDialogTitle: $('#masterDialogTitle'), masterDialogSubtitle: $('#masterDialogSubtitle')
+  masterRecordDialog: $('#masterRecordDialog'), masterRecordForm: $('#masterRecordForm'), masterFormFields: $('#masterFormFields'), masterFormError: $('#masterFormError'), masterDialogTitle: $('#masterDialogTitle'), masterDialogSubtitle: $('#masterDialogSubtitle'),
+  superAdminCompanyPanel:$('#superAdminCompanyPanel'),companyCreateForm:$('#companyCreateForm'),companyCreateError:$('#companyCreateError')
 };
 
 const uiStorage = { session: 'nexo.erpSession.v1', runtimeMode: 'nexo.runtimeMode', masterData: 'nexo.masterData.v1', apiToken: 'nexo.apiToken.v1' };
@@ -80,6 +81,19 @@ function renderCompanyOptions(companies, apiMode = false) {
   });
 }
 
+function configureSuperAdminCompanyPanel(enabled,hasCompanies=true) {
+  elements.superAdminCompanyPanel.hidden=!enabled;
+  elements.companyCreateError.hidden=true;
+  document.querySelector('.dialog-footnote').textContent=enabled
+    ? 'El superadministrador puede crear empresas y trabajar en cualquiera de ellas sin una asignación empresa-rol.'
+    : 'En modo local se muestran empresas de demostración. En modo API solo aparecen las empresas autorizadas para el usuario.';
+  let empty=$('#companyEmptyState');
+  if(!hasCompanies&&enabled){
+    if(!empty){empty=document.createElement('p');empty.id='companyEmptyState';empty.className='company-empty';elements.superAdminCompanyPanel.before(empty);}
+    empty.textContent='No hay empresas creadas. Completa el formulario para registrar la primera compañía.';
+  } else empty?.remove();
+}
+
 function updateRuntimeMode(mode, persist = true) {
   state.runtimeMode = mode === 'api' ? 'api' : 'local';
   if (persist) localStorage.setItem(uiStorage.runtimeMode, state.runtimeMode);
@@ -121,6 +135,7 @@ function leaveErp() {
   state.apiContext = null;
   state.purchaseWorkflow = null;
   state.pendingEmail = '';
+  state.pendingSuperAdmin = false;
   closeErpDialog(elements.companyDialog);
   closeErpDialog(elements.environmentDialog);
   elements.erpShell.hidden = true;
@@ -199,7 +214,7 @@ async function loadApiCompanyContext() {
       apiRequest(`${base}/master-data/item-mappings`),apiRequest(`${base}/warehouses`),apiRequest(`${base}/inventory-periods`),
       apiRequest(`${base}/accounting-periods`),apiRequest(`${base}/accounting-accounts`),apiRequest('/api/v1/companies'),
     ]);
-    renderCompanyOptions(companies,true);
+    renderCompanyOptions(companies,true);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);
     state.apiContext={ warehouses,periods,accountingPeriods,accounts,masterData:{
       suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,active:x.activo})),
       units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
@@ -1334,12 +1349,45 @@ function selectCompany(option) {
   const session = {
     email,
     name: state.pendingName||state.erpSession?.name || displayNameFromEmail(email), api:option.dataset.api==='true',
+    superAdmin:state.pendingSuperAdmin||Boolean(state.erpSession?.superAdmin),
     company: { id: option.dataset.companyId, name: option.dataset.companyName, nit: option.dataset.companyNit, initials: option.dataset.companyInitials, currency:option.dataset.currency||'COP' },
     signedInAt: state.erpSession?.signedInAt || new Date().toISOString(),
   };
   state.apiContext=null; state.purchaseWorkflow=null; state.manualWorkflow=null; state.manualDraft=null;
   closeErpDialog(elements.companyDialog);
   enterErp(session);
+}
+
+async function createCompanyAsSuperAdmin(event) {
+  event.preventDefault();
+  elements.companyCreateError.hidden=true;
+  if(!(state.pendingSuperAdmin||state.erpSession?.superAdmin)) return;
+  const form=elements.companyCreateForm;
+  const submit=form.querySelector('[type="submit"]');
+  const data=new FormData(form);
+  const payload={
+    codigo:String(data.get('codigo')||'').trim(),nit:String(data.get('nit')||'').trim(),
+    digitoVerificacion:String(data.get('digitoVerificacion')||'').trim()||null,razonSocial:String(data.get('razonSocial')||'').trim(),
+    monedaFuncional:String(data.get('monedaFuncional')||'COP'),zonaHoraria:'America/Bogota',marcoContable:String(data.get('marcoContable')||'GRUPO_2')
+  };
+  try {
+    submit.disabled=true;submit.textContent='Creando empresa…';
+    const created=await apiRequest('/api/v1/companies',{method:'POST',body:JSON.stringify(payload)});
+    const companies=await apiRequest('/api/v1/companies');
+    renderCompanyOptions(companies,true);configureSuperAdminCompanyPanel(true,true);form.reset();
+    const option=Array.from($('#companyOptions').querySelectorAll('.company-option')).find(x=>x.dataset.companyId===String(created.empresaId));
+    if(option)selectCompany(option);
+  } catch(error) {
+    elements.companyCreateError.textContent=error.message;elements.companyCreateError.hidden=false;
+  } finally {submit.disabled=false;submit.textContent='Crear y entrar a la empresa';}
+}
+
+async function openCompanyManager() {
+  if(state.runtimeMode==='api'&&apiToken()){
+    try {const companies=await apiRequest('/api/v1/companies');renderCompanyOptions(companies,true);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);}
+    catch(error){showError(`No fue posible cargar las empresas. ${error.message}`);return;}
+  } else configureSuperAdminCompanyPanel(false,true);
+  openErpDialog(elements.companyDialog);
 }
 
 async function beginLocalLogin(event) {
@@ -1353,13 +1401,15 @@ async function beginLocalLogin(event) {
   elements.loginError.hidden = true;
   state.pendingEmail = email;
   state.pendingName='';
-  if(state.runtimeMode!=='api'){ renderCompanyOptions(demoCompanies,false); openErpDialog(elements.companyDialog); return; }
+  state.pendingSuperAdmin=false;
+  if(state.runtimeMode!=='api'){ renderCompanyOptions(demoCompanies,false); configureSuperAdminCompanyPanel(false,true); openErpDialog(elements.companyDialog); return; }
   const submit=elements.loginForm.querySelector('[type="submit"]'); submit.disabled=true; submit.firstChild.textContent='Conectando ';
   try {
     const login=await apiRequest('/api/v1/auth/login',{method:'POST',body:JSON.stringify({correo:email,password:elements.loginPassword.value})});
-    sessionStorage.setItem(uiStorage.apiToken,login.token); state.pendingName=login.nombreCompleto;
-    const companies=await apiRequest('/api/v1/companies'); if(!companies.length) throw new Error('El usuario no tiene empresas activas asignadas.');
-    renderCompanyOptions(companies,true); openErpDialog(elements.companyDialog);
+    sessionStorage.setItem(uiStorage.apiToken,login.token); state.pendingName=login.nombreCompleto;state.pendingSuperAdmin=Boolean(login.esSuperAdministrador);
+    const companies=await apiRequest('/api/v1/companies');
+    if(!companies.length&&!state.pendingSuperAdmin) throw new Error('El usuario no tiene empresas activas asignadas.');
+    renderCompanyOptions(companies,true);configureSuperAdminCompanyPanel(state.pendingSuperAdmin,companies.length>0);openErpDialog(elements.companyDialog);
   } catch(error) { sessionStorage.removeItem(uiStorage.apiToken); elements.loginError.textContent=`No fue posible ingresar a la API. ${error.message}`; elements.loginError.hidden=false; }
   finally { submit.disabled=false; submit.firstChild.textContent='Continuar '; }
 }
@@ -1450,8 +1500,10 @@ $('#togglePassword').addEventListener('click', () => {
   $('#togglePassword').setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
 });
 $('#companyOptions').addEventListener('click',(event)=>{const option=event.target.closest('.company-option');if(option)selectCompany(option);});
+elements.companyCreateForm.addEventListener('submit',createCompanyAsSuperAdmin);
 document.querySelectorAll('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => closeErpDialog($(`#${button.dataset.closeDialog}`))));
-elements.companySwitcher.addEventListener('click', () => openErpDialog(elements.companyDialog));
+elements.companySwitcher.addEventListener('click', () => void openCompanyManager());
+$('#companiesAdminNav').addEventListener('click',()=>void openCompanyManager());
 elements.runtimeBadge.addEventListener('click', () => {
   updateRuntimeMode(state.runtimeMode, false);
   openErpDialog(elements.environmentDialog);
