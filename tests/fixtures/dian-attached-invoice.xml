@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AttachedDocument xmlns="urn:oasis:names:specification:ubl:schema:xsd:AttachedDocument-2"
+  xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:ID>FV-9001</cbc:ID>
+  <cac:Attachment>
+    <cac:ExternalReference>
+      <cbc:MimeCode>text/xml</cbc:MimeCode>
+      <cbc:EncodingCode>UTF-8</cbc:EncodingCode>
+      <cbc:Description><![CDATA[<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+  xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:ID>FV-9001</cbc:ID>
+  <cbc:IssueDate>2026-07-09</cbc:IssueDate>
+  <cbc:DueDate>2026-08-08</cbc:DueDate>
+  <cbc:DocumentCurrencyCode>COP</cbc:DocumentCurrencyCode>
+  <cac:AccountingSupplierParty><cac:Party><cac:PartyTaxScheme><cbc:RegistrationName>FÁBRICA NACIONAL DE AUTOPARTES S.A.S.</cbc:RegistrationName><cbc:CompanyID>890301886</cbc:CompanyID></cac:PartyTaxScheme></cac:Party></cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty><cac:Party><cac:PartyTaxScheme><cbc:RegistrationName>CREDIMOTOS DE COLOMBIA S.A.S.</cbc:RegistrationName><cbc:CompanyID>901113085</cbc:CompanyID></cac:PartyTaxScheme></cac:Party></cac:AccountingCustomerParty>
+  <cac:AllowanceCharge><cbc:ChargeIndicator>true</cbc:ChargeIndicator><cbc:AllowanceChargeReason>Flete nacional</cbc:AllowanceChargeReason><cbc:Amount currencyID="COP">50000</cbc:Amount><cbc:BaseAmount currencyID="COP">1000000</cbc:BaseAmount></cac:AllowanceCharge>
+  <cac:TaxTotal><cbc:TaxAmount currencyID="COP">190000</cbc:TaxAmount><cac:TaxSubtotal><cbc:TaxableAmount currencyID="COP">1000000</cbc:TaxableAmount><cbc:TaxAmount currencyID="COP">190000</cbc:TaxAmount><cac:TaxCategory><cbc:Percent>19</cbc:Percent><cac:TaxScheme><cbc:Name>IVA</cbc:Name></cac:TaxScheme></cac:TaxCategory></cac:TaxSubtotal></cac:TaxTotal>
+  <cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="COP">1000000</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="COP">1000000</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="COP">1190000</cbc:TaxInclusiveAmount><cbc:ChargeTotalAmount currencyID="COP">50000</cbc:ChargeTotalAmount><cbc:PayableAmount currencyID="COP">1240000</cbc:PayableAmount></cac:LegalMonetaryTotal>
+  <cac:InvoiceLine><cbc:ID>1</cbc:ID><cbc:InvoicedQuantity unitCode="EA">2</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="COP">600000</cbc:LineExtensionAmount><cac:TaxTotal><cbc:TaxAmount currencyID="COP">114000</cbc:TaxAmount></cac:TaxTotal><cac:Item><cbc:Description>Repuesto de motocicleta</cbc:Description><cac:SellersItemIdentification><cbc:ID>REP-01</cbc:ID></cac:SellersItemIdentification><cac:AdditionalItemProperty><cbc:Name>InformacionMoto</cbc:Name><cbc:Value>ROJO NEGRO;9FCA1234567890123;MTR12345XYZ;2603 06 39;2027</cbc:Value></cac:AdditionalItemProperty><cac:AdditionalItemProperty><cbc:Name>InformacionMoto</cbc:Name><cbc:Value>AZUL;9FCA1234567890456;MTR67890ABC;2603 06 40;2027</cbc:Value></cac:AdditionalItemProperty></cac:Item><cac:Price><cbc:PriceAmount currencyID="COP">300000</cbc:PriceAmount></cac:Price></cac:InvoiceLine>
+  <cac:InvoiceLine><cbc:ID>2</cbc:ID><cbc:InvoicedQuantity unitCode="EA">1</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="COP">400000</cbc:LineExtensionAmount><cac:TaxTotal><cbc:TaxAmount currencyID="COP">76000</cbc:TaxAmount></cac:TaxTotal><cac:Item><cbc:Description>Servicio técnico</cbc:Description><cac:SellersItemIdentification><cbc:ID>SER-02</cbc:ID></cac:SellersItemIdentification></cac:Item><cac:Price><cbc:PriceAmount currencyID="COP">400000</cbc:PriceAmount></cac:Price></cac:InvoiceLine>
+</Invoice>]]></cbc:Description>
+    </cac:ExternalReference>
+  </cac:Attachment>
+</AttachedDocument>

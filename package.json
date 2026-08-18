@@ -1,0 +1,20 @@
+{
+  "name": "lector-xml-universal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Módulo ERP para registrar mercancías y causar servicios desde XML DIAN o captura manual.",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js && node --check public/advanced-controls.js",
+    "test": "node tests/parser-smoke.js",
+    "api:check": "dotnet build backend/NexoERP.Api/NexoERP.Api.csproj --no-restore",
+    "test:all": "npm run check && npm test && npm run api:check",
+    "db:init": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/init-localdb.ps1",
+    "db:check": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/check-localdb.ps1",
+    "db:concurrency": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/check-concurrency.ps1",
+    "db:backup": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/backup-database.ps1",
+    "test:volume": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/production-volume.ps1",
+    "production:rehearsal": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/production-rehearsal.ps1",
+    "api:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/api-smoke.ps1"
+  }
+}

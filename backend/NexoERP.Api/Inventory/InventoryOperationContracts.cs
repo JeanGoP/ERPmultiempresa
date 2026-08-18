@@ -1,0 +1,27 @@
+namespace NexoERP.Api.Inventory;
+
+public sealed record PostTransferRequest(long PeriodoInventarioId,DateOnly FechaContable,DateTime? FechaRecepcion,long? UsuarioId,Guid? CorrelationId);
+public sealed record InventoryDocumentOperationResponse(long DocumentoId,string Estado,int Movimientos,bool YaExistia);
+public sealed record ApplyInventoryDocumentRequest(long PeriodoInventarioId,DateOnly FechaContable,long? UsuarioId,Guid? CorrelationId);
+public sealed record PostDocumentRequest(long? UsuarioId,Guid? CorrelationId);
+public sealed record CloseInventoryPeriodRequest(long? UsuarioId);
+public sealed record ReopenInventoryPeriodRequest(string Motivo,long? UsuarioId);
+public sealed record InventoryPeriodResponse(long PeriodoInventarioId,string Estado,int? VersionCierre,bool? YaExistia);
+public sealed record ReconcileInventoryRequest(long? BodegaId,long? ArticuloId,long? UsuarioId);
+public sealed record ReconcileInventoryResponse(long ReconciliacionInventarioId,string Estado,int Diferencias);
+public sealed record ImpairmentRequest(long BodegaId,long ArticuloId,long PeriodoInventarioId,string Tipo,decimal ValorNetoRealizable,string Motivo,string? DocumentoSoporte,long? DeterioroRelacionadoId,long? UsuarioId);
+public sealed record ImpairmentResponse(long DeterioroInventarioId,decimal CostoHistorico,decimal ValorDeterioro,decimal DeterioroAcumulado,decimal ValorNetoContable);
+public sealed record RegisterNegativeInventoryRequest(long BodegaId,long ArticuloId,long PeriodoInventarioId,DateTime FechaMovimiento,DateOnly FechaContable,string TipoDocumentoOrigen,long DocumentoOrigenId,string NumeroDocumento,decimal CantidadSolicitada,string Motivo,Guid IdempotencyKey,long? UsuarioId,Guid? CorrelationId);
+public sealed record NegativeInventoryResponse(long SalidaExcepcionalNegativaId,string Estado,decimal? CantidadValorizada,decimal? CantidadPendiente,bool YaExistia);
+public sealed record RegularizeNegativeInventoryRequest(long RecepcionMercanciaLineaId,long PeriodoInventarioId,DateOnly FechaContable,long? UsuarioId,Guid? CorrelationId);
+public sealed record ReverseInventoryMovementRequest(long PeriodoInventarioId,DateOnly FechaContable,string Motivo,Guid IdempotencyKey,long? AprobacionOperacionId,long? UsuarioId,Guid? CorrelationId);
+public sealed record ReverseInventoryMovementResponse(long ReversionMovimientoInventarioId,long MovimientoReversionId,bool YaExistia);
+public sealed record CreateTransferLineRequest(long ArticuloId,long? LoteId,decimal Cantidad,IReadOnlyList<long>? UnidadSerializadaIds);
+public sealed record CreateTransferRequest(string Numero,long BodegaOrigenId,long? BodegaTransitoId,long BodegaDestinoId,DateTime FechaSalida,Guid? TrasladoGuid,long? UsuarioId,IReadOnlyList<CreateTransferLineRequest> Lineas);
+public sealed record CreateSupplierReturnLineRequest(long RecepcionMercanciaLineaId,long ArticuloId,decimal CantidadBase,long? UbicacionId,long? LoteId,IReadOnlyList<long>? UnidadSerializadaIds);
+public sealed record CreateSupplierReturnRequest(string Numero,long TerceroId,long BodegaId,long PeriodoInventarioId,DateTime FechaMovimiento,DateOnly FechaContable,string Motivo,Guid? DevolucionGuid,long? UsuarioId,IReadOnlyList<CreateSupplierReturnLineRequest> Lineas);
+public sealed record CreateSalesReturnLineRequest(long MovimientoSalidaOriginalId,long ArticuloId,decimal CantidadBase,long? UbicacionId,long? LoteId,IReadOnlyList<long>? UnidadSerializadaIds);
+public sealed record CreateSalesReturnRequest(string Numero,long? TerceroId,long BodegaId,long PeriodoInventarioId,DateTime FechaMovimiento,DateOnly FechaContable,string Motivo,Guid? DevolucionGuid,long? UsuarioId,IReadOnlyList<CreateSalesReturnLineRequest> Lineas);
+public sealed record CreatedInventoryDocumentResponse(long DocumentoId,string Numero,string Estado,bool YaExistia);
+public sealed record SupplierReturnSourceResponse(long RecepcionMercanciaLineaId,string Recepcion,string Proveedor,long TerceroId,long BodegaId,string Bodega,long ArticuloId,string Codigo,string Descripcion,long? LoteId,decimal CantidadRecibida,decimal CantidadDisponible,decimal CostoUnitario);
+public sealed record SalesReturnSourceResponse(long MovimientoSalidaOriginalId,string Documento,long? TerceroId,long BodegaId,string Bodega,long ArticuloId,string Codigo,string Descripcion,long? LoteId,decimal CantidadVendida,decimal CantidadDisponible,decimal CostoUnitario);

@@ -1,0 +1,22 @@
+{
+  "documentTitle": "dian-attached-invoice.xml",
+  "headers": [],
+  "details": [],
+  "fields": [],
+  "invoice": {
+    "documentType": "Invoice",
+    "number": "FV-9001",
+    "issueDate": "2026-07-09",
+    "dueDate": "2026-08-08",
+    "currency": "COP",
+    "supplier": { "name": "FÁBRICA NACIONAL DE AUTOPARTES S.A.S.", "identification": "890301886" },
+    "customer": { "name": "CREDIMOTOS DE COLOMBIA S.A.S.", "identification": "901113085" },
+    "totals": { "grossSubtotal": 1100000, "cost": 1000000, "taxExclusive": 1000000, "taxInclusive": 1190000, "allowances": 100000, "charges": 50000, "otherCharges": 0, "freight": 50000, "payable": 1240000 },
+    "items": [
+      { "line": "1", "code": "REP-01", "description": "Repuesto de motocicleta", "motor": "MTR12345XYZ", "chassis": "9FCA1234567890123", "properties": [{ "name": "NÚMERO MOTOR", "value": "MTR12345XYZ" }, { "name": "CHASIS", "value": "9FCA1234567890123" }], "quantity": 2, "unit": "EA", "unitPrice": 300000, "grossTotal": 600000, "discount": 0, "discountRate": 0, "tax": 114000, "lineTotal": 600000 },
+      { "line": "2", "code": "SER-02", "description": "Servicio técnico", "motor": "", "chassis": "", "properties": [], "quantity": 1, "unit": "EA", "unitPrice": 500000, "grossTotal": 500000, "discount": 100000, "discountRate": 20, "tax": 76000, "lineTotal": 400000 }
+    ],
+    "taxes": [{ "name": "IVA", "rate": 19, "taxableAmount": 1000000, "amount": 190000 }],
+    "charges": [{ "reason": "Flete nacional", "baseAmount": 1000000, "amount": 50000, "isFreight": true }]
+  }
+}

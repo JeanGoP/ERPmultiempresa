@@ -1,0 +1,50 @@
+# Registro de compras
+
+Módulo ERP para registrar compras de proveedores. Procesa XML de la DIAN, entradas manuales de mercancía y causaciones de servicios. Una factura puede combinar mercancías, servicios y costos adicionales manteniendo separado el efecto de cada línea.
+
+## Lector web actual
+
+Requiere Node.js 18 o superior.
+
+```powershell
+npm start
+```
+
+Abre <http://127.0.0.1:4173> e inicia también la API local en el puerto `5180`. El entorno visual permite trabajar en modo local o API, elegir la empresa y abrir Entrada automática, Entrada manual o Causación de servicios. La lectura UBL 2.1, incluido `AttachedDocument` con `CDATA`, extrae proveedor, fechas, artículos, descuentos, impuestos, fletes, motor, chasis, VIN y seriales.
+
+En modo API, tanto la entrada automática como la entrada manual crean el documento como borrador y separan sus efectos. La mercancía prepara una recepción y solo contabiliza Kardex después de una confirmación explícita; los servicios generan una causación independiente con cuentas, centro de costo, proyecto, impuestos, retenciones, comprobante balanceado y cuenta por pagar, siempre sin afectar Kardex. En modo local, el comportamiento anterior y los borradores del navegador permanecen iguales.
+
+## Núcleo SQL Server
+
+```powershell
+npm run db:init
+npm run db:check
+```
+
+Los comandos crean `NexoErpDev` en SQL Server LocalDB, aplican 37 migraciones idempotentes y prueban costos, inventario, compras, causaciones, maestros, homologación, seguridad, auditoría y operación productiva.
+
+## API
+
+```powershell
+dotnet run --project backend/NexoERP.Api
+```
+
+La API exige autenticación salvo en `/api/v1/health` y `/api/v1/auth/login`. Para habilitar un administrador local después de crear la empresa:
+
+```powershell
+powershell -File database/scripts/set-local-user.ps1 -Correo admin@empresa.com -Password (Read-Host -AsSecureString) -NombreCompleto "Administrador" -EmpresaCodigo EMPRESA
+```
+
+La prueba HTTP aislada crea una base temporal, aplica las 37 migraciones y valida autenticación, empresa, permisos, maestros, homologación, recepción, causación y salud operativa sin modificar `NexoErpDev`:
+
+```powershell
+npm run api:smoke
+```
+
+Consulta [docs/api.md](docs/api.md) para ver las rutas y los permisos publicados.
+
+Para preparación productiva consulta el [manual operativo](docs/operations-manual.md), la [matriz de permisos](docs/permissions-matrix.md) y el [acta de autorización](docs/go-live-approval.md). El ensayo integral se ejecuta con `npm run production:rehearsal`.
+
+Para usar SQL Server, selecciona `API ERP`, cierra la sesión local e ingresa con un usuario creado mediante `set-local-user.ps1`. El selector mostrará únicamente las empresas autorizadas. La homologación del XML usa los artículos reales de la empresa.
+
+Consulta [docs/implementation-status.md](docs/implementation-status.md) para el avance y los pendientes.

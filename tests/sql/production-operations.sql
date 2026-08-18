@@ -1,0 +1,33 @@
+SET NOCOUNT ON; SET XACT_ABORT ON; SET ANSI_NULLS ON; SET QUOTED_IDENTIFIER ON; SET ANSI_PADDING ON; SET ANSI_WARNINGS ON; SET CONCAT_NULL_YIELDS_NULL ON; SET ARITHABORT ON; SET NUMERIC_ROUNDABORT OFF;
+EXEC sys.sp_set_session_context @key=N'BypassRls',@value=1;
+DECLARE @Suffix varchar(20)=REPLACE(CONVERT(varchar(36),NEWID()),'-',''),@EmpresaId bigint,@UnidadId bigint,@ArticuloId bigint,@BodegaId bigint,@PeriodoId bigint;
+INSERT core.Empresa(Codigo,Nit,RazonSocial) VALUES(CONCAT('P9-',LEFT(@Suffix,8)),CONCAT('8',RIGHT(@Suffix,9)),N'QA Produccion');SET @EmpresaId=SCOPE_IDENTITY();
+INSERT core.EmpresaConfiguracion(EmpresaId) VALUES(@EmpresaId);
+INSERT inv.UnidadMedida(EmpresaId,Codigo,Nombre,Simbolo) VALUES(@EmpresaId,'UND',N'Unidad','und');SET @UnidadId=SCOPE_IDENTITY();
+INSERT inv.Articulo(EmpresaId,Codigo,Descripcion,Tipo,ManejaInventario,UnidadBaseId) VALUES(@EmpresaId,'P9-ART',N'Articulo archivo','INVENTARIO',1,@UnidadId);SET @ArticuloId=SCOPE_IDENTITY();
+INSERT inv.Bodega(EmpresaId,Codigo,Nombre) VALUES(@EmpresaId,'P9-BOD',N'Bodega archivo');SET @BodegaId=SCOPE_IDENTITY();
+INSERT core.PeriodoInventario(EmpresaId,Codigo,FechaInicio,FechaFin) VALUES(@EmpresaId,'2024-01','2024-01-01','2024-01-31');SET @PeriodoId=SCOPE_IDENTITY();
+DECLARE @Key uniqueidentifier=NEWID();
+EXEC inv.usp_ContabilizarEntrada @EmpresaId=@EmpresaId,@BodegaId=@BodegaId,@ArticuloId=@ArticuloId,@PeriodoInventarioId=@PeriodoId,@FechaMovimiento='2024-01-15',@FechaContable='2024-01-15',@TipoMovimiento='ENTRADA_COMPRA',@ModuloOrigen='QA',@TipoDocumentoOrigen='QA_P9',@DocumentoOrigenId=1,@DocumentoLineaOrigenId=1,@NumeroDocumento=N'P9-001',@CantidadEntrada=3,@CostoUnitarioEntrada=125,@IdempotencyKey=@Key;
+UPDATE core.PeriodoInventario SET Estado='CERRADO',CerradoEnUtc=SYSUTCDATETIME() WHERE PeriodoInventarioId=@PeriodoId;
+UPDATE core.PoliticaParticionKardex SET ArchivadoHabilitado=1,MesesEnLinea=12 WHERE EmpresaId=@EmpresaId;
+DECLARE @Archivo TABLE(MovimientosCopiados int,FechaCorte date,TotalArchivado bigint,OrigenEliminado bit);
+INSERT @Archivo EXEC inv.usp_ArchivarKardexCerrado @EmpresaId=@EmpresaId,@TamanoLote=100;
+IF NOT EXISTS(SELECT 1 FROM @Archivo WHERE MovimientosCopiados=1 AND TotalArchivado=1 AND OrigenEliminado=0) THROW 51996,'El archivo no copio el Kardex cerrado o elimino el origen.',1;
+IF NOT EXISTS(SELECT 1 FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId AND NumeroDocumento='P9-001') THROW 51997,'El archivo modifico el Kardex vivo.',1;
+
+DECLARE @EventoId bigint;INSERT core.OutboxEvento(EmpresaId,TipoEvento,TipoAgregado,AgregadoId,Payload) VALUES(@EmpresaId,N'QA.Entrega',N'QA',N'1',N'{"qa":true}');SET @EventoId=SCOPE_IDENTITY();
+DECLARE @Reclamados TABLE(OutboxEventoId bigint,EmpresaId bigint,EventoGuid uniqueidentifier,TipoEvento nvarchar(120),TipoAgregado nvarchar(100),AgregadoId nvarchar(100),Payload nvarchar(max),Intentos int);
+INSERT @Reclamados EXEC core.usp_ReclamarOutbox @Trabajador=N'QA-P9',@TamanoLote=200,@SegundosBloqueo=60,@EmpresaId=@EmpresaId;
+IF NOT EXISTS(SELECT 1 FROM @Reclamados WHERE OutboxEventoId=@EventoId AND Intentos=1) THROW 51998,'El consumidor no reclamo el evento.',1;
+EXEC core.usp_ConfirmarOutbox @OutboxEventoId=@EventoId,@Trabajador=N'QA-P9',@Destino=N'QA',@Respuesta=N'OK';
+EXEC core.usp_ConfirmarOutbox @OutboxEventoId=@EventoId,@Trabajador=N'QA-P9',@Destino=N'QA',@Respuesta=N'OK';
+IF (SELECT COUNT(*) FROM core.EntregaIntegracion WHERE OutboxEventoId=@EventoId)<>1 THROW 51999,'La entrega Outbox no fue idempotente.',1;
+
+DECLARE @FallidoId bigint;INSERT core.OutboxEvento(EmpresaId,TipoEvento,TipoAgregado,AgregadoId,Payload) VALUES(@EmpresaId,N'QA.Fallo',N'QA',N'2',N'{"qa":false}');SET @FallidoId=SCOPE_IDENTITY();
+DELETE FROM @Reclamados;INSERT @Reclamados EXEC core.usp_ReclamarOutbox @Trabajador=N'QA-FALLO',@TamanoLote=200,@SegundosBloqueo=60,@EmpresaId=@EmpresaId;
+EXEC core.usp_FallarOutbox @OutboxEventoId=@FallidoId,@Trabajador=N'QA-FALLO',@Error=N'Fallo controlado',@MaximoIntentos=1;
+IF NOT EXISTS(SELECT 1 FROM core.AlertaOperacion WHERE EmpresaId=@EmpresaId AND Codigo='OUTBOX_DESCARTADO' AND ResueltaEnUtc IS NULL) THROW 52000,'El descarte Outbox no genero alerta.',1;
+EXEC core.usp_ReintentarOutbox @EmpresaId=@EmpresaId,@OutboxEventoId=@FallidoId;
+IF EXISTS(SELECT 1 FROM core.OutboxEvento WHERE OutboxEventoId=@FallidoId AND DescartadoEnUtc IS NOT NULL) OR EXISTS(SELECT 1 FROM core.AlertaOperacion WHERE EmpresaId=@EmpresaId AND Codigo='OUTBOX_DESCARTADO' AND ResueltaEnUtc IS NULL) THROW 52001,'El reintento no reactivo el evento o no resolvio la alerta.',1;
+PRINT 'QA produccion correcto: Outbox idempotente, reintento alertado y archivo sin eliminar Kardex.';

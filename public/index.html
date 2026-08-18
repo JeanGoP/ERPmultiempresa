@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Módulo ERP para registrar mercancías y causar servicios de proveedores desde XML DIAN o captura manual.">
+  <title>Registro de compras · ERP</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <section id="loginView" class="login-view" aria-labelledby="loginTitle">
+    <div class="login-brand-panel">
+      <a class="login-brand" href="#" aria-label="Nexo ERP">
+        <span class="erp-brand-mark">N</span>
+        <span><strong>Nexo</strong><small>ERP OPERATIVO</small></span>
+      </a>
+      <div class="login-promise">
+        <p class="eyebrow">GESTIÓN EMPRESARIAL</p>
+        <h1>Una operación clara,<br>desde la primera entrada.</h1>
+        <p>Compras, inventario y servicios en un entorno multiempresa preparado para crecer contigo.</p>
+      </div>
+      <div class="login-capabilities" aria-label="Capacidades del sistema">
+        <span>XML DIAN</span><span>Inventario permanente</span><span>Trazabilidad</span>
+      </div>
+    </div>
+    <div class="login-form-panel">
+      <form id="loginForm" class="login-card">
+        <span class="login-kicker">ACCESO AL SISTEMA</span>
+        <h2 id="loginTitle">Bienvenido</h2>
+        <p>Ingresa para elegir la empresa con la que vas a trabajar.</p>
+        <label><span>Correo electrónico</span><input id="loginEmail" type="email" required autocomplete="username" placeholder="nombre@empresa.com"></label>
+        <div class="login-field"><label for="loginPassword">Contraseña</label><span class="password-field"><input id="loginPassword" type="password" required minlength="4" autocomplete="current-password" placeholder="Mínimo 4 caracteres"><button id="togglePassword" type="button" aria-label="Mostrar contraseña">Ver</button></span></div>
+        <p id="loginError" class="login-error" hidden></p>
+        <button class="button primary login-submit" type="submit">Continuar <span>→</span></button>
+        <div class="login-notice"><i></i><span><strong>Entorno local protegido</strong>En esta etapa las credenciales no salen de este equipo.</span></div>
+      </form>
+    </div>
+  </section>
+
+  <div id="erpShell" class="erp-shell" hidden>
+    <aside class="sidebar" aria-label="Navegación principal">
+      <a class="erp-brand" href="#" aria-label="Inicio del ERP">
+        <span class="erp-brand-mark">N</span>
+        <span><strong>Nexo</strong><small>ERP OPERATIVO</small></span>
+      </a>
+
+      <button id="companySwitcher" class="company-switcher" type="button" aria-label="Cambiar empresa">
+        <span id="companyAvatar" class="company-avatar">MC</span>
+        <span><small>EMPRESA ACTIVA</small><strong id="companyName">Mi compañía</strong><em id="companyNit">Entorno local</em></span>
+        <span class="chevron">⌄</span>
+      </button>
+
+      <nav class="erp-nav">
+        <p class="nav-label">GENERAL</p>
+        <button class="nav-item muted" type="button" disabled><span class="nav-icon">⌂</span>Inicio</button>
+        <p class="nav-label">OPERACIÓN</p>
+        <details class="nav-group" data-nav-group="purchases" open>
+          <summary class="nav-item parent"><span class="nav-icon">▤</span><span>Compras</span><span class="nav-count">3</span><span class="chevron">⌄</span></summary>
+          <div class="nav-children">
+            <button class="nav-subitem active" type="button" data-registration-mode="xml">Entrada automática</button>
+            <button class="nav-subitem" type="button" data-registration-mode="goods">Entrada manual</button>
+            <button class="nav-subitem" type="button" data-registration-mode="services">Causar servicios</button>
+            <span class="nav-subitem muted">Órdenes de compra <small>Próximamente</small></span>
+          </div>
+        </details>
+        <details class="nav-group" data-nav-group="inventory">
+          <summary class="nav-item parent"><span class="nav-icon">◇</span><span>Inventario</span><span class="chevron">⌄</span></summary>
+          <div class="nav-children">
+            <button id="inventoryNav" class="nav-subitem" type="button">Operación diaria</button>
+            <span class="nav-subitem muted">Planeación <small>Próximamente</small></span>
+          </div>
+        </details>
+        <details class="nav-group" data-nav-group="costs">
+          <summary class="nav-item parent"><span class="nav-icon">▥</span><span>Costos y control</span><span class="chevron">⌄</span></summary>
+          <div class="nav-children">
+            <button id="controlsNav" class="nav-subitem" type="button">Controles avanzados</button>
+          </div>
+        </details>
+        <details class="nav-group nav-group-disabled">
+          <summary class="nav-item parent muted"><span class="nav-icon">↗</span><span>Ventas</span><span class="nav-soon">Próximamente</span></summary>
+        </details>
+        <p class="nav-label">MAESTROS</p>
+        <details class="nav-group master-nav" data-nav-group="masters">
+          <summary class="nav-item parent"><span class="nav-icon">▦</span><span>Datos maestros</span><span class="nav-count">5</span><span class="chevron">⌄</span></summary>
+          <div class="nav-children">
+            <button class="nav-subitem master-link" type="button" data-master-view="suppliers">Proveedores</button>
+            <button class="nav-subitem master-link" type="button" data-master-view="articles">Artículos y servicios</button>
+            <button class="nav-subitem master-link" type="button" data-master-view="units">Unidades de medida</button>
+            <button class="nav-subitem master-link" type="button" data-master-view="warehouses">Bodegas</button>
+            <button class="nav-subitem master-link" type="button" data-master-view="mappings">Homologación XML</button>
+          </div>
+        </details>
+        <p class="nav-label">ADMINISTRACIÓN</p>
+        <details class="nav-group" data-nav-group="administration">
+          <summary class="nav-item parent"><span class="nav-icon">◎</span><span>Administración</span><span class="chevron">⌄</span></summary>
+          <div class="nav-children">
+            <span class="nav-subitem muted">Configuración <small>Próximamente</small></span>
+            <span class="nav-subitem muted">Usuarios y permisos <small>Próximamente</small></span>
+          </div>
+        </details>
+      </nav>
+
+      <div class="sidebar-user">
+        <span id="userAvatar" class="user-avatar">US</span>
+        <span><strong id="userName">Usuario local</strong><small id="userEmail">Sesión local</small></span>
+        <button id="logoutButton" class="logout-button" type="button" aria-label="Cerrar sesión" title="Cerrar sesión">↪</button>
+      </div>
+    </aside>
+
+    <div class="erp-content">
+      <header class="erp-topbar">
+        <div class="breadcrumb"><span>Compras</span><b>/</b><strong id="breadcrumbCurrent">Entrada automática</strong></div>
+        <div class="topbar-actions">
+          <button id="runtimeBadge" class="local-badge" type="button" title="Configurar origen de datos"><i></i><span>Procesamiento local</span></button>
+          <button class="icon-button" type="button" aria-label="Notificaciones">●</button>
+          <span id="topbarDate" class="topbar-date"></span>
+        </div>
+      </header>
+
+      <main id="moduleStart" class="module-main">
+        <section id="masterDataModule" class="master-data-module" hidden>
+          <section class="module-heading master-heading">
+            <div>
+              <p class="eyebrow">CONFIGURACIÓN · EMPRESA</p>
+              <h1>Maestros y<br>homologación</h1>
+              <p class="lede">Prepara proveedores, artículos, servicios, unidades y bodegas antes de registrar compras.</p>
+            </div>
+            <div class="module-state ready"><span></span><div><small>ALCANCE ACTUAL</small><strong>Datos locales por empresa</strong></div></div>
+          </section>
+          <div id="masterStats" class="master-stats"></div>
+          <section class="master-catalog">
+            <div class="master-toolbar">
+              <div><span class="section-number">03</span><div><h2 id="masterViewTitle">Proveedores</h2><p id="masterViewSubtitle">Terceros habilitados para compras.</p></div></div>
+              <button id="addMasterRecord" class="button primary" type="button">＋ Nuevo registro</button>
+            </div>
+            <div class="master-filter"><input id="masterSearch" type="search" placeholder="Buscar en este maestro…"><span id="masterCount"></span></div>
+            <div id="masterTable" class="table-wrap master-table"></div>
+          </section>
+          <div class="master-scope-note"><strong>Preparación para la API</strong><span>Los catálogos de esta pantalla se guardan localmente y separados por empresa. La estructura SQL y los endpoints reales ya están preparados para la conexión gradual.</span></div>
+        </section>
+
+        <section id="inventoryModule" class="inventory-module" hidden>
+          <section class="module-heading inventory-heading">
+            <div><p class="eyebrow">INVENTARIO · TRAZABILIDAD</p><h1>Inventario y<br>movimientos</h1><p class="lede">Controla existencias, lotes, seriales, traslados y devoluciones con historial completo por empresa.</p></div>
+            <div class="module-state ready"><span></span><div><small>CONTROL OPERATIVO</small><strong id="inventoryStatus">Consulta disponible</strong></div></div>
+          </section>
+          <div id="inventoryStats" class="inventory-stats"></div>
+          <section class="inventory-workspace">
+            <div class="inventory-tabs" role="tablist">
+              <button class="inventory-tab active" type="button" data-inventory-view="stock">Existencias</button><button class="inventory-tab" type="button" data-inventory-view="kardex">Kardex</button><button class="inventory-tab" type="button" data-inventory-view="serials">Seriales</button><button class="inventory-tab" type="button" data-inventory-view="expiry">Vencimientos</button><button class="inventory-tab" type="button" data-inventory-view="operations">Movimientos entre bodegas</button>
+            </div>
+            <div class="inventory-toolbar">
+              <label><span>Buscar</span><input id="inventorySearch" type="search" placeholder="Artículo, documento, lote, motor, chasis o VIN"></label><label><span>Bodega</span><select id="inventoryWarehouse"><option value="">Todas las bodegas</option></select></label><label id="inventoryDateFromField"><span>Desde</span><input id="inventoryDateFrom" type="date"></label><label id="inventoryDateToField"><span>Hasta</span><input id="inventoryDateTo" type="date"></label><button id="refreshInventory" class="button primary" type="button">Actualizar</button>
+            </div>
+            <div id="inventoryNotice" class="inventory-notice" hidden></div><div id="inventoryTable" class="table-wrap inventory-table"></div><div id="inventoryOperationPanel" class="inventory-operation-panel" hidden></div>
+          </section>
+        </section>
+
+        <section id="advancedControlsModule" class="advanced-controls-module" hidden>
+          <section class="module-heading controls-heading">
+            <div><p class="eyebrow">COSTOS · CONTROL INTERNO</p><h1>Costos y controles<br>avanzados</h1><p class="lede">Gestiona ajustes valorizados, conteos y cierres mediante documentos auditables, sin editar directamente el Kardex.</p></div>
+            <div class="module-state ready"><span></span><div><small>INTEGRIDAD DEL KARDEX</small><strong id="advancedStatus">Motor de control activo</strong></div></div>
+          </section>
+          <div id="advancedStats" class="inventory-stats control-stats"></div>
+          <section class="advanced-workspace">
+            <div class="advanced-tabs" role="tablist">
+              <button class="advanced-tab active" type="button" data-advanced-view="landed">Costos de adquisición</button><button class="advanced-tab" type="button" data-advanced-view="books">Libros y políticas</button><button class="advanced-tab" type="button" data-advanced-view="impairments">Deterioros</button><button class="advanced-tab" type="button" data-advanced-view="negative">Inventario negativo</button><button class="advanced-tab" type="button" data-advanced-view="counts">Conteos físicos</button><button class="advanced-tab" type="button" data-advanced-view="closing">Cierre y conciliación</button>
+            </div>
+            <div class="advanced-toolbar"><div><span id="advancedViewKicker">COSTOS CAPITALIZABLES</span><h2 id="advancedViewTitle">Fletes y otros costos de adquisición</h2><p id="advancedViewSubtitle">Distribuye costos incluso después de contabilizar la recepción.</p></div><button id="refreshAdvanced" class="button secondary" type="button">Actualizar control</button></div>
+            <div class="advanced-layout">
+              <div class="advanced-primary"><div id="advancedNotice" class="inventory-notice" hidden></div><div id="advancedTable" class="table-wrap advanced-table"></div><div id="advancedAction" class="advanced-action"></div></div>
+              <aside class="control-audit"><div><span>AUDITORÍA RECIENTE</span><strong>Historial inmutable</strong></div><div id="advancedAudit"></div></aside>
+            </div>
+          </section>
+        </section>
+
+        <div id="purchaseModule">
+        <section class="module-heading">
+          <div>
+            <p class="eyebrow">COMPRAS · PROVEEDORES</p>
+            <h1 id="moduleHeadingTitle">Entrada automática<br>de mercancía</h1>
+            <p class="lede">Recibe mercancía, causa servicios o procesa una factura mixta desde el XML de la DIAN o mediante captura manual.</p>
+          </div>
+          <div class="module-state"><span></span><div><small>ESTADO DEL PROCESO</small><strong>En preparación</strong></div></div>
+        </section>
+
+        <section class="registration-choice" aria-labelledby="registrationTitle">
+          <div class="choice-heading">
+            <span class="section-number">01</span>
+            <div><h2 id="registrationTitle">¿Cómo quieres registrar la compra?</h2><p>Elige el origen. Después podrás clasificar cada línea según su efecto.</p></div>
+          </div>
+          <div class="choice-grid">
+            <button class="choice-card active" type="button" data-registration-mode="xml">
+              <span class="choice-icon">XML</span><span><strong>Desde XML DIAN</strong><small>Extrae y clasifica automáticamente la factura.</small></span><i>Recomendado</i>
+            </button>
+            <button class="choice-card" type="button" data-registration-mode="goods">
+              <span class="choice-icon">＋</span><span><strong>Entrada manual</strong><small>Recibe artículos con o sin factura.</small></span>
+            </button>
+            <button class="choice-card" type="button" data-registration-mode="services">
+              <span class="choice-icon">$</span><span><strong>Causar servicios</strong><small>Registra gastos sin afectar inventario.</small></span>
+            </button>
+          </div>
+        </section>
+
+        <ol class="workflow" aria-label="Etapas del registro de compra">
+          <li class="flow-step active"><span>1</span><div><strong>Origen</strong><small>XML o captura manual</small></div></li>
+          <li class="flow-step"><span>2</span><div><strong>Clasificar</strong><small>Mercancía o servicio</small></div></li>
+          <li class="flow-step"><span>3</span><div><strong>Revisar</strong><small>Valores y efectos</small></div></li>
+          <li class="flow-step"><span>4</span><div><strong>Confirmar</strong><small>Guardar documento</small></div></li>
+        </ol>
+
+        <section id="xmlWorkspace" class="workspace registration-panel active" aria-label="Carga de XML">
+          <div class="workspace-heading">
+            <div><span class="section-number">02</span><div><h2>Cargar documento de compra</h2><p>Selecciona el XML adjunto recibido desde la DIAN.</p></div></div>
+            <span class="format-pill">XML · MÁX. 25 MB</span>
+          </div>
+          <div class="workspace-body">
+            <div id="dropZone" class="drop-zone" tabindex="0" role="button" aria-label="Seleccionar archivo XML">
+              <input id="fileInput" type="file" accept=".xml,text/xml,application/xml" hidden>
+              <div class="drop-icon" aria-hidden="true">⇧</div>
+              <div>
+                <strong>Arrastra aquí la factura XML</strong>
+                <p>También puedes <button id="browseButton" class="link-button" type="button">buscar el archivo en tu equipo</button></p>
+              </div>
+            </div>
+
+            <details class="manual-entry">
+              <summary>Opciones avanzadas · pegar contenido XML</summary>
+              <div class="manual-entry-body">
+                <label class="editor-label" for="xmlInput">XML de entrada</label>
+                <textarea id="xmlInput" spellcheck="false" placeholder="<?xml version=&quot;1.0&quot;?>&#10;<documento>...</documento>"></textarea>
+                <div class="editor-actions">
+                  <span id="inputStatus">Esperando un documento</span>
+                  <div>
+                    <button id="exampleButton" class="button secondary" type="button">Usar ejemplo</button>
+                    <button id="analyzeButton" class="button primary" type="button">Analizar XML <span>→</span></button>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <section id="manualWorkspace" class="workspace registration-panel" hidden aria-label="Registro manual">
+          <div class="workspace-heading">
+            <div><span class="section-number">02</span><div><h2 id="manualWorkspaceTitle">Entrada manual de mercancía</h2><p id="manualWorkspaceSubtitle">Registra el documento y los artículos recibidos.</p></div></div>
+            <span id="manualTypePill" class="format-pill">MERCANCÍA</span>
+          </div>
+          <form id="manualForm" class="manual-purchase-form">
+            <div class="form-section">
+              <div class="form-section-heading"><strong>Documento del proveedor</strong><span>Los campos con * son obligatorios</span></div>
+              <div class="form-grid">
+                <label><span>Proveedor *</span><input id="manualSupplier" required autocomplete="organization" placeholder="Nombre o razón social"></label>
+                <label><span>NIT *</span><input id="manualNit" required inputmode="numeric" placeholder="900123456-7"></label>
+                <label><span>Tipo de documento *</span><select id="manualDocumentType"><option value="FACTURA">Factura</option><option value="REMISION">Remisión</option><option value="DOCUMENTO_SOPORTE">Documento soporte</option></select></label>
+                <label><span>Número *</span><input id="manualInvoiceNumber" required placeholder="Ej. FE-1042"></label>
+                <label><span>Fecha *</span><input id="manualIssueDate" type="date" required></label>
+                <label><span>Vencimiento</span><input id="manualDueDate" type="date"></label>
+                <label id="warehouseField"><span>Bodega *</span><select id="manualWarehouse"><option value="">Seleccionar bodega</option><option>Bodega principal</option><option>Bodega Cartagena</option><option>Bodega Bogotá</option></select></label>
+                <label id="manualPeriodField" hidden><span>Periodo de inventario *</span><select id="manualPeriod"><option value="">Seleccionar periodo</option></select></label>
+              </div>
+            </div>
+
+            <div class="form-section line-section">
+              <div class="form-section-heading"><div><strong>Líneas del documento</strong><small>Cada línea tiene un efecto independiente en el ERP.</small></div><button id="addManualLine" class="button secondary" type="button">＋ Agregar línea</button></div>
+              <div id="manualLines" class="manual-line-cards"></div>
+              <div class="manual-total"><span>Total del documento</span><strong id="manualGrandTotal">$ 0</strong></div>
+            </div>
+
+            <div class="manual-form-actions">
+              <p id="manualFormStatus">El documento se guardará como borrador local.</p>
+              <button class="button primary large" type="submit">Revisar y guardar borrador <span>→</span></button>
+            </div>
+          </form>
+        </section>
+
+        <section id="manualResult" class="manual-result" hidden aria-live="polite"></section>
+
+        <section id="results" class="results" hidden aria-live="polite">
+          <div class="results-heading">
+            <div>
+              <p class="eyebrow">DOCUMENTO VALIDADO</p>
+              <h2 id="documentTitle">Documento interpretado</h2>
+              <p>Clasifica las líneas y revisa sus efectos antes de guardar el documento.</p>
+            </div>
+            <div class="export-actions">
+              <button id="exportJson" class="button secondary" type="button">JSON</button>
+              <button id="exportCsv" class="button secondary" type="button">CSV</button>
+              <button id="exportExcel" class="button primary" type="button">Exportar Excel</button>
+            </div>
+          </div>
+
+          <div id="stats" class="stats"></div>
+          <section id="invoicePanel" class="invoice-profile" hidden></section>
+
+          <nav class="tabs" aria-label="Vistas del resultado">
+            <button class="tab active" data-panel="summaryPanel" type="button">Resumen técnico</button>
+            <button class="tab" data-panel="allPanel" type="button">Todos los datos</button>
+            <button class="tab" data-panel="treePanel" type="button">Árbol XML</button>
+            <button class="tab" data-panel="jsonPanel" type="button">JSON</button>
+          </nav>
+
+          <div id="summaryPanel" class="panel active">
+            <article class="result-card">
+              <div class="card-heading"><span class="number">01</span><div><h3>Cabecera técnica</h3><p>Campos únicos fuera de los grupos repetidos</p></div></div>
+              <div id="headerTable" class="table-wrap"></div>
+            </article>
+            <div id="detailSections"></div>
+          </div>
+
+          <div id="allPanel" class="panel">
+            <article class="result-card">
+              <div class="card-heading"><span class="number">∞</span><div><h3>Todos los campos</h3><p>Ruta completa, tipo y valor de cada dato</p></div></div>
+              <div class="filter-row"><input id="fieldFilter" type="search" placeholder="Filtrar por ruta o valor…"><span id="fieldCount"></span></div>
+              <div id="allTable" class="table-wrap"></div>
+            </article>
+          </div>
+
+          <div id="treePanel" class="panel"><article class="result-card"><div id="treeView" class="tree-view"></div></article></div>
+          <div id="jsonPanel" class="panel"><article class="result-card code-card"><button id="copyJson" class="copy-button" type="button">Copiar</button><pre id="jsonView"></pre></article></div>
+        </section>
+
+        <section id="errorBox" class="error-box" hidden role="alert"></section>
+        </div>
+        <footer><span>Nexo ERP</span><p>Registro de compras · Control por empresa, usuario e idempotencia.</p></footer>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="companyDialog" class="erp-dialog" aria-labelledby="companyDialogTitle">
+    <div class="dialog-heading">
+      <div><span class="dialog-kicker">CONTEXTO DE TRABAJO</span><h2 id="companyDialogTitle">Selecciona una empresa</h2><p>Los datos y permisos se mantienen separados por compañía.</p></div>
+      <button class="dialog-close" type="button" data-close-dialog="companyDialog" aria-label="Cerrar">×</button>
+    </div>
+    <div id="companyOptions" class="company-options">
+      <button class="company-option" type="button" data-company-id="1" data-company-name="Comercial Andina SAS" data-company-nit="NIT 901.234.567-8" data-company-initials="CA"><span>CA</span><strong>Comercial Andina SAS<small>NIT 901.234.567-8 · Empresa demo</small></strong><i>→</i></button>
+      <button class="company-option" type="button" data-company-id="2" data-company-name="Motores del Caribe SAS" data-company-nit="NIT 900.765.432-1" data-company-initials="MC"><span>MC</span><strong>Motores del Caribe SAS<small>NIT 900.765.432-1 · Empresa demo</small></strong><i>→</i></button>
+      <button class="company-option" type="button" data-company-id="3" data-company-name="Servicios Corporativos SAS" data-company-nit="NIT 901.800.100-4" data-company-initials="SC"><span>SC</span><strong>Servicios Corporativos SAS<small>NIT 901.800.100-4 · Empresa demo</small></strong><i>→</i></button>
+    </div>
+    <p class="dialog-footnote">En modo local se muestran empresas de demostración. En modo API solo aparecen las empresas autorizadas para el usuario.</p>
+  </dialog>
+
+  <dialog id="environmentDialog" class="erp-dialog compact-dialog" aria-labelledby="environmentDialogTitle">
+    <div class="dialog-heading">
+      <div><span class="dialog-kicker">BANDERA DE ACTIVACIÓN</span><h2 id="environmentDialogTitle">Origen de los datos</h2><p>Define cómo trabajará este navegador.</p></div>
+      <button class="dialog-close" type="button" data-close-dialog="environmentDialog" aria-label="Cerrar">×</button>
+    </div>
+    <form id="environmentForm">
+      <label class="environment-option"><input type="radio" name="runtimeMode" value="local"><span><strong>Local</strong><small>XML y borradores permanecen en este equipo. Es el modo estable actual.</small></span></label>
+      <label class="environment-option"><input type="radio" name="runtimeMode" value="api"><span><strong>API ERP</strong><small>Conecta usuarios, empresas, maestros y entradas automáticas con SQL Server.</small></span></label>
+      <p id="environmentMessage" class="environment-message"></p>
+      <button class="button primary dialog-submit" type="submit">Guardar configuración</button>
+    </form>
+  </dialog>
+
+  <dialog id="masterRecordDialog" class="erp-dialog master-dialog" aria-labelledby="masterDialogTitle">
+    <div class="dialog-heading">
+      <div><span class="dialog-kicker">MAESTRO DE EMPRESA</span><h2 id="masterDialogTitle">Nuevo registro</h2><p id="masterDialogSubtitle">Completa la información requerida.</p></div>
+      <button class="dialog-close" type="button" data-close-dialog="masterRecordDialog" aria-label="Cerrar">×</button>
+    </div>
+    <form id="masterRecordForm">
+      <div id="masterFormFields" class="master-form-fields"></div>
+      <p id="masterFormError" class="login-error" hidden></p>
+      <button class="button primary dialog-submit" type="submit">Guardar en la empresa</button>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+  <script src="advanced-controls.js"></script>
+</body>
+</html>

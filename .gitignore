@@ -1,0 +1,35 @@
+# Secretos y configuración privada
+.env
+.env.*
+!.env.example
+backend/NexoERP.Api/appsettings.*.local.json
+
+# Dependencias y compilados
+node_modules/
+backend/**/bin/
+backend/**/obj/
+.tmp-*/
+*.dll
+*.pdb
+
+# SQL Server local y respaldos
+database/local/
+database/backups/
+*.mdf
+*.ldf
+*.bak
+
+# Archivos generados durante análisis y exportación
+outputs/
+tmp/
+
+# Editores y sistema operativo
+.vs/
+.vscode/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Registros
+*.log

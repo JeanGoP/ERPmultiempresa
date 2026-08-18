@@ -1,0 +1,1477 @@
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
+const state = { document: null, containerDocument: null, invoice: null, json: null, fields: [], headers: [], details: [], fileName: '', registrationMode: 'xml', manualLineSequence: 0, erpSession: null, pendingEmail: '', pendingName: '', runtimeMode: 'api', masterView: 'suppliers', inventoryView: 'stock', inventoryData: [], advancedView: 'landed', advancedData: [], apiContext: null, purchaseWorkflow: null, manualWorkflow: null, manualDraft: null };
+const $ = (selector) => document.querySelector(selector);
+const elements = {
+  fileInput: $('#fileInput'), dropZone: $('#dropZone'), browseButton: $('#browseButton'),
+  xmlInput: $('#xmlInput'), analyzeButton: $('#analyzeButton'), exampleButton: $('#exampleButton'),
+  inputStatus: $('#inputStatus'), results: $('#results'), errorBox: $('#errorBox'),
+  stats: $('#stats'), documentTitle: $('#documentTitle'), headerTable: $('#headerTable'),
+  detailSections: $('#detailSections'), allTable: $('#allTable'), fieldFilter: $('#fieldFilter'),
+  fieldCount: $('#fieldCount'), treeView: $('#treeView'), jsonView: $('#jsonView'),
+  invoicePanel: $('#invoicePanel'), xmlWorkspace: $('#xmlWorkspace'), manualWorkspace: $('#manualWorkspace'),
+  manualForm: $('#manualForm'), manualLines: $('#manualLines'), manualGrandTotal: $('#manualGrandTotal'),
+  manualResult: $('#manualResult'), manualWarehouse: $('#manualWarehouse'), warehouseField: $('#warehouseField'), manualPeriod:$('#manualPeriod'), manualPeriodField:$('#manualPeriodField'),
+  manualWorkspaceTitle: $('#manualWorkspaceTitle'), manualWorkspaceSubtitle: $('#manualWorkspaceSubtitle'),
+  manualTypePill: $('#manualTypePill'), manualFormStatus: $('#manualFormStatus'),
+  loginView: $('#loginView'), loginForm: $('#loginForm'), loginEmail: $('#loginEmail'), loginPassword: $('#loginPassword'), loginError: $('#loginError'),
+  erpShell: $('#erpShell'), companyDialog: $('#companyDialog'), companySwitcher: $('#companySwitcher'), companyAvatar: $('#companyAvatar'), companyName: $('#companyName'), companyNit: $('#companyNit'),
+  userAvatar: $('#userAvatar'), userName: $('#userName'), userEmail: $('#userEmail'), logoutButton: $('#logoutButton'),
+  environmentDialog: $('#environmentDialog'), environmentForm: $('#environmentForm'), environmentMessage: $('#environmentMessage'), runtimeBadge: $('#runtimeBadge'),
+  breadcrumbCurrent: $('#breadcrumbCurrent'), moduleHeadingTitle: $('#moduleHeadingTitle'), topbarDate: $('#topbarDate'),
+  purchaseModule: $('#purchaseModule'), masterDataModule: $('#masterDataModule'), inventoryModule: $('#inventoryModule'), inventoryNav: $('#inventoryNav'), inventoryStats: $('#inventoryStats'), inventoryTable: $('#inventoryTable'), inventorySearch: $('#inventorySearch'), inventoryWarehouse: $('#inventoryWarehouse'), inventoryDateFrom: $('#inventoryDateFrom'), inventoryDateTo: $('#inventoryDateTo'), inventoryDateFromField: $('#inventoryDateFromField'), inventoryDateToField: $('#inventoryDateToField'), inventoryNotice: $('#inventoryNotice'), inventoryOperationPanel: $('#inventoryOperationPanel'), inventoryStatus: $('#inventoryStatus'),
+  advancedControlsModule:$('#advancedControlsModule'),controlsNav:$('#controlsNav'),advancedStats:$('#advancedStats'),advancedTable:$('#advancedTable'),advancedAction:$('#advancedAction'),advancedNotice:$('#advancedNotice'),advancedAudit:$('#advancedAudit'),advancedStatus:$('#advancedStatus'),advancedViewKicker:$('#advancedViewKicker'),advancedViewTitle:$('#advancedViewTitle'),advancedViewSubtitle:$('#advancedViewSubtitle'),
+  masterStats: $('#masterStats'), masterViewTitle: $('#masterViewTitle'), masterViewSubtitle: $('#masterViewSubtitle'),
+  masterTable: $('#masterTable'), masterSearch: $('#masterSearch'), masterCount: $('#masterCount'), addMasterRecord: $('#addMasterRecord'),
+  masterRecordDialog: $('#masterRecordDialog'), masterRecordForm: $('#masterRecordForm'), masterFormFields: $('#masterFormFields'), masterFormError: $('#masterFormError'), masterDialogTitle: $('#masterDialogTitle'), masterDialogSubtitle: $('#masterDialogSubtitle')
+};
+
+const uiStorage = { session: 'nexo.erpSession.v1', runtimeMode: 'nexo.runtimeMode', masterData: 'nexo.masterData.v1', apiToken: 'nexo.apiToken.v1' };
+const demoCompanies = [
+  { empresaId: 1, razonSocial: 'Comercial Andina SAS', nit: '901.234.567-8' },
+  { empresaId: 2, razonSocial: 'Motores del Caribe SAS', nit: '900.765.432-1' },
+  { empresaId: 3, razonSocial: 'Servicios Corporativos SAS', nit: '901.800.100-4' },
+];
+
+function readStoredJson(key) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null'); }
+  catch { return null; }
+}
+
+function displayNameFromEmail(email) {
+  return String(email || 'usuario').split('@')[0].split(/[._-]+/).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ') || 'Usuario';
+}
+
+function initials(value) {
+  return String(value || 'US').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join('') || 'US';
+}
+
+function openErpDialog(dialog) {
+  if (!dialog) return;
+  if (typeof dialog.showModal === 'function') dialog.showModal();
+  else dialog.setAttribute('open', '');
+}
+
+function closeErpDialog(dialog) {
+  if (!dialog) return;
+  if (typeof dialog.close === 'function' && dialog.open) dialog.close();
+  else dialog.removeAttribute('open');
+}
+
+function apiToken() { return sessionStorage.getItem(uiStorage.apiToken) || ''; }
+
+async function apiRequest(path, options = {}) {
+  const headers = { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) };
+  if (apiToken()) headers.Authorization = `Bearer ${apiToken()}`;
+  const response = await fetch(`/erp-api${path}`, { ...options, headers });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.error || payload?.title || `La API respondió ${response.status}.`);
+  return payload;
+}
+
+function renderCompanyOptions(companies, apiMode = false) {
+  const container = $('#companyOptions'); container.replaceChildren();
+  companies.forEach((company) => {
+    const id = company.empresaId; const name = company.razonSocial; const nit = company.nit; const companyInitials = initials(name);
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'company-option';
+    Object.assign(button.dataset, { companyId: id, companyName: name, companyNit: `NIT ${nit}`, companyInitials, api: apiMode ? 'true' : 'false', currency: company.monedaFuncional || 'COP' });
+    const avatar = document.createElement('span'); avatar.textContent = companyInitials;
+    const description = document.createElement('strong'); description.textContent = name; const small = document.createElement('small'); small.textContent = `NIT ${nit} · ${apiMode ? 'SQL Server' : 'Empresa demo'}`; description.append(small);
+    const arrow = document.createElement('i'); arrow.textContent = '→'; button.append(avatar, description, arrow); container.append(button);
+  });
+}
+
+function updateRuntimeMode(mode, persist = true) {
+  state.runtimeMode = mode === 'api' ? 'api' : 'local';
+  if (persist) localStorage.setItem(uiStorage.runtimeMode, state.runtimeMode);
+  elements.runtimeBadge.classList.toggle('api-mode', state.runtimeMode === 'api');
+  elements.runtimeBadge.querySelector('span').textContent = state.runtimeMode === 'api' ? 'API ERP · preparación' : 'Procesamiento local';
+  const option = elements.environmentForm.querySelector(`[name="runtimeMode"][value="${state.runtimeMode}"]`);
+  if (option) option.checked = true;
+  elements.environmentMessage.textContent = state.runtimeMode === 'api'
+    ? 'API activa: al iniciar sesión podrás guardar, preparar y contabilizar la entrada en SQL Server.'
+    : 'Modo estable: archivos XML y borradores permanecen únicamente en este equipo.';
+}
+
+function renderErpSession() {
+  const session = state.erpSession;
+  if (!session?.company) return;
+  elements.companyAvatar.textContent = session.company.initials;
+  elements.companyName.textContent = session.company.name;
+  elements.companyNit.textContent = session.company.nit;
+  elements.userName.textContent = session.name;
+  elements.userEmail.textContent = session.email;
+  elements.userAvatar.textContent = initials(session.name);
+  document.querySelectorAll('.company-option').forEach((option) => option.classList.toggle('active', option.dataset.companyId === String(session.company.id)));
+}
+
+function enterErp(session) {
+  state.erpSession = session;
+  localStorage.setItem(uiStorage.session, JSON.stringify(session));
+  renderErpSession();
+  elements.loginView.hidden = true;
+  elements.erpShell.hidden = false;
+  setRegistrationMode('xml');
+  if(session.api&&apiToken()) void loadApiCompanyContext();
+}
+
+function leaveErp() {
+  localStorage.removeItem(uiStorage.session);
+  sessionStorage.removeItem(uiStorage.apiToken);
+  state.erpSession = null;
+  state.apiContext = null;
+  state.purchaseWorkflow = null;
+  state.pendingEmail = '';
+  closeErpDialog(elements.companyDialog);
+  closeErpDialog(elements.environmentDialog);
+  elements.erpShell.hidden = true;
+  elements.loginView.hidden = false;
+  elements.loginPassword.value = '';
+  elements.loginError.hidden = true;
+  elements.loginEmail.focus();
+}
+
+function initializeErpUi() {
+  elements.topbarDate.textContent = new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date()).replace(/\./g, '').toLocaleUpperCase('es-CO');
+  updateRuntimeMode(localStorage.getItem(uiStorage.runtimeMode) || 'api', false);
+  const savedSession = readStoredJson(uiStorage.session);
+  if (savedSession?.email && savedSession?.company && (!savedSession.api || apiToken())) enterErp(savedSession);
+  else { elements.loginView.hidden = false; elements.erpShell.hidden = true; }
+}
+
+function setupCollapsibleNavigation() {
+  const groups=Array.from(document.querySelectorAll('.erp-nav details[data-nav-group]'));
+  let changing=false;
+  groups.forEach((group)=>group.addEventListener('toggle',()=>{
+    if(changing||!group.open)return;
+    changing=true;
+    groups.forEach((other)=>{if(other!==group)other.open=false;});
+    changing=false;
+  }));
+  document.querySelector('.erp-nav').addEventListener('click',(event)=>{
+    const destination=event.target.closest('.nav-subitem:not(.muted)');
+    if(!destination)return;
+    const owner=destination.closest('details[data-nav-group]');
+    if(owner&&!owner.open)owner.open=true;
+  });
+}
+
+const masterViewConfig = {
+  suppliers: ['Proveedores', 'Terceros habilitados para compras.', 'proveedores'],
+  articles: ['Artículos y servicios', 'Catálogo interno y controles de inventario.', 'artículos y servicios'],
+  units: ['Unidades de medida', 'Unidades base, de compra y de venta.', 'unidades'],
+  warehouses: ['Bodegas', 'Depósitos y uso opcional de ubicaciones.', 'bodegas'],
+  mappings: ['Homologación XML', 'Relación entre códigos del proveedor y artículos internos.', 'homologaciones'],
+};
+
+function newMasterDataSeed() {
+  return {
+    suppliers: [{ id: 'sup-fanalca', identificationType: 'NIT', identification: '890301886', verificationDigit: '5', name: 'Fábrica Nacional de Autopartes S.A.S.', active: true }],
+    units: [{ id: 'unit-und', code: 'UND', name: 'Unidad', symbol: 'und', active: true }, { id: 'unit-kgm', code: 'KGM', name: 'Kilogramo', symbol: 'kg', active: true }],
+    articles: [
+      { id: 'art-repuesto', code: 'REP-MOTO', description: 'Repuesto de motocicleta', type: 'INVENTARIO', unitId: 'unit-und', inventory: true, lot: false, serial: true, expiry: false, active: true },
+      { id: 'art-servicio', code: 'SER-TEC', description: 'Servicio técnico de proveedor', type: 'SERVICIO', unitId: 'unit-und', inventory: false, lot: false, serial: false, expiry: false, active: true },
+      { id: 'art-flete', code: 'FLETE', description: 'Flete de adquisición', type: 'CONCEPTO', unitId: 'unit-und', inventory: false, lot: false, serial: false, expiry: false, active: true },
+    ],
+    warehouses: [{ id: 'wh-main', code: 'PPL', name: 'Bodega principal', locations: false, transit: false, active: true }],
+    mappings: [],
+  };
+}
+
+function getCompanyMasterData() {
+  if(state.runtimeMode==='api'&&state.apiContext?.masterData) return { database:null,companyId:String(state.erpSession?.company?.id),data:state.apiContext.masterData,api:true };
+  const companyId = String(state.erpSession?.company?.id || 'local');
+  const database = readStoredJson(uiStorage.masterData) || {};
+  if (!database[companyId]) { database[companyId] = newMasterDataSeed(); localStorage.setItem(uiStorage.masterData, JSON.stringify(database)); }
+  return { database, companyId, data: database[companyId] };
+}
+
+function saveCompanyMasterData(context) { if(context.api) return; context.database[context.companyId] = context.data; localStorage.setItem(uiStorage.masterData, JSON.stringify(context.database)); }
+function masterId(prefix) { return `${prefix}-${crypto.randomUUID ? crypto.randomUUID() : Date.now()}`; }
+function activeLabel(value) { return value ? 'Activo' : 'Inactivo'; }
+function findById(rows,id) { return rows.find((row) => String(row.id) === String(id)); }
+
+async function loadApiCompanyContext() {
+  if(state.runtimeMode!=='api'||!state.erpSession?.company?.id||!apiToken()) return;
+  const companyId=state.erpSession.company.id; const base=`/api/v1/companies/${companyId}`;
+  try {
+    const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies]=await Promise.all([
+      apiRequest(`${base}/master-data/suppliers`),apiRequest(`${base}/master-data/units`),apiRequest(`${base}/master-data/articles`),
+      apiRequest(`${base}/master-data/item-mappings`),apiRequest(`${base}/warehouses`),apiRequest(`${base}/inventory-periods`),
+      apiRequest(`${base}/accounting-periods`),apiRequest(`${base}/accounting-accounts`),apiRequest('/api/v1/companies'),
+    ]);
+    renderCompanyOptions(companies,true);
+    state.apiContext={ warehouses,periods,accountingPeriods,accounts,masterData:{
+      suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,active:x.activo})),
+      units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
+      articles:articles.map(x=>({id:x.articuloId,code:x.codigo,description:x.descripcion,type:x.tipo,unitId:x.unidadBaseId,inventory:x.manejaInventario,lot:x.manejaLote,serial:x.manejaSerial,expiry:x.requiereVencimiento,active:x.activo})),
+      warehouses:warehouses.map(x=>({id:x.bodegaId,code:x.codigo,name:x.nombre,locations:x.usaUbicaciones,transit:x.esTransito,active:true})),
+      mappings:mappings.map(x=>({id:x.homologacionArticuloProveedorId,supplierId:x.terceroId,externalCode:x.codigoExterno,externalDescription:x.descripcionExterna||'',articleId:x.articuloId,unitId:null,factor:x.factorAUnidadBase,active:x.activa})),
+    }};
+    renderManualReferenceOptions();
+    elements.manualLines.querySelectorAll('[data-manual-line]').forEach(row=>{const classification=row.querySelector('[data-field="classification"]')?.value;const select=row.querySelector('[data-field="articleId"]');if(select)populateManualArticleOptions(select,classification,select.value);});
+    if(!elements.masterDataModule.hidden) renderMasterView();
+    if(!elements.inventoryModule.hidden){populateInventoryWarehouses();void refreshInventory();}
+    if(state.invoice) renderInvoice();
+  } catch(error) { showError(`No fue posible cargar los datos de la empresa. ${error.message}`); }
+}
+
+async function ensureApiSupplier(invoice) {
+  const data=state.apiContext?.masterData; if(!data) throw new Error('Los maestros de la empresa aún no están disponibles.');
+  const identification=invoice.supplier.identification; if(!identification) throw new Error('El XML no contiene la identificación del proveedor.');
+  let supplier=data.suppliers.find(x=>x.identification===identification); if(supplier) return supplier;
+  const saved=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/suppliers`,{method:'POST',body:JSON.stringify({tipoIdentificacion:'NIT',numeroIdentificacion:identification,digitoVerificacion:null,razonSocial:invoice.supplier.name||'Proveedor desde XML'})});
+  supplier={id:saved.id,identificationType:'NIT',identification,verificationDigit:'',name:invoice.supplier.name||'Proveedor desde XML',active:true}; data.suppliers.push(supplier); return supplier;
+}
+
+function renderManualReferenceOptions() {
+  if(!elements.manualWarehouse||!elements.manualPeriod) return;
+  const currentWarehouse=elements.manualWarehouse.value; const currentPeriod=elements.manualPeriod.value;
+  elements.manualWarehouse.replaceChildren(new Option('Seleccionar bodega',''));
+  const warehouses=state.runtimeMode==='api'&&state.apiContext?state.apiContext.warehouses:getCompanyMasterData().data.warehouses.map(x=>({bodegaId:x.id,codigo:x.code,nombre:x.name}));
+  warehouses.forEach(x=>elements.manualWarehouse.add(new Option(`${x.codigo} · ${x.nombre}`,x.bodegaId)));
+  if([...elements.manualWarehouse.options].some(x=>x.value===currentWarehouse)) elements.manualWarehouse.value=currentWarehouse;
+  elements.manualPeriod.replaceChildren(new Option('Seleccionar periodo',''));
+  (state.apiContext?.periods||[]).forEach(x=>elements.manualPeriod.add(new Option(`${x.codigo} · ${x.estado}`,x.periodoInventarioId)));
+  if([...elements.manualPeriod.options].some(x=>x.value===currentPeriod)) elements.manualPeriod.value=currentPeriod;
+  const apiGoods=state.runtimeMode==='api'&&state.erpSession?.api&&state.registrationMode==='goods';
+  elements.manualPeriodField.hidden=!apiGoods; elements.manualPeriod.required=apiGoods;
+}
+
+function renderMasterStats(data) {
+  const definitions = [
+    ['suppliers', data.suppliers.length, 'Proveedores'], ['articles', data.articles.length, 'Artículos'], ['units', data.units.length, 'Unidades'],
+    ['warehouses', data.warehouses.length, 'Bodegas'], ['mappings', data.mappings.length, 'Homologaciones'],
+  ];
+  elements.masterStats.replaceChildren();
+  definitions.forEach(([view,count,label]) => {
+    const button=document.createElement('button'); button.type='button'; button.className=`master-stat${state.masterView===view?' active':''}`; button.dataset.masterView=view;
+    const strong=document.createElement('strong'); strong.textContent=count; const span=document.createElement('span'); span.textContent=label; button.append(strong,span);
+    button.addEventListener('click',()=>showMasterView(view)); elements.masterStats.append(button);
+  });
+}
+
+function masterRows(view,data) {
+  if(view==='suppliers') return { headers:['Identificación','Razón social','Tipo','Estado'], rows:data.suppliers.map(x=>[x.identification,x.name,x.identificationType,activeLabel(x.active)]) };
+  if(view==='units') return { headers:['Código','Nombre','Símbolo','Estado'], rows:data.units.map(x=>[x.code,x.name,x.symbol,activeLabel(x.active)]) };
+  if(view==='articles') return { headers:['Código','Descripción','Tipo','Unidad base','Conversión de compra','Controles','Estado'], rows:data.articles.map(x=>[x.code,x.description,x.type,findById(data.units,x.unitId)?.code||'—',x.purchaseUnitId?`1 ${findById(data.units,x.purchaseUnitId)?.code||''} = ${x.purchaseFactor||1} ${findById(data.units,x.unitId)?.code||''}`:'Unidad base',[x.inventory?'Inventario':'Sin inventario',x.serial?'Serial':'',x.lot?'Lote':'',x.expiry?'Vencimiento':''].filter(Boolean).join(' · '),activeLabel(x.active)]) };
+  if(view==='warehouses') return { headers:['Código','Nombre','Ubicaciones','Tránsito','Estado'], rows:data.warehouses.map(x=>[x.code,x.name,x.locations?'Sí':'No',x.transit?'Sí':'No',activeLabel(x.active)]) };
+  return { headers:['Proveedor','Código externo','Descripción externa','Artículo interno','Unidad','Factor'], rows:data.mappings.map(x=>[findById(data.suppliers,x.supplierId)?.name||'—',x.externalCode,x.externalDescription||'',`${findById(data.articles,x.articleId)?.code||'—'} · ${findById(data.articles,x.articleId)?.description||''}`,findById(data.units,x.unitId)?.code||'Base',x.factor]) };
+}
+
+function renderMasterView() {
+  const context=getCompanyMasterData(); const data=context.data; const config=masterViewConfig[state.masterView];
+  elements.masterViewTitle.textContent=config[0]; elements.masterViewSubtitle.textContent=config[1]; elements.addMasterRecord.textContent=state.masterView==='mappings'?'＋ Nueva homologación':'＋ Nuevo registro';
+  renderMasterStats(data);
+  const source=masterRows(state.masterView,data); const query=elements.masterSearch.value.trim().toLocaleLowerCase('es-CO');
+  const rows=query?source.rows.filter(row=>row.join(' ').toLocaleLowerCase('es-CO').includes(query)):source.rows;
+  elements.masterTable.replaceChildren(buildDataTable(source.headers,rows)); elements.masterCount.textContent=`${rows.length} ${config[2]}`;
+}
+
+function showMasterView(view) {
+  state.masterView=view; elements.purchaseModule.hidden=true; elements.masterDataModule.hidden=false;elements.inventoryModule.hidden=true;elements.advancedControlsModule.hidden=true;elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');
+  document.querySelector('.breadcrumb span').textContent='Maestros'; elements.breadcrumbCurrent.textContent=masterViewConfig[view][0];
+  document.querySelectorAll('[data-registration-mode]').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('[data-master-view]').forEach(x=>x.classList.toggle('active',x.dataset.masterView===view));
+  elements.masterSearch.value=''; renderMasterView(); window.scrollTo({top:0,behavior:'smooth'});
+}
+
+const inventoryDemo={
+  stock:[{bodega:'Bodega principal',ubicacion:'PISO-MOTOS',codigo:'357683',descripcion:'Motocicleta XR190L2.0',numeroLote:'—',fechaVencimiento:null,existencia:4,valorTotal:38779828,costoPromedio:9694957},{bodega:'Bodega principal',ubicacion:'REP-A1',codigo:'REP-MOTO',descripcion:'Repuesto de motocicleta',numeroLote:'LT-2608',fechaVencimiento:'2027-02-28',existencia:18,valorTotal:2240000,costoPromedio:124444.44}],
+  kardex:[{fechaContable:'2026-08-16',tipoMovimiento:'COMPRA',numeroDocumento:'FV-98251',bodega:'Bodega principal',codigo:'357683',descripcion:'Motocicleta XR190L2.0',entrada:4,salida:0,costoUnitario:9694957,valorMovimiento:38779828,existenciaPosterior:4},{fechaContable:'2026-08-15',tipoMovimiento:'COMPRA',numeroDocumento:'FV-98170',bodega:'Bodega principal',codigo:'REP-MOTO',descripcion:'Repuesto de motocicleta',entrada:20,salida:0,costoUnitario:124444.44,valorMovimiento:2488888.8,existenciaPosterior:20}],
+  serials:[{codigo:'357683',descripcion:'Motocicleta XR190L2.0',estado:'DISPONIBLE',bodega:'Bodega principal',serial:'XR190-000184',motor:'KD05E-9102841',chasis:'9FMKD0504TB001841',vin:'9FMKD0504TB001841',placa:'—'},{codigo:'357683',descripcion:'Motocicleta XR190L2.0',estado:'EN_TRANSITO',bodega:'Bodega tránsito',serial:'XR190-000185',motor:'KD05E-9102842',chasis:'9FMKD0506TB001842',vin:'9FMKD0506TB001842',placa:'—'}],
+  expiry:[{bodega:'Bodega principal',codigo:'REP-MOTO',descripcion:'Repuesto de motocicleta',numeroLote:'LT-2608',fechaVencimiento:'2027-02-28',diasParaVencer:196,estado:'PRÓXIMO',existencia:18}],
+};
+function inventoryRows(view,rows){if(view==='stock')return{headers:['Bodega','Ubicación','Artículo','Descripción','Lote','Vencimiento','Existencia','Costo promedio','Valor total'],rows:rows.map(x=>[x.bodega,x.ubicacion||'—',x.codigo,x.descripcion,x.numeroLote||'—',x.fechaVencimiento||'—',x.existencia,manualCurrency(x.costoPromedio),manualCurrency(x.valorTotal)])};if(view==='kardex')return{headers:['Fecha','Movimiento','Documento','Bodega','Artículo','Descripción','Entrada','Salida','Costo','Valor','Saldo'],rows:rows.map(x=>[x.fechaContable,x.tipoMovimiento,x.numeroDocumento,x.bodega,x.codigo,x.descripcion,x.entrada,x.salida,manualCurrency(x.costoUnitario),manualCurrency(x.valorMovimiento),x.existenciaPosterior])};if(view==='serials')return{headers:['Artículo','Descripción','Estado','Bodega actual','Serial','Motor','Chasis','VIN','Placa'],rows:rows.map(x=>[x.codigo,x.descripcion,x.estado,x.bodega||'—',x.serial||'—',x.motor||'—',x.chasis||'—',x.vin||'—',x.placa||'—'])};return{headers:['Bodega','Artículo','Descripción','Lote','Fecha de vencimiento','Días','Estado','Existencia'],rows:rows.map(x=>[x.bodega,x.codigo,x.descripcion,x.numeroLote,x.fechaVencimiento,x.diasParaVencer,x.estado,x.existencia])};}
+function renderInventoryStats(rows){const apiActive=state.runtimeMode==='api'&&state.erpSession?.api;const source=state.inventoryView==='stock'?rows:(!apiActive?inventoryDemo.stock:[]);const quantity=source.reduce((sum,x)=>sum+Number(x.existencia||0),0);const value=source.reduce((sum,x)=>sum+Number(x.valorTotal||0),0);const cards=[['Referencias',new Set(source.map(x=>x.codigo)).size],['Unidades disponibles',new Intl.NumberFormat('es-CO').format(quantity)],['Valor de inventario',manualCurrency(value)],['Registros en vista',rows.length]];elements.inventoryStats.replaceChildren();cards.forEach(([label,value])=>{const card=document.createElement('article');const strong=document.createElement('strong');strong.textContent=value;const span=document.createElement('span');span.textContent=label;card.append(strong,span);elements.inventoryStats.append(card);});}
+function populateInventoryWarehouses(){const current=elements.inventoryWarehouse.value;elements.inventoryWarehouse.replaceChildren(new Option('Todas las bodegas',''));const warehouses=state.apiContext?.warehouses||getCompanyMasterData().data.warehouses.map(x=>({bodegaId:x.id,codigo:x.code,nombre:x.name}));warehouses.forEach(x=>elements.inventoryWarehouse.add(new Option(`${x.codigo} · ${x.nombre}`,x.bodegaId)));elements.inventoryWarehouse.value=[...elements.inventoryWarehouse.options].some(x=>x.value===current)?current:'';}
+async function refreshInventory(){const view=state.inventoryView;if(view==='operations'){renderInventoryOperationPanel();return;}elements.inventoryStatus.textContent='Actualizando…';elements.inventoryNotice.hidden=true;try{let rows;if(state.runtimeMode==='api'&&state.erpSession?.api){const base=`/api/v1/companies/${state.erpSession.company.id}`;const params=new URLSearchParams();if(elements.inventoryWarehouse.value)params.set('bodegaId',elements.inventoryWarehouse.value);if(elements.inventorySearch.value.trim())params.set('q',elements.inventorySearch.value.trim());if(view==='kardex'){if(elements.inventoryDateFrom.value)params.set('desde',elements.inventoryDateFrom.value);if(elements.inventoryDateTo.value)params.set('hasta',elements.inventoryDateTo.value);}if(view==='expiry')params.set('dias','365');const endpoint={stock:'inventory/stock',kardex:'inventory/kardex',serials:'inventory/serialized-units',expiry:'inventory/expiry-alerts'}[view];rows=await apiRequest(`${base}/${endpoint}?${params}`);}else{const query=elements.inventorySearch.value.trim().toLocaleLowerCase('es-CO');rows=inventoryDemo[view].filter(x=>!query||Object.values(x).join(' ').toLocaleLowerCase('es-CO').includes(query));elements.inventoryNotice.textContent='Vista demostrativa local. Cambia el origen de datos a API ERP para consultar y registrar movimientos reales en SQL Server.';elements.inventoryNotice.hidden=false;}state.inventoryData=rows;const table=inventoryRows(view,rows);elements.inventoryTable.replaceChildren(buildDataTable(table.headers,table.rows));renderInventoryStats(rows);elements.inventoryStatus.textContent=`${rows.length} registros consultados`;}catch(error){elements.inventoryTable.replaceChildren(emptyMessage(error.message));elements.inventoryStatus.textContent='No fue posible consultar';}}
+function showInventoryView(view='stock'){state.inventoryView=view;elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.inventoryModule.hidden=false;elements.advancedControlsModule.hidden=true;elements.controlsNav.classList.remove('active');document.querySelector('.breadcrumb span').textContent='Inventario';elements.breadcrumbCurrent.textContent={stock:'Existencias',kardex:'Kardex',serials:'Seriales',expiry:'Vencimientos',operations:'Movimientos'}[view];document.querySelectorAll('[data-registration-mode],[data-master-view]').forEach(x=>x.classList.remove('active'));elements.inventoryNav.classList.add('active');document.querySelectorAll('[data-inventory-view]').forEach(x=>x.classList.toggle('active',x.dataset.inventoryView===view));const isKardex=view==='kardex';elements.inventoryDateFromField.hidden=!isKardex;elements.inventoryDateToField.hidden=!isKardex;elements.inventoryTable.hidden=view==='operations';elements.inventoryOperationPanel.hidden=view!=='operations';elements.inventorySearch.closest('label').hidden=view==='operations';elements.inventoryWarehouse.closest('label').hidden=view==='operations';$('#refreshInventory').hidden=view==='operations';populateInventoryWarehouses();void refreshInventory();window.scrollTo({top:0,behavior:'smooth'});}
+function fillOperationSelect(select,rows,valueKey,label){select.replaceChildren(new Option('Seleccionar…',''));rows.forEach(x=>select.add(new Option(label(x),x[valueKey])));}
+function renderInventoryOperationPanel(){
+  const panel=elements.inventoryOperationPanel;panel.replaceChildren();const heading=document.createElement('div');heading.className='operation-heading';heading.innerHTML='<span>OPERACIÓN DE INVENTARIO</span><h2>Traslados y devoluciones</h2><p>Cada documento conserva el costo y el origen; las unidades serializadas mantienen bodega, estado e historial.</p>';
+  const form=document.createElement('form');form.className='inventory-operation-form';form.innerHTML='<label><span>Tipo de operación</span><select name="type"><option value="transfer">Traslado entre bodegas</option><option value="supplier">Devolución a proveedor</option><option value="sales">Devolución de cliente</option></select></label><label><span>Número</span><input name="number" required></label><label><span>Fecha contable</span><input name="date" type="date" required></label><label><span>Periodo</span><select name="period" required></select></label><label data-op-field="origin"><span>Bodega origen</span><select name="origin"></select></label><label data-op-field="destination"><span>Bodega destino</span><select name="destination"></select></label><label data-op-field="article"><span>Artículo</span><select name="article"></select></label><label data-op-field="source" hidden><span>Documento / línea original</span><select name="source"></select></label><label><span>Cantidad</span><input name="quantity" type="number" min="0.000001" step="0.000001" value="1" required></label><label><span>Seriales (IDs separados por coma)</span><input name="serials" placeholder="Opcional"></label><label class="wide"><span>Motivo</span><input name="reason" value="Movimiento operativo de inventario"></label><button class="button primary wide" type="submit">Crear y contabilizar</button><div class="operation-result wide" hidden></div>';
+  panel.append(heading,form);const warehouses=state.apiContext?.warehouses||[];const articles=state.apiContext?.masterData?.articles?.filter(x=>x.inventory)||[];fillOperationSelect(form.elements.period,state.apiContext?.periods||[],'periodoInventarioId',x=>`${x.codigo} · ${x.estado}`);fillOperationSelect(form.elements.origin,warehouses,'bodegaId',x=>`${x.codigo} · ${x.nombre}`);fillOperationSelect(form.elements.destination,warehouses,'bodegaId',x=>`${x.codigo} · ${x.nombre}`);fillOperationSelect(form.elements.article,articles,'id',x=>`${x.code} · ${x.description}`);form.elements.date.value=new Date().toISOString().slice(0,10);form.elements.number.value=`MOV-${Date.now().toString().slice(-6)}`;
+  async function configure(){const type=form.elements.type.value;form.querySelector('[data-op-field="origin"]').hidden=type!=='transfer';form.querySelector('[data-op-field="destination"]').hidden=type!=='transfer';form.querySelector('[data-op-field="article"]').hidden=type!=='transfer';form.querySelector('[data-op-field="source"]').hidden=type==='transfer';if(type!=='transfer'&&state.runtimeMode==='api'&&state.erpSession?.api){const base=`/api/v1/companies/${state.erpSession.company.id}`;const rows=await apiRequest(`${base}/${type==='supplier'?'supplier-returns':'sales-returns'}/sources`);form.elements.source.replaceChildren(new Option('Seleccionar documento original…',''));rows.forEach(x=>{const option=new Option(`${x.documento||x.recepcion} · ${x.codigo} · disponible ${x.cantidadDisponible}`,x.movimientoSalidaOriginalId||x.recepcionMercanciaLineaId);option.dataset.row=JSON.stringify(x);form.elements.source.add(option);});}}
+  form.elements.type.addEventListener('change',()=>void configure());form.addEventListener('submit',async event=>{event.preventDefault();const output=form.querySelector('.operation-result');output.hidden=false;output.textContent='Procesando operación…';try{if(state.runtimeMode!=='api'||!state.erpSession?.api)throw new Error('Activa API ERP para registrar movimientos reales.');const base=`/api/v1/companies/${state.erpSession.company.id}`;const serials=form.elements.serials.value.split(',').map(x=>Number(x.trim())).filter(Boolean);const number=form.elements.number.value;const date=form.elements.date.value;const period=Number(form.elements.period.value);let created,posted;if(form.elements.type.value==='transfer'){created=await apiRequest(`${base}/transfers`,{method:'POST',body:JSON.stringify({numero:number,bodegaOrigenId:Number(form.elements.origin.value),bodegaTransitoId:null,bodegaDestinoId:Number(form.elements.destination.value),fechaSalida:`${date}T12:00:00`,lineas:[{articuloId:Number(form.elements.article.value),loteId:null,cantidad:Number(form.elements.quantity.value),unidadSerializadaIds:serials}]})});posted=await apiRequest(`${base}/transfers/${created.documentoId}/dispatch`,{method:'POST',body:JSON.stringify({periodoInventarioId:period,fechaContable:date,fechaRecepcion:null})});output.replaceChildren(document.createTextNode(`Traslado ${created.numero} despachado · ${posted.movimientos} movimientos. `));const receive=document.createElement('button');receive.type='button';receive.className='button secondary';receive.textContent='Recibir en destino';receive.addEventListener('click',async()=>{const result=await apiRequest(`${base}/transfers/${created.documentoId}/receive`,{method:'POST',body:JSON.stringify({periodoInventarioId:period,fechaContable:date,fechaRecepcion:`${date}T12:00:00`})});output.textContent=`Traslado recibido · ${result.movimientos} movimientos · estado ${result.estado}.`;});output.append(receive);}else{const source=JSON.parse(form.elements.source.selectedOptions[0].dataset.row);const supplier=form.elements.type.value==='supplier';const path=supplier?'supplier-returns':'sales-returns';const line=supplier?{recepcionMercanciaLineaId:source.recepcionMercanciaLineaId,articuloId:source.articuloId,cantidadBase:Number(form.elements.quantity.value),ubicacionId:null,loteId:source.loteId,unidadSerializadaIds:serials}:{movimientoSalidaOriginalId:source.movimientoSalidaOriginalId,articuloId:source.articuloId,cantidadBase:Number(form.elements.quantity.value),ubicacionId:null,loteId:source.loteId,unidadSerializadaIds:serials};created=await apiRequest(`${base}/${path}`,{method:'POST',body:JSON.stringify({numero:number,terceroId:source.terceroId,bodegaId:source.bodegaId,periodoInventarioId:period,fechaMovimiento:`${date}T12:00:00`,fechaContable:date,motivo:form.elements.reason.value,lineas:[line]})});posted=await apiRequest(`${base}/${path}/${created.documentoId}/post`,{method:'POST',body:'{}'});output.textContent=`${supplier?'Devolución a proveedor':'Devolución de cliente'} contabilizada · ${posted.movimientos} movimiento(s) · estado ${posted.estado}.`;}}catch(error){output.textContent=error.message;}});void configure();
+}
+
+function addMasterField(labelText,name,type='text',options=null,wide=false,required=true) {
+  const label=document.createElement('label'); if(wide) label.className='wide'; const span=document.createElement('span'); span.textContent=labelText;
+  let input;
+  if(options){ input=document.createElement('select'); options.forEach(([value,text])=>{const option=document.createElement('option');option.value=value;option.textContent=text;input.append(option);}); }
+  else { input=document.createElement('input'); input.type=type; }
+  input.name=name; input.required=required; label.append(span,input); elements.masterFormFields.append(label); return input;
+}
+
+function addMasterCheck(labelText,name,checked=false) {
+  const label=document.createElement('label'); label.className='check-field'; const input=document.createElement('input'); input.type='checkbox'; input.name=name; input.checked=checked;
+  const span=document.createElement('span'); span.textContent=labelText; label.append(input,span); elements.masterFormFields.append(label); return input;
+}
+
+function openMasterForm() {
+  const data=getCompanyMasterData().data; elements.masterFormFields.replaceChildren(); elements.masterFormError.hidden=true;
+  elements.masterDialogTitle.textContent=`Nuevo: ${masterViewConfig[state.masterView][0]}`;
+  if(state.masterView==='suppliers') { addMasterField('Tipo de identificación','identificationType','text',[['NIT','NIT'],['CC','Cédula'],['CE','Cédula de extranjería']]); addMasterField('Número de identificación *','identification'); addMasterField('Dígito de verificación','verificationDigit','text',null,false,false); addMasterField('Razón social *','name','text',null,true); }
+  else if(state.masterView==='units') { addMasterField('Código *','code'); addMasterField('Símbolo *','symbol'); addMasterField('Nombre *','name','text',null,true); }
+  else if(state.masterView==='articles') { addMasterField('Código interno *','code'); addMasterField('Tipo *','type','text',[['INVENTARIO','Artículo inventariable'],['SERVICIO','Servicio'],['ACTIVO_FIJO','Activo fijo'],['CONCEPTO','Concepto de costo']]); addMasterField('Descripción *','description','text',null,true); addMasterField('Unidad base *','unitId','text',data.units.map(x=>[x.id,`${x.code} · ${x.name}`])); addMasterField('Unidad de compra','purchaseUnitId','text',[['','Igual a la unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const purchaseFactor=addMasterField('Factor a unidad base','purchaseFactor','number',null,false,false); purchaseFactor.min='0.0000000001'; purchaseFactor.step='0.0000000001'; purchaseFactor.value='1'; addMasterCheck('Maneja inventario','inventory',true); addMasterCheck('Maneja serial / motor / chasis','serial'); addMasterCheck('Maneja lote','lot'); addMasterCheck('Requiere vencimiento','expiry'); }
+  else if(state.masterView==='warehouses') { addMasterField('Código *','code'); addMasterField('Nombre *','name'); addMasterCheck('Usa ubicaciones','locations'); addMasterCheck('Es bodega de tránsito','transit'); }
+  else { addMasterField('Proveedor *','supplierId','text',data.suppliers.map(x=>[x.id,`${x.identification} · ${x.name}`]),true); addMasterField('Código externo *','externalCode'); addMasterField('Descripción externa','externalDescription','text',null,true,false); addMasterField('Artículo interno *','articleId','text',data.articles.map(x=>[x.id,`${x.code} · ${x.description}`]),true); addMasterField('Unidad','unitId','text',[['','Unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const factor=addMasterField('Factor a unidad base *','factor','number'); factor.min='0.0000000001'; factor.step='0.0000000001'; factor.value='1'; }
+  openErpDialog(elements.masterRecordDialog);
+}
+
+function saveMasterRecord(event) {
+  event.preventDefault(); const values=Object.fromEntries(new FormData(elements.masterRecordForm)); const context=getCompanyMasterData(); const data=context.data;
+  const checkbox=(name)=>elements.masterRecordForm.elements[name]?.checked||false;
+  try {
+    if(state.masterView==='suppliers') { const current=data.suppliers.find(x=>x.identification===values.identification); const record={id:current?.id||masterId('sup'),identificationType:values.identificationType,identification:values.identification.trim(),verificationDigit:values.verificationDigit.trim(),name:values.name.trim(),active:true}; current?Object.assign(current,record):data.suppliers.push(record); }
+    else if(state.masterView==='units') { const current=data.units.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const record={id:current?.id||masterId('unit'),code:values.code.trim().toUpperCase(),name:values.name.trim(),symbol:values.symbol.trim(),active:true}; current?Object.assign(current,record):data.units.push(record); }
+    else if(state.masterView==='articles') { const current=data.articles.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const inventory=values.type==='SERVICIO'?false:checkbox('inventory'); const record={id:current?.id||masterId('art'),code:values.code.trim().toUpperCase(),description:values.description.trim(),type:values.type,unitId:values.unitId,purchaseUnitId:values.purchaseUnitId||'',purchaseFactor:Number(values.purchaseFactor)||1,inventory,serial:checkbox('serial'),lot:checkbox('lot'),expiry:checkbox('expiry'),active:true}; current?Object.assign(current,record):data.articles.push(record); }
+    else if(state.masterView==='warehouses') { const current=data.warehouses.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const record={id:current?.id||masterId('wh'),code:values.code.trim().toUpperCase(),name:values.name.trim(),locations:checkbox('locations'),transit:checkbox('transit'),active:true}; current?Object.assign(current,record):data.warehouses.push(record); }
+    else { const current=data.mappings.find(x=>x.supplierId===values.supplierId&&x.externalCode.toUpperCase()===values.externalCode.trim().toUpperCase()); const record={id:current?.id||masterId('map'),supplierId:values.supplierId,externalCode:values.externalCode.trim(),externalDescription:values.externalDescription.trim(),articleId:values.articleId,unitId:values.unitId||findById(data.articles,values.articleId)?.unitId||'',factor:Number(values.factor)||1,active:true}; current?Object.assign(current,record):data.mappings.push(record); }
+    saveCompanyMasterData(context); closeErpDialog(elements.masterRecordDialog); renderMasterView(); if(state.invoice) renderInvoice();
+  } catch(error) { elements.masterFormError.textContent=error.message||'No fue posible guardar el registro.'; elements.masterFormError.hidden=false; }
+}
+
+const exampleXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Factura moneda="COP" version="1.0">
+  <Numero>FV-1042</Numero><Fecha>2026-08-14</Fecha>
+  <Cliente identificacion="900123456"><Nombre>Comercial Andina SAS</Nombre><Ciudad>Bogotá</Ciudad></Cliente>
+  <Lineas>
+    <Linea codigo="A-01"><Descripcion>Café especial</Descripcion><Cantidad>2</Cantidad><Precio>42000</Precio></Linea>
+    <Linea codigo="B-07"><Descripcion>Filtro de cerámica</Descripcion><Cantidad>1</Cantidad><Precio>65000</Precio></Linea>
+  </Lineas>
+  <Totales><Subtotal>149000</Subtotal><Impuesto>28310</Impuesto><Total>177310</Total></Totales>
+</Factura>`;
+
+function localName(node) { return node.localName || node.nodeName.replace(/^.*:/, ''); }
+function elementChildren(node) { return Array.from(node.children || []); }
+function directText(node) {
+  return Array.from(node.childNodes || []).filter((child) => child.nodeType === Node.TEXT_NODE || child.nodeType === Node.CDATA_SECTION_NODE)
+    .map((child) => child.nodeValue.trim()).filter(Boolean).join(' ');
+}
+function childrenByLocal(node, name) { return elementChildren(node).filter((child) => localName(child) === name); }
+function childByLocal(node, name) { return childrenByLocal(node, name)[0] || null; }
+function nodeAt(node, names) { return names.reduce((current, name) => current ? childByLocal(current, name) : null, node); }
+function textAt(node, names) { const target = nodeAt(node, names); return target ? directText(target) : ''; }
+function descendantsByLocal(node, name) { return Array.from(node?.getElementsByTagNameNS?.('*', name) || []); }
+function firstDescendantText(node, ...names) {
+  for (const name of names) {
+    const target = descendantsByLocal(node, name)[0];
+    if (target && directText(target)) return directText(target);
+  }
+  return '';
+}
+function numeric(value) {
+  const normalized = String(value ?? '').trim().replace(',', '.');
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function normalizePropertyName(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+function extractItemProperties(itemNode) {
+  return descendantsByLocal(itemNode, 'AdditionalItemProperty').map((property) => ({
+    name: textAt(property, ['Name']) || textAt(property, ['NameCode']) || firstDescendantText(property, 'Name', 'NameCode'),
+    value: textAt(property, ['Value']) || textAt(property, ['ValueQuantity']) || textAt(property, ['ValueQualifier']) || firstDescendantText(property, 'Value', 'ValueQuantity', 'ValueQualifier'),
+  })).filter((property) => property.name || property.value);
+}
+function propertyValue(properties, aliases) {
+  const match = properties.find((property) => property.value && aliases.some((alias) => normalizePropertyName(property.name).includes(alias)));
+  return match?.value || '';
+}
+function extractMotoSerials(properties) {
+  return properties.filter((property) => normalizePropertyName(property.name) === 'informacionmoto' && property.value).map((property, index) => {
+    const [color = '', chassis = '', motor = '', technical = '', model = ''] = property.value.split(';').map((value) => value.trim());
+    return { number: index + 1, color, chassis, motor, technical, model, raw: property.value };
+  }).filter((serial) => serial.motor || serial.chassis);
+}
+function joinUnique(values) { return [...new Set(values.filter(Boolean))].join(' | '); }
+function identifierInDescription(description, labelPattern) {
+  const match = String(description || '').match(new RegExp(`\\b(?:${labelPattern})\\s*(?:n(?:o|umero)?\\.?\\s*)?[:#-]?\\s*([A-Z0-9][A-Z0-9.-]{3,})`, 'i'));
+  return match?.[1] || '';
+}
+
+function inferLineClassification(description) {
+  const normalized = String(description || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (/flete|transporte de mercanc|acarreo|seguro de transporte|nacionalizacion|arancel/.test(normalized)) return 'acquisition-cost';
+  if (/servicio|honorario|asesoria|consultoria|mantenimiento|reparacion|vigilancia|arrendamiento|comision|publicidad/.test(normalized)) return 'service';
+  return 'inventory';
+}
+
+const classificationLabels = {
+  inventory: 'Mercancía inventariable',
+  service: 'Servicio o gasto',
+  'acquisition-cost': 'Costo adicional de compra',
+};
+
+function findEmbeddedBusinessDocument(documentNode) {
+  const acceptedRoots = new Set(['Invoice', 'CreditNote', 'DebitNote']);
+  for (const element of Array.from(documentNode.getElementsByTagName('*'))) {
+    for (const child of Array.from(element.childNodes || [])) {
+      if (child.nodeType !== Node.CDATA_SECTION_NODE && child.nodeType !== Node.TEXT_NODE) continue;
+      const candidate = child.nodeValue.trim().replace(/^\uFEFF/, '');
+      if (!/<(?:[\w.-]+:)?(?:Invoice|CreditNote|DebitNote)\b/.test(candidate)) continue;
+      try {
+        const embedded = parseXml(candidate);
+        if (acceptedRoots.has(localName(embedded.documentElement))) return embedded;
+      } catch { /* El texto no era un XML UBL completo. */ }
+    }
+  }
+  return null;
+}
+
+function extractParty(root, sectionName) {
+  const section = childByLocal(root, sectionName);
+  if (!section) return { name: '', identification: '', city: '', address: '', phone: '', email: '' };
+  return {
+    name: firstDescendantText(section, 'RegistrationName', 'Name'),
+    identification: firstDescendantText(section, 'CompanyID'),
+    city: firstDescendantText(section, 'CityName'),
+    address: firstDescendantText(section, 'Line'),
+    phone: firstDescendantText(section, 'Telephone'),
+    email: firstDescendantText(section, 'ElectronicMail'),
+  };
+}
+
+function extractInvoiceData(documentNode) {
+  const root = documentNode.documentElement;
+  const documentType = localName(root);
+  if (!['Invoice', 'CreditNote', 'DebitNote'].includes(documentType)) return null;
+  const lineName = documentType === 'CreditNote' ? 'CreditNoteLine' : documentType === 'DebitNote' ? 'DebitNoteLine' : 'InvoiceLine';
+  const quantityName = documentType === 'CreditNote' ? 'CreditedQuantity' : documentType === 'DebitNote' ? 'DebitedQuantity' : 'InvoicedQuantity';
+  const monetary = childByLocal(root, 'LegalMonetaryTotal') || childByLocal(root, 'RequestedMonetaryTotal');
+  const items = childrenByLocal(root, lineName).map((line) => {
+    const quantityNode = childByLocal(line, quantityName);
+    const itemNode = childByLocal(line, 'Item');
+    const priceNode = childByLocal(line, 'Price');
+    const lineAdjustments = childrenByLocal(line, 'AllowanceCharge');
+    const lineDiscounts = lineAdjustments.filter((adjustment) => /^false$/i.test(textAt(adjustment, ['ChargeIndicator'])));
+    const lineSurcharges = lineAdjustments.filter((adjustment) => /^true$/i.test(textAt(adjustment, ['ChargeIndicator'])));
+    const description = firstDescendantText(itemNode, 'Description', 'Name');
+    const code = firstDescendantText(nodeAt(itemNode, ['SellersItemIdentification']) || nodeAt(itemNode, ['StandardItemIdentification']) || itemNode, 'ID');
+    const properties = extractItemProperties(itemNode);
+    const serials = extractMotoSerials(properties);
+    const motor = joinUnique(serials.map((serial) => serial.motor)) || propertyValue(properties.filter((property) => normalizePropertyName(property.name) !== 'informacionmoto'), ['motor', 'engine']) || identifierInDescription(description, 'motor|engine');
+    const chassis = joinUnique(serials.map((serial) => serial.chassis)) || propertyValue(properties.filter((property) => normalizePropertyName(property.name) !== 'informacionmoto'), ['chasis', 'chassis', 'vin', 'bastidor'])
+      || firstDescendantText(nodeAt(itemNode, ['ItemInstance']), 'SerialID')
+      || identifierInDescription(description, 'chasis|chassis|vin|bastidor');
+    const quantity = numeric(quantityNode ? directText(quantityNode) : '');
+    const unitPrice = numeric(textAt(priceNode, ['PriceAmount']));
+    const lineTotal = numeric(textAt(line, ['LineExtensionAmount']));
+    const discount = lineDiscounts.reduce((sum, adjustment) => sum + (numeric(textAt(adjustment, ['Amount'])) || 0), 0);
+    const surcharge = lineSurcharges.reduce((sum, adjustment) => sum + (numeric(textAt(adjustment, ['Amount'])) || 0), 0);
+    const rawDiscountRate = numeric(textAt(lineDiscounts[0], ['MultiplierFactorNumeric']));
+    const discountRate = rawDiscountRate === null ? (discount ? numeric((discount / Math.max((quantity || 0) * (unitPrice || 0), 1) * 100).toFixed(4)) : 0) : (Math.abs(rawDiscountRate) <= 1 ? rawDiscountRate * 100 : rawDiscountRate);
+    const grossTotal = quantity !== null && unitPrice !== null ? quantity * unitPrice : (lineTotal === null ? null : lineTotal + discount - surcharge);
+    return {
+      line: textAt(line, ['ID']), code, description, motor, chassis, serials, properties,
+      classification: inferLineClassification(description),
+      quantity,
+      unit: quantityNode?.getAttribute('unitCode') || '',
+      unitPrice, grossTotal, discount, discountRate, surcharge, lineTotal,
+      tax: numeric(firstDescendantText(childByLocal(line, 'TaxTotal'), 'TaxAmount')),
+    };
+  });
+  const taxes = [];
+  childrenByLocal(root, 'TaxTotal').forEach((total) => {
+    const subtotals = childrenByLocal(total, 'TaxSubtotal');
+    if (!subtotals.length) taxes.push({ name: 'Impuesto', rate: null, taxableAmount: null, amount: numeric(textAt(total, ['TaxAmount'])) });
+    subtotals.forEach((subtotal) => taxes.push({
+      name: firstDescendantText(subtotal, 'Name', 'ID') || 'Impuesto',
+      rate: numeric(firstDescendantText(subtotal, 'Percent')),
+      taxableAmount: numeric(firstDescendantText(subtotal, 'TaxableAmount')),
+      amount: numeric(firstDescendantText(subtotal, 'TaxAmount')),
+    }));
+  });
+  const charges = childrenByLocal(root, 'AllowanceCharge').filter((charge) => /^true$/i.test(textAt(charge, ['ChargeIndicator']))).map((charge) => {
+    const reason = textAt(charge, ['AllowanceChargeReason']) || textAt(charge, ['AllowanceChargeReasonCode']) || 'Cargo';
+    return { reason, amount: numeric(textAt(charge, ['Amount'])), baseAmount: numeric(textAt(charge, ['BaseAmount'])), isFreight: /flete|freight|transporte|env[ií]o/i.test(reason) };
+  });
+  items.filter((item) => /flete|freight|transporte|env[ií]o/i.test(item.description)).forEach((item) => charges.push({ reason: item.description, amount: item.lineTotal, baseAmount: item.lineTotal, isFreight: true }));
+  const dueDate = textAt(root, ['DueDate']) || firstDescendantText(childByLocal(root, 'PaymentMeans'), 'PaymentDueDate');
+  const chargeTotal = numeric(textAt(monetary, ['ChargeTotalAmount']));
+  const freight = charges.filter((charge) => charge.isFreight).reduce((sum, charge) => sum + (charge.amount || 0), 0);
+  const otherCharges = chargeTotal === null
+    ? charges.filter((charge) => !charge.isFreight).reduce((sum, charge) => sum + (charge.amount || 0), 0)
+    : Math.max(chargeTotal - freight, 0);
+  const netSubtotal = numeric(textAt(monetary, ['LineExtensionAmount']));
+  const lineDiscountTotal = items.reduce((sum, item) => sum + (item.discount || 0), 0);
+  const allowanceTotal = numeric(textAt(monetary, ['AllowanceTotalAmount'])) ?? lineDiscountTotal;
+  const grossSubtotal = items.reduce((sum, item) => sum + (item.grossTotal || 0), 0) || (netSubtotal === null ? null : netSubtotal + allowanceTotal);
+  return {
+    documentType,
+    number: textAt(root, ['ID']),
+    cufeCude: textAt(root, ['UUID']),
+    issueDate: textAt(root, ['IssueDate']),
+    dueDate,
+    currency: textAt(root, ['DocumentCurrencyCode']) || 'COP',
+    supplier: extractParty(root, 'AccountingSupplierParty'),
+    customer: extractParty(root, 'AccountingCustomerParty'),
+    totals: {
+      cost: netSubtotal,
+      grossSubtotal,
+      taxExclusive: numeric(textAt(monetary, ['TaxExclusiveAmount'])),
+      taxInclusive: numeric(textAt(monetary, ['TaxInclusiveAmount'])),
+      allowances: allowanceTotal,
+      charges: chargeTotal,
+      otherCharges,
+      payable: numeric(textAt(monetary, ['PayableAmount'])),
+      freight,
+    },
+    taxes, charges, items,
+  };
+}
+function inferType(value) {
+  if (value === '') return 'vacío';
+  if (/^(true|false)$/i.test(value)) return 'booleano';
+  if (/^-?\d+(?:[.,]\d+)?$/.test(value)) return 'número';
+  if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value)) return 'fecha';
+  return 'texto';
+}
+
+function elementToJson(element) {
+  const result = {};
+  for (const attribute of element.attributes) result[`@${attribute.name}`] = attribute.value;
+  const children = elementChildren(element);
+  const text = directText(element);
+  if (!children.length) return Object.keys(result).length ? { ...result, ...(text ? { '#text': text } : {}) } : text;
+  if (text) result['#text'] = text;
+  for (const child of children) {
+    const key = child.nodeName;
+    const value = elementToJson(child);
+    if (Object.prototype.hasOwnProperty.call(result, key)) result[key] = Array.isArray(result[key]) ? [...result[key], value] : [result[key], value];
+    else result[key] = value;
+  }
+  return result;
+}
+
+function markDescendants(element, set) {
+  set.add(element);
+  elementChildren(element).forEach((child) => markDescendants(child, set));
+}
+function flattenRecord(element) {
+  const record = {};
+  function walk(node, prefix) {
+    for (const attr of node.attributes) record[prefix ? `${prefix}.@${attr.name}` : `@${attr.name}`] = attr.value;
+    const text = directText(node);
+    if (text) record[prefix || '#text'] = text;
+    const counts = new Map();
+    elementChildren(node).forEach((child) => counts.set(child.nodeName, (counts.get(child.nodeName) || 0) + 1));
+    const indexes = new Map();
+    for (const child of elementChildren(node)) {
+      const current = (indexes.get(child.nodeName) || 0) + 1;
+      indexes.set(child.nodeName, current);
+      const label = counts.get(child.nodeName) > 1 ? `${child.nodeName}[${current}]` : child.nodeName;
+      walk(child, prefix ? `${prefix}.${label}` : label);
+    }
+  }
+  walk(element, '');
+  return record;
+}
+function findDetailGroups(root) {
+  const groups = [];
+  const repeatedElements = new Set();
+  function visit(parent, parentPath) {
+    const grouped = new Map();
+    for (const child of elementChildren(parent)) {
+      if (!grouped.has(child.nodeName)) grouped.set(child.nodeName, []);
+      grouped.get(child.nodeName).push(child);
+    }
+    for (const [name, nodes] of grouped) {
+      const path = `${parentPath}/${name}`;
+      if (nodes.length > 1) {
+        nodes.forEach((node) => markDescendants(node, repeatedElements));
+        groups.push({ path, name, nodes, rows: nodes.map(flattenRecord) });
+      }
+      nodes.forEach((node) => visit(node, path));
+    }
+  }
+  visit(root, `/${root.nodeName}`);
+  return { groups, repeatedElements };
+}
+function collectFields(element, path, fields, repeatedElements) {
+  for (const attribute of element.attributes) fields.push({ path: `${path}/@${attribute.name}`, value: attribute.value, type: 'atributo', repeated: repeatedElements.has(element) });
+  const text = directText(element);
+  if (text) fields.push({ path, value: text, type: inferType(text), repeated: repeatedElements.has(element) });
+  const counts = new Map();
+  elementChildren(element).forEach((child) => counts.set(child.nodeName, (counts.get(child.nodeName) || 0) + 1));
+  const indexes = new Map();
+  for (const child of elementChildren(element)) {
+    const index = (indexes.get(child.nodeName) || 0) + 1;
+    indexes.set(child.nodeName, index);
+    collectFields(child, `${path}/${child.nodeName}${counts.get(child.nodeName) > 1 ? `[${index}]` : ''}`, fields, repeatedElements);
+  }
+}
+
+function parseXml(source) {
+  const doc = new DOMParser().parseFromString(source, 'application/xml');
+  const error = doc.querySelector('parsererror');
+  if (error) throw new Error(error.textContent.replace(/\s+/g, ' ').trim());
+  if (!doc.documentElement) throw new Error('El documento no tiene un elemento raíz.');
+  return doc;
+}
+function analyze() {
+  hideError();
+  const source = elements.xmlInput.value.trim();
+  if (!source) return showError('Carga un archivo o pega contenido XML para comenzar.');
+  try {
+    const containerDocument = parseXml(source);
+    const embeddedDocument = findEmbeddedBusinessDocument(containerDocument);
+    const doc = embeddedDocument || containerDocument;
+    const root = doc.documentElement;
+    const { groups, repeatedElements } = findDetailGroups(root);
+    const fields = [];
+    collectFields(root, `/${root.nodeName}`, fields, repeatedElements);
+    const primaryJson = { [root.nodeName]: elementToJson(root) };
+    Object.assign(state, {
+      document: doc,
+      containerDocument: embeddedDocument ? containerDocument : null,
+      invoice: extractInvoiceData(doc),
+      json: embeddedDocument ? { documentoComercial: primaryJson, contenedor: { tipo: containerDocument.documentElement.nodeName } } : primaryJson,
+      fields,
+      headers: fields.filter((field) => !field.repeated),
+      details: groups,
+      purchaseWorkflow: null,
+    });
+    renderResults();
+  } catch (error) { showError(`No se pudo interpretar el XML. ${error.message}`); }
+}
+
+function renderResults() {
+  const root = state.document.documentElement;
+  elements.documentTitle.textContent = state.fileName || localName(root);
+  const nodes = Array.from(state.document.getElementsByTagName('*'));
+  const values = [nodes.length, nodes.reduce((sum, node) => sum + node.attributes.length, 0), state.headers.length, state.details.reduce((sum, group) => sum + group.rows.length, 0)];
+  const labels = ['Elementos', 'Atributos', 'Campos de cabecera', 'Registros de detalle'];
+  elements.stats.innerHTML = values.map((value, index) => `<div class="stat"><strong>${value}</strong><span>${labels[index]}</span></div>`).join('');
+  elements.headerTable.replaceChildren(buildKeyValueTable(state.headers));
+  renderInvoice(); renderDetails(); renderAllFields(state.fields);
+  elements.treeView.replaceChildren(buildTreeNode(root));
+  elements.jsonView.textContent = JSON.stringify(state.json, null, 2);
+  document.body.classList.add('has-results');
+  elements.results.hidden = false;
+  elements.results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function buildKeyValueTable(fields) {
+  if (!fields.length) return emptyMessage('No se detectaron campos únicos de cabecera.');
+  const table = document.createElement('table');
+  table.innerHTML = '<thead><tr><th>Ruta</th><th>Valor</th><th>Tipo</th></tr></thead>';
+  const body = table.createTBody();
+  fields.forEach((field) => {
+    const row = body.insertRow();
+    [field.path, field.value, field.type].forEach((value) => { const cell = row.insertCell(); cell.textContent = value; });
+  });
+  return table;
+}
+function formatCurrency(value, currency = 'COP') {
+  if (value === null || value === undefined) return 'No informado';
+  const validCurrency = /^[A-Z]{3}$/.test(currency) ? currency : 'COP';
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: validCurrency, maximumFractionDigits: 2 }).format(value);
+}
+function formatPercentage(value) {
+  if (value === null || value === undefined) return '';
+  return `${new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(value)} %`;
+}
+function buildDataTable(headers, rows) {
+  if (!rows.length) return emptyMessage('No se encontraron registros en esta sección.');
+  const table = document.createElement('table');
+  const head = table.createTHead().insertRow();
+  headers.forEach((header) => { const th = document.createElement('th'); th.textContent = header; head.append(th); });
+  const body = table.createTBody();
+  rows.forEach((values) => {
+    const row = body.insertRow();
+    values.forEach((value) => { const cell = row.insertCell(); cell.textContent = value ?? ''; });
+  });
+  return table;
+}
+function invoiceCard(title, subtitle, content, extraClass = '') {
+  const card = document.createElement('article'); card.className = `result-card ${extraClass}`.trim();
+  const heading = document.createElement('div'); heading.className = 'card-heading compact-heading';
+  const text = document.createElement('div');
+  const h3 = document.createElement('h3'); h3.textContent = title;
+  const paragraph = document.createElement('p'); paragraph.textContent = subtitle;
+  text.append(h3, paragraph); heading.append(text); card.append(heading);
+  const wrap = document.createElement('div'); wrap.className = 'table-wrap'; wrap.append(content); card.append(wrap);
+  return card;
+}
+
+function invoiceOperationalSummary(invoice) {
+  const summary = document.createElement('section');
+  summary.className = 'operational-summary';
+  const heading = document.createElement('div');
+  heading.className = 'operational-heading';
+  const headingText = document.createElement('div');
+  const title = document.createElement('h3');
+  title.textContent = 'Efectos propuestos en el ERP';
+  const copy = document.createElement('p');
+  copy.textContent = 'La clasificación es editable y determina qué proceso se generará al confirmar.';
+  headingText.append(title, copy);
+  const badge = document.createElement('span');
+  badge.className = 'review-badge';
+  badge.textContent = 'REQUIERE REVISIÓN';
+  heading.append(headingText, badge);
+  const cards = document.createElement('div');
+  cards.className = 'effect-grid';
+  const definitions = [
+    ['inventory', 'Entrada de mercancía', 'Afecta existencias y Kardex'],
+    ['service', 'Causación de servicios', 'Afecta gasto y cuentas por pagar'],
+    ['acquisition-cost', 'Costos adicionales', 'Se distribuirán al inventario'],
+  ];
+  definitions.forEach(([type, label, detail]) => {
+    const matching = invoice.items.filter((item) => item.classification === type);
+    const total = matching.reduce((sum, item) => sum + (item.lineTotal || 0), 0);
+    const card = document.createElement('div');
+    card.className = `effect-card ${type}`;
+    const count = document.createElement('strong');
+    count.textContent = String(matching.length);
+    const text = document.createElement('div');
+    const name = document.createElement('b');
+    name.textContent = label;
+    const small = document.createElement('small');
+    small.textContent = `${detail} · ${formatCurrency(total, invoice.currency)}`;
+    text.append(name, small);
+    card.append(count, text);
+    cards.append(card);
+  });
+  summary.append(heading, cards);
+  return summary;
+}
+
+function ensureInvoiceSupplier(context,invoice) {
+  const identification=invoice.supplier.identification||`SIN-ID-${normalizePropertyName(invoice.supplier.name).slice(0,20)}`;
+  let supplier=context.data.suppliers.find(x=>x.identification===identification);
+  if(!supplier){ supplier={id:masterId('sup'),identificationType:'NIT',identification,verificationDigit:'',name:invoice.supplier.name||'Proveedor desde XML',active:true}; context.data.suppliers.push(supplier); }
+  return supplier;
+}
+
+function mappingForLine(data,invoice,item) {
+  const supplier=data.suppliers.find(x=>x.identification===invoice.supplier.identification);
+  if(!supplier) return null;
+  const externalCode=String(item.code||`LINEA-${item.line}`).trim().toUpperCase();
+  return data.mappings.find(x=>x.active&&x.supplierId===supplier.id&&x.externalCode.toUpperCase()===externalCode)||null;
+}
+
+function compatibleArticles(data,classification) {
+  if(classification==='inventory') return data.articles.filter(x=>x.active&&x.inventory);
+  if(classification==='service') return data.articles.filter(x=>x.active&&(x.type==='SERVICIO'||x.type==='CONCEPTO'));
+  return data.articles.filter(x=>x.active&&(x.type==='CONCEPTO'||x.type==='SERVICIO'));
+}
+
+function buildHomologationPanel(invoice) {
+  const context=getCompanyMasterData(); const data=context.data; const resolved=invoice.items.map(item=>mappingForLine(data,invoice,item)); const completed=resolved.filter(Boolean).length;
+  const panel=document.createElement('section'); panel.className='homologation-panel';
+  const heading=document.createElement('div'); heading.className='homologation-heading'; const copy=document.createElement('div'); const title=document.createElement('h3'); title.textContent='Homologación con el catálogo interno';
+  const description=document.createElement('p'); description.textContent='Cada código del proveedor debe quedar relacionado antes de preparar la entrada.'; copy.append(title,description);
+  const progress=document.createElement('span'); progress.className=`homologation-progress${completed===invoice.items.length?' complete':''}`; progress.textContent=`${completed} DE ${invoice.items.length} HOMOLOGADAS`; heading.append(copy,progress);
+  const wrap=document.createElement('div'); wrap.className='homologation-table'; const table=document.createElement('table'); const head=table.createTHead().insertRow();
+  ['Línea','Código proveedor','Descripción XML','Clasificación','Artículo interno','Estado'].forEach(text=>{const th=document.createElement('th');th.textContent=text;head.append(th);});
+  const body=table.createTBody(); invoice.items.forEach((item,index)=>{
+    const row=body.insertRow(); [item.line,item.code||'Sin código',item.description,classificationLabels[item.classification]].forEach(value=>{const cell=row.insertCell();cell.textContent=value||'';});
+    const selectCell=row.insertCell(); const select=document.createElement('select'); const empty=document.createElement('option'); empty.value=''; empty.textContent='Seleccionar artículo interno…'; select.append(empty);
+    const candidates=compatibleArticles(data,item.classification); const current=resolved[index];
+    candidates.forEach(article=>{const option=document.createElement('option');option.value=article.id;option.textContent=`${article.code} · ${article.description}`;option.selected=current?.articleId===article.id;select.append(option);});
+    if(current&&!candidates.some(x=>x.id===current.articleId)){const article=findById(data.articles,current.articleId);if(article){const option=document.createElement('option');option.value=article.id;option.textContent=`${article.code} · ${article.description}`;option.selected=true;select.append(option);}}
+    select.addEventListener('change',async()=>{
+      if(context.api){
+        if(!select.value){ renderInvoice(); return; }
+        try {
+          const supplier=await ensureApiSupplier(invoice); const article=findById(data.articles,select.value);
+          await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/item-mappings`,{method:'POST',body:JSON.stringify({terceroId:supplier.id,codigoExterno:String(item.code||`LINEA-${item.line}`).trim(),descripcionExterna:item.description,articuloId:article.id,unidadMedidaId:article.unitId,factorAUnidadBase:1})});
+          await loadApiCompanyContext();
+        } catch(error) { showError(`No fue posible guardar la homologación. ${error.message}`); renderInvoice(); }
+        return;
+      }
+      const externalCode=String(item.code||`LINEA-${item.line}`).trim(); const supplier=ensureInvoiceSupplier(context,invoice); const existing=context.data.mappings.find(x=>x.supplierId===supplier.id&&x.externalCode.toUpperCase()===externalCode.toUpperCase());
+      if(!select.value){ if(existing) existing.active=false; }
+      else { const article=findById(context.data.articles,select.value); const record={id:existing?.id||masterId('map'),supplierId:supplier.id,externalCode,externalDescription:item.description,articleId:article.id,unitId:article.unitId,factor:1,active:true}; existing?Object.assign(existing,record):context.data.mappings.push(record); }
+      saveCompanyMasterData(context); renderInvoice();
+    }); selectCell.append(select);
+    const statusCell=row.insertCell(); const status=document.createElement('span'); status.className=`mapping-status ${current?'':'pending'}`; status.textContent=current?'Homologada':'Pendiente'; statusCell.append(status);
+  });
+  wrap.append(table); panel.append(heading,wrap); return panel;
+}
+
+function buildInvoiceClassificationTable(invoice) {
+  if (!invoice.items.length) return emptyMessage('No se encontraron líneas en la factura.');
+  const table = document.createElement('table');
+  table.className = 'classification-table';
+  const headers = ['Clasificación', 'Línea', 'Código', 'Descripción', 'Cantidad', 'Unidad', 'Precio unitario', 'Subtotal bruto', 'Descuento', 'Descuento %', 'Impuesto', 'Total neto'];
+  const head = table.createTHead().insertRow();
+  headers.forEach((header) => { const th = document.createElement('th'); th.textContent = header; head.append(th); });
+  const body = table.createTBody();
+  invoice.items.forEach((item, index) => {
+    const row = body.insertRow();
+    const classificationCell = row.insertCell();
+    const select = document.createElement('select');
+    select.className = `classification-select ${item.classification}`;
+    Object.entries(classificationLabels).forEach(([value, label]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      option.selected = item.classification === value;
+      select.append(option);
+    });
+    select.addEventListener('change', () => {
+      state.invoice.items[index].classification = select.value;
+      select.className = `classification-select ${select.value}`;
+      renderInvoice();
+    });
+    classificationCell.append(select);
+    [item.line, item.code, item.description, item.quantity, item.unit, formatCurrency(item.unitPrice, invoice.currency), formatCurrency(item.grossTotal, invoice.currency), formatCurrency(item.discount, invoice.currency), formatPercentage(item.discountRate), formatCurrency(item.tax, invoice.currency), formatCurrency(item.lineTotal, invoice.currency)]
+      .forEach((value) => { const cell = row.insertCell(); cell.textContent = value ?? ''; });
+  });
+  return table;
+}
+
+function mappedLine(invoice,item) { return mappingForLine(getCompanyMasterData().data,invoice,item); }
+function documentTypeForApi(value) { return ({Invoice:'FACTURA',CreditNote:'NOTA_CREDITO',DebitNote:'NOTA_DEBITO'})[value]||'FACTURA'; }
+
+function buildSupplierDocumentPayload(invoice) {
+  const classification={inventory:'INVENTARIO',service:'SERVICIO_GASTO','acquisition-cost':'COSTO_ADQUISICION'};
+  const lineas=invoice.items.map((item,index)=>{
+    const mapping=mappedLine(invoice,item); const serials=item.serials.length?item.serials:(item.motor||item.chassis?[{number:1,motor:item.motor,chassis:item.chassis,raw:item.description}]:[]);
+    return {
+      numeroLinea:Number(item.line)||index+1,articuloId:mapping?.articleId||null,codigoExterno:item.code||null,descripcion:item.description||`Línea ${index+1}`,
+      clasificacion:classification[item.classification],cantidad:item.quantity||1,unidadMedidaId:mapping?.unitId||findById(getCompanyMasterData().data.articles,mapping?.articleId)?.unitId||null,
+      factorAUnidadBase:mapping?.factor||1,precioUnitario:item.unitPrice||0,subtotalBruto:item.grossTotal??item.lineTotal??0,descuento:item.discount||0,
+      impuesto:item.tax||0,cargo:item.surcharge||0,totalNeto:item.lineTotal??Math.max((item.grossTotal||0)-(item.discount||0)+(item.surcharge||0),0),
+      retencion:0,
+      numeroLote:null,fechaVencimiento:null,
+      seriales:serials.map((serial,serialIndex)=>({numeroUnidad:serial.number||serialIndex+1,serial:null,motor:serial.motor||null,chasis:serial.chassis||null,vin:null,color:serial.color||null,modelo:serial.model||null,informacionOriginal:serial.raw||null})),
+    };
+  });
+  const taxTotal=invoice.taxes.reduce((sum,tax)=>sum+(tax.amount||0),0); const lineCharges=invoice.items.reduce((sum,item)=>sum+(item.surcharge||0),0);
+  return { proveedorIdentificacion:invoice.supplier.identification,proveedorRazonSocial:invoice.supplier.name||'Proveedor desde XML',tipoDocumento:documentTypeForApi(invoice.documentType),numeroDocumento:invoice.number,
+    fechaDocumento:invoice.issueDate,fechaVencimiento:invoice.dueDate||null,moneda:invoice.currency||'COP',cufeCude:invoice.cufeCude||null,fuente:'XML_DIAN',
+    subtotalBruto:invoice.totals.grossSubtotal??invoice.totals.cost??0,descuentoTotal:invoice.totals.allowances||0,impuestoTotal:taxTotal,cargoTotal:invoice.totals.charges??lineCharges,
+    totalPagar:invoice.totals.payable??0,xmlOriginal:elements.xmlInput.value.trim(),documentoGuid:null,lineas };
+}
+
+async function refreshPurchaseWorkflow(documentId,receiptId=null) {
+  const companyId=state.erpSession.company.id; const workflow=await apiRequest(`/api/v1/companies/${companyId}/supplier-documents/${documentId}`);
+  const effectiveReceipt=receiptId||workflow.recepcionMercanciaId; let movements=[];
+  if(effectiveReceipt) movements=await apiRequest(`/api/v1/companies/${companyId}/receipts/${effectiveReceipt}/movements`);
+  const accrual=workflow.causacionServicioId?await apiRequest(`/api/v1/companies/${companyId}/service-accruals/${workflow.causacionServicioId}`):null;
+  state.purchaseWorkflow={documentId,receiptId:effectiveReceipt,causacionId:workflow.causacionServicioId,workflow,movements,accrual}; renderInvoice();
+}
+
+function buildPurchaseWorkflowPanel(invoice) {
+  const panel=document.createElement('section'); panel.className='purchase-workflow-panel';
+  const heading=document.createElement('div'); heading.className='purchase-workflow-heading'; heading.innerHTML='<div><span>REGISTRO ERP</span><h3>Guardar y confirmar la entrada</h3><p>El inventario solo se afecta en el último paso y con confirmación explícita.</p></div>';
+  panel.append(heading);
+  if(state.runtimeMode!=='api'||!state.erpSession?.api){ const notice=document.createElement('p'); notice.className='workflow-notice'; notice.textContent='Estás en modo local. Activa “API ERP”, cierra sesión e ingresa con un usuario de SQL Server para registrar esta factura.'; panel.append(notice); return panel; }
+  if(!state.apiContext){ const notice=document.createElement('p'); notice.className='workflow-notice'; notice.textContent='Cargando bodegas, periodos y homologaciones de la empresa…'; panel.append(notice); return panel; }
+
+  const inventoryLines=invoice.items.filter(x=>x.classification==='inventory'); const serviceLines=invoice.items.filter(x=>x.classification==='service');
+  const pending=inventoryLines.filter(item=>!mappedLine(invoice,item)); const workflow=state.purchaseWorkflow?.workflow;
+  const controls=document.createElement('div'); controls.className='workflow-controls';
+  const warehouse=document.createElement('select'); warehouse.innerHTML='<option value="">Selecciona bodega…</option>'; state.apiContext.warehouses.forEach(x=>warehouse.add(new Option(`${x.codigo} · ${x.nombre}`,x.bodegaId)));
+  const period=document.createElement('select'); period.innerHTML='<option value="">Selecciona periodo…</option>'; state.apiContext.periods.forEach(x=>period.add(new Option(`${x.codigo} · ${x.estado}`,x.periodoInventarioId)));
+  const date=document.createElement('input'); date.type='date'; date.value=invoice.issueDate||new Date().toISOString().slice(0,10);
+  warehouse.hidden=inventoryLines.length===0; period.hidden=inventoryLines.length===0;
+  controls.append(warehouse,period,date); panel.append(controls);
+
+  const actions=document.createElement('div'); actions.className='workflow-actions';
+  const save=document.createElement('button'); save.type='button'; save.className='button primary'; save.textContent=workflow?'Documento guardado':'1. Guardar documento'; save.disabled=Boolean(workflow)||pending.length>0;
+  const prepare=document.createElement('button'); prepare.type='button'; prepare.className='button secondary'; prepare.textContent=workflow?.recepcionMercanciaId||workflow?.causacionServicioId?'Procesos preparados':'2. Preparar procesos'; prepare.disabled=!workflow||Boolean(workflow.recepcionMercanciaId||workflow.causacionServicioId)||(inventoryLines.length>0&&(!warehouse.value||!period.value));
+  const post=document.createElement('button'); post.type='button'; post.className='button confirm-entry'; post.textContent=workflow?.recepcionEstado==='CONTABILIZADA'?'Entrada contabilizada':'3. Confirmar entrada'; post.disabled=!workflow?.recepcionMercanciaId||workflow?.recepcionEstado==='CONTABILIZADA';
+  actions.append(save,prepare,post); panel.append(actions);
+  const readiness=document.createElement('p'); readiness.className=`workflow-readiness${pending.length?' pending':''}`; readiness.textContent=pending.length?`${pending.length} línea(s) de inventario pendientes de homologar.`:'Datos revisados: descuentos, impuestos, fletes y seriales se enviarán con el XML original.'; panel.append(readiness);
+
+  const updatePrepareState=()=>{ prepare.disabled=!state.purchaseWorkflow?.workflow||Boolean(state.purchaseWorkflow?.workflow?.recepcionMercanciaId||state.purchaseWorkflow?.workflow?.causacionServicioId)||(inventoryLines.length>0&&(!warehouse.value||!period.value)); };
+  warehouse.addEventListener('change',updatePrepareState); period.addEventListener('change',updatePrepareState);
+  save.addEventListener('click',async()=>{ try { save.disabled=true; save.textContent='Guardando…'; const result=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents`,{method:'POST',body:JSON.stringify(buildSupplierDocumentPayload(invoice))}); await refreshPurchaseWorkflow(result.documentoProveedorId); } catch(error){ showError(`No fue posible guardar el documento. ${error.message}`); save.disabled=false; save.textContent='1. Guardar documento'; } });
+  prepare.addEventListener('click',async()=>{ try { prepare.disabled=true; prepare.textContent='Preparando…'; const id=state.purchaseWorkflow.documentId; const result=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents/${id}/prepare`,{method:'POST',body:JSON.stringify({bodegaId:inventoryLines.length?Number(warehouse.value):null,periodoInventarioId:inventoryLines.length?Number(period.value):null,fechaContable:date.value,numeroRecepcion:inventoryLines.length?`ENT-${invoice.number}`.slice(0,50):null,numeroCausacion:serviceLines.length?`CAU-${invoice.number}`.slice(0,50):null})}); await refreshPurchaseWorkflow(id,result.recepcionMercanciaId); } catch(error){ showError(`No fue posible preparar la recepción. ${error.message}`); prepare.disabled=false; prepare.textContent='2. Preparar recepción'; } });
+  post.addEventListener('click',async()=>{ if(!window.confirm(`Vas a contabilizar la recepción ${workflow.recepcionNumero}. Esta acción afectará existencias y Kardex. ¿Deseas continuar?`)) return; try { post.disabled=true; post.textContent='Contabilizando…'; await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/receipts/${workflow.recepcionMercanciaId}/post`,{method:'POST',body:JSON.stringify({correlationId:crypto.randomUUID?crypto.randomUUID():null})}); await refreshPurchaseWorkflow(state.purchaseWorkflow.documentId,workflow.recepcionMercanciaId); } catch(error){ showError(`No fue posible contabilizar la entrada. ${error.message}`); post.disabled=false; post.textContent='3. Confirmar entrada'; } });
+
+  if(workflow){ const status=document.createElement('div'); status.className='workflow-status'; status.innerHTML=`<span>Documento <strong>${workflow.estado}</strong></span><span>Recepción <strong>${workflow.recepcionEstado||'No aplica'}</strong></span><span>Causación <strong>${workflow.causacionEstado||'No aplica'}</strong></span><span>XML <strong>${workflow.xmlOriginalGuardado?'Guardado':'Sin original'}</strong></span>`; panel.append(status); }
+  if(state.purchaseWorkflow?.movements?.length){ const wrap=document.createElement('div'); wrap.className='workflow-movements'; const h=document.createElement('h4'); h.textContent='Movimientos de Kardex generados'; wrap.append(h,buildDataTable(['Movimiento','Línea','Artículo','Cantidad','Costo unitario','Valor','Existencia posterior'],state.purchaseWorkflow.movements.map(x=>[x.movimientoInventarioId,x.numeroLinea,`${x.codigoArticulo} · ${x.descripcion}`,x.cantidadEntrada,formatCurrency(x.costoUnitario,invoice.currency),formatCurrency(x.valorMovimiento,invoice.currency),x.existenciaPosterior]))); panel.append(wrap); }
+  if(state.purchaseWorkflow?.accrual) panel.append(buildServiceAccountingPanel(state.purchaseWorkflow.accrual,()=>refreshPurchaseWorkflow(state.purchaseWorkflow.documentId,state.purchaseWorkflow.receiptId)));
+  return panel;
+}
+
+function renderInvoice() {
+  elements.invoicePanel.replaceChildren();
+  const invoice = state.invoice;
+  if (!invoice) { elements.invoicePanel.hidden = true; return; }
+  elements.invoicePanel.hidden = false;
+  const hero = document.createElement('div'); hero.className = 'invoice-hero';
+  const eyebrow = document.createElement('p'); eyebrow.className = 'eyebrow'; eyebrow.textContent = 'FACTURA ELECTRÓNICA DIAN';
+  const title = document.createElement('h3'); title.textContent = `${invoice.documentType} ${invoice.number || 'sin número'}`;
+  hero.append(eyebrow, title);
+
+  const meta = document.createElement('div'); meta.className = 'invoice-meta';
+  [
+    ['Proveedor', invoice.supplier.name || 'No informado'],
+    ['NIT proveedor', invoice.supplier.identification || 'No informado'],
+    ['Fecha', invoice.issueDate || 'No informada'],
+    ['Vencimiento', invoice.dueDate || 'No informado'],
+  ].forEach(([label, value]) => {
+    const box = document.createElement('div'); const span = document.createElement('span'); const strong = document.createElement('strong');
+    span.textContent = label; strong.textContent = value; box.append(span, strong); meta.append(box);
+  });
+
+  const taxTotal = invoice.taxes.reduce((sum, tax) => sum + (tax.amount || 0), 0);
+  const amounts = document.createElement('div'); amounts.className = 'amount-grid';
+  const amountData = [
+    ['Subtotal bruto', invoice.totals.grossSubtotal], ['Descuentos', invoice.totals.allowances], ['Subtotal neto', invoice.totals.cost],
+    ['Impuestos', taxTotal], ['Fletes detectados', invoice.totals.freight], ['Otros cargos', invoice.totals.otherCharges], ['Total a pagar', invoice.totals.payable],
+  ];
+  amountData.forEach(([label, value], index) => {
+    const card = document.createElement('div'); card.className = `amount-card${index === amountData.length - 1 ? ' total' : ''}`;
+    const span = document.createElement('span'); span.textContent = label;
+    const strong = document.createElement('strong'); strong.textContent = formatCurrency(value, invoice.currency);
+    card.append(span, strong); amounts.append(card);
+  });
+
+  const items = invoiceCard('Clasificación de artículos y servicios', `${invoice.items.length} líneas encontradas · revisa la propuesta antes de continuar`, buildInvoiceClassificationTable(invoice), 'invoice-table-card articles-card');
+  const serialRows = invoice.items.flatMap((item) => item.serials.map((serial) => [item.line, item.code, serial.number, item.description, serial.motor, serial.chassis, serial.color, serial.model]));
+  const serials = serialRows.length ? invoiceCard('Seriales de motos', `${serialRows.length} motos identificadas`, buildDataTable(['Línea', 'Código', 'Moto #', 'Descripción', 'Motor', 'Chasis / VIN', 'Color', 'Modelo'], serialRows), 'invoice-table-card serials-card') : null;
+  const taxes = invoiceCard('Impuestos', `${invoice.taxes.length} conceptos encontrados`, buildDataTable(['Impuesto', 'Tarifa %', 'Base', 'Valor'], invoice.taxes.map((tax) => [tax.name, tax.rate, formatCurrency(tax.taxableAmount, invoice.currency), formatCurrency(tax.amount, invoice.currency)])));
+  const charges = invoiceCard('Fletes y otros cargos', `${invoice.charges.length} cargos encontrados`, buildDataTable(['Concepto', 'Base', 'Valor', 'Clasificación'], invoice.charges.map((charge) => [charge.reason, formatCurrency(charge.baseAmount, invoice.currency), formatCurrency(charge.amount, invoice.currency), charge.isFreight ? 'Flete' : 'Otro cargo'])));
+  const support = document.createElement('div'); support.className = 'invoice-support-grid'; support.append(taxes, charges);
+  elements.invoicePanel.append(hero, meta, amounts, invoiceOperationalSummary(invoice), buildHomologationPanel(invoice), buildPurchaseWorkflowPanel(invoice));
+  if (serials) elements.invoicePanel.append(serials);
+  elements.invoicePanel.append(items, support);
+}
+function renderDetails() {
+  elements.detailSections.replaceChildren();
+  if (!state.details.length) {
+    const card = document.createElement('article'); card.className = 'result-card';
+    card.append(emptyMessage('No se encontraron elementos hermanos repetidos. El contenido completo sigue disponible en “Todos los datos”.'));
+    elements.detailSections.append(card); return;
+  }
+  state.details.forEach((group, index) => {
+    const card = document.createElement('article'); card.className = 'result-card';
+    const heading = document.createElement('div'); heading.className = 'card-heading';
+    const number = document.createElement('span'); number.className = 'number'; number.textContent = String(index + 2).padStart(2, '0');
+    const titleWrap = document.createElement('div');
+    const title = document.createElement('h3'); title.textContent = `Detalle: ${group.name}`;
+    const description = document.createElement('p'); description.textContent = `${group.rows.length} registros · ${group.path}`;
+    titleWrap.append(title, description); heading.append(number, titleWrap); card.append(heading);
+    const wrap = document.createElement('div'); wrap.className = 'table-wrap'; wrap.append(buildRecordTable(group.rows)); card.append(wrap);
+    elements.detailSections.append(card);
+  });
+}
+function buildRecordTable(rows) {
+  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  const table = document.createElement('table'); const head = table.createTHead().insertRow();
+  columns.forEach((column) => { const th = document.createElement('th'); th.textContent = column; head.append(th); });
+  const body = table.createTBody();
+  rows.forEach((record) => { const row = body.insertRow(); columns.forEach((column) => { const cell = row.insertCell(); cell.textContent = record[column] ?? ''; }); });
+  return table;
+}
+function renderAllFields(fields) { elements.allTable.replaceChildren(buildKeyValueTable(fields)); elements.fieldCount.textContent = `${fields.length} campos`; }
+function buildTreeNode(element) {
+  const details = document.createElement('details'); details.open = element === state.document.documentElement;
+  const summary = document.createElement('summary'); summary.textContent = `<${element.nodeName}>`;
+  for (const attr of element.attributes) { const item = document.createElement('span'); item.className = 'tree-attribute'; item.textContent = ` ${attr.name}="${attr.value}"`; summary.append(item); }
+  details.append(summary);
+  const text = directText(element);
+  if (text) { const value = document.createElement('span'); value.className = 'tree-value'; value.textContent = text; details.append(value); }
+  elementChildren(element).forEach((child) => details.append(buildTreeNode(child)));
+  return details;
+}
+function emptyMessage(text) { const node = document.createElement('div'); node.className = 'empty'; node.textContent = text; return node; }
+function showError(message) { elements.errorBox.textContent = message; elements.errorBox.hidden = false; elements.errorBox.scrollIntoView({ behavior: 'smooth' }); }
+function hideError() { elements.errorBox.hidden = true; }
+
+function handleFile(file) {
+  if (!file) return;
+  document.body.classList.remove('has-results');
+  elements.results.hidden = true;
+  elements.xmlInput.value = '';
+  hideError();
+  elements.inputStatus.classList.remove('status-error');
+  state.fileName = file.name;
+  if (file.size === 0) {
+    elements.inputStatus.textContent = `${file.name} · archivo vacío (0 bytes)`;
+    elements.inputStatus.classList.add('status-error');
+    return showError('El archivo seleccionado está vacío (0 bytes). Si está guardado en Google Drive, descárgalo o márcalo como disponible sin conexión y vuelve a seleccionarlo.');
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    elements.inputStatus.textContent = `${file.name} · supera 25 MB`;
+    elements.inputStatus.classList.add('status-error');
+    return showError('El archivo supera el límite de 25 MB.');
+  }
+  if (!file.name.toLowerCase().endsWith('.xml') && !/xml/.test(file.type)) {
+    elements.inputStatus.textContent = `${file.name} · formato no compatible`;
+    elements.inputStatus.classList.add('status-error');
+    return showError('Selecciona un archivo con formato XML.');
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const decoded = decodeXmlBuffer(reader.result);
+      elements.xmlInput.value = decoded.text;
+      state.fileName = file.name;
+      elements.inputStatus.textContent = `${file.name} · ${formatBytes(file.size)} · ${decoded.encoding.toUpperCase()}`;
+      analyze();
+    } catch (error) { showError(error.message); }
+  };
+  reader.onerror = () => showError('No fue posible leer el archivo.');
+  reader.readAsArrayBuffer(file);
+}
+function formatBytes(bytes) { return bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`; }
+function decodeXmlBuffer(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let encoding = 'utf-8';
+  let offset = 0;
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) offset = 3;
+  else if (bytes[0] === 0xff && bytes[1] === 0xfe) { encoding = 'utf-16le'; offset = 2; }
+  else if (bytes[0] === 0xfe && bytes[1] === 0xff) { encoding = 'utf-16be'; offset = 2; }
+  else {
+    const preview = String.fromCharCode(...bytes.subarray(0, Math.min(bytes.length, 512)));
+    const declaration = preview.match(/<\?xml[^>]*encoding\s*=\s*["']([^"']+)["']/i);
+    if (declaration) encoding = declaration[1].toLowerCase();
+  }
+  try {
+    return { text: new TextDecoder(encoding).decode(bytes.subarray(offset)), encoding };
+  } catch {
+    throw new Error(`La codificación “${encoding}” declarada por el XML no es compatible con este navegador.`);
+  }
+}
+function download(name, content, type) {
+  const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([content], { type })); link.download = name; link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 500);
+}
+function csvEscape(value) { const text = String(value ?? ''); return /[",\n;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; }
+function exportCsv() {
+  const rows = [['seccion', 'grupo', 'registro', 'ruta', 'valor', 'tipo']];
+  state.headers.forEach((field) => rows.push(['cabecera', '', '', field.path, field.value, field.type]));
+  state.details.forEach((group) => {
+    group.rows.forEach((record, index) => {
+      Object.entries(record).forEach(([path, value]) => {
+        rows.push(['detalle', group.path, index + 1, path, value, inferType(String(value))]);
+      });
+    });
+  });
+  download('datos-xml.csv', '\ufeff' + rows.map((row) => row.map(csvEscape).join(';')).join('\n'), 'text/csv;charset=utf-8');
+}
+async function exportExcel() {
+  const button = $('#exportExcel');
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Creando Excel…';
+  hideError();
+  try {
+    const response = await fetch('/api/export-xlsx', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        documentTitle: state.fileName,
+        headers: state.headers,
+        details: state.details.map(({ path, name, rows }) => ({ path, name, rows })),
+        fields: state.fields,
+        invoice: state.invoice,
+      }),
+    });
+    if (!response.ok) throw new Error((await response.json()).error || 'No fue posible crear el archivo Excel.');
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${(state.fileName || 'datos-xml').replace(/\.xml$/i, '')}.xlsx`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 500);
+  } catch (error) { showError(error.message); }
+  finally { button.disabled = false; button.textContent = originalText; }
+}
+
+function manualCurrency(value) {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 2 }).format(value || 0);
+}
+
+function buildServiceAccountingPanel(accrual,refresh) {
+  const panel=document.createElement('section'); panel.className='service-accounting-panel';
+  const heading=document.createElement('div'); heading.className='service-accounting-heading';
+  const copy=document.createElement('div'); const eyebrow=document.createElement('span'); eyebrow.textContent='CAUSACIÓN CONTABLE';
+  const title=document.createElement('h3'); title.textContent=`Servicios ${accrual.numero}`;
+  const text=document.createElement('p'); text.textContent='Asigna la cuenta de cada gasto y confirma el comprobante. Este proceso no genera movimientos de inventario.';
+  copy.append(eyebrow,title,text); const noKardex=document.createElement('strong'); noKardex.className='no-kardex-badge'; noKardex.textContent='SIN KARDEX'; heading.append(copy,noKardex); panel.append(heading);
+
+  const totals=document.createElement('div'); totals.className='service-accounting-totals';
+  [['Base',accrual.base],['Impuestos',accrual.impuestos],['Retenciones',accrual.retenciones],['Cuenta por pagar',accrual.porPagar]].forEach(([label,value])=>{const box=document.createElement('div');const small=document.createElement('span');small.textContent=label;const strong=document.createElement('strong');strong.textContent=manualCurrency(value);box.append(small,strong);totals.append(box);});
+  panel.append(totals);
+
+  const accounts=state.apiContext?.accounts||[]; const periods=state.apiContext?.accountingPeriods||[]; const posted=accrual.estado==='CONTABILIZADA';
+  if(!accounts.length||!periods.length){const notice=document.createElement('p');notice.className='workflow-notice';notice.textContent='La empresa necesita al menos un periodo contable abierto y cuentas de movimiento para contabilizar servicios.';panel.append(notice);return panel;}
+
+  const dimensions=document.createElement('div'); dimensions.className='accounting-dimensions';
+  const inputField=(label,value='')=>{const wrapper=document.createElement('label');const span=document.createElement('span');span.textContent=label;const input=document.createElement('input');input.value=value||'';input.disabled=posted;wrapper.append(span,input);dimensions.append(wrapper);return input;};
+  const center=inputField('Centro de costo',accrual.centroCostoCodigo); const project=inputField('Proyecto',accrual.proyectoCodigo); panel.append(dimensions);
+
+  const expenseAccounts=accounts.filter(x=>['GASTO','COSTO','ACTIVO'].includes(x.tipo));
+  const lineWrap=document.createElement('div'); lineWrap.className='service-account-lines';
+  accrual.lineas.forEach(line=>{const row=document.createElement('label');const info=document.createElement('span');const name=document.createElement('strong');name.textContent=`Línea ${line.numeroLinea} · ${line.descripcion}`;const values=document.createElement('small');values.textContent=`Base ${manualCurrency(line.base)} · IVA ${manualCurrency(line.impuestos)} · Retención ${manualCurrency(line.retenciones)}`;info.append(name,values);const select=document.createElement('select');select.dataset.serviceLine=String(line.numeroLinea);select.disabled=posted;select.add(new Option('Seleccionar cuenta de gasto…',''));expenseAccounts.forEach(x=>select.add(new Option(`${x.codigo} · ${x.nombre}`,x.codigo)));select.value=line.cuentaContableCodigo||'';row.append(info,select);lineWrap.append(row);});
+  panel.append(lineWrap);
+
+  const assign=document.createElement('button'); assign.type='button'; assign.className='button secondary'; assign.textContent=posted?'Cuentas validadas':'3. Validar cuentas y dimensiones'; assign.disabled=posted;
+  assign.addEventListener('click',async()=>{const lineas=Array.from(lineWrap.querySelectorAll('[data-service-line]')).map(select=>({numeroLinea:Number(select.dataset.serviceLine),cuentaContableCodigo:select.value}));if(lineas.some(x=>!x.cuentaContableCodigo))return showError('Selecciona una cuenta contable para cada línea de servicio.');try{assign.disabled=true;assign.textContent='Validando…';await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/service-accruals/${accrual.causacionServicioId}/accounts`,{method:'PUT',body:JSON.stringify({centroCostoCodigo:center.value.trim()||null,proyectoCodigo:project.value.trim()||null,lineas})});await refresh();}catch(error){showError(`No fue posible validar las cuentas. ${error.message}`);assign.disabled=false;assign.textContent='3. Validar cuentas y dimensiones';}});
+  panel.append(assign);
+
+  const posting=document.createElement('div'); posting.className='service-posting-controls';
+  const selectField=(label,rows,placeholder)=>{const wrapper=document.createElement('label');const span=document.createElement('span');span.textContent=label;const select=document.createElement('select');select.add(new Option(placeholder,''));rows.forEach(x=>select.add(new Option(`${x.codigo} · ${x.nombre||x.estado}`,x.periodoContableId||x.codigo)));select.disabled=posted;wrapper.append(span,select);posting.append(wrapper);return select;};
+  const period=selectField('Periodo contable *',periods,'Seleccionar periodo…');
+  const matchingPeriod=periods.find(x=>accrual.fechaContable>=x.fechaInicio&&accrual.fechaContable<=x.fechaFin);period.value=String(accrual.periodoContableId||matchingPeriod?.periodoContableId||'');
+  const taxAccounts=accounts.filter(x=>x.tipo==='ACTIVO'); const retentionAccounts=accounts.filter(x=>x.tipo==='PASIVO'); const payableAccounts=accounts.filter(x=>x.tipo==='PASIVO');
+  const tax=selectField('Cuenta de impuesto',taxAccounts,'No aplica'); const retention=selectField('Cuenta de retención',retentionAccounts,'No aplica'); const payable=selectField('Cuenta por pagar *',payableAccounts,'Seleccionar cuenta…');
+  const choose=(select,matcher)=>{const match=accounts.find(matcher);if(match&&[...select.options].some(x=>x.value===match.codigo))select.value=match.codigo;};
+  choose(tax,x=>x.tipo==='ACTIVO'&&(/2408/.test(x.codigo)||/iva|impuesto/i.test(x.nombre)));choose(retention,x=>x.tipo==='PASIVO'&&(/236/.test(x.codigo)||/retenci/i.test(x.nombre)));choose(payable,x=>x.tipo==='PASIVO'&&(/^22/.test(x.codigo)||/proveedor|por pagar/i.test(x.nombre)));
+  panel.append(posting);
+
+  const post=document.createElement('button');post.type='button';post.className='button confirm-entry';post.textContent=posted?'4. Servicio contabilizado':'4. Contabilizar servicio';
+  const updatePost=()=>{post.disabled=posted||accrual.estado!=='VALIDADA'||!period.value||!payable.value||(accrual.impuestos>0&&!tax.value)||(accrual.retenciones>0&&!retention.value);};[period,tax,retention,payable].forEach(x=>x.addEventListener('change',updatePost));updatePost();
+  post.addEventListener('click',async()=>{if(!window.confirm(`Vas a contabilizar la causación ${accrual.numero}. Se generará un comprobante contable y una cuenta por pagar, sin afectar Kardex. ¿Deseas continuar?`))return;try{post.disabled=true;post.textContent='Contabilizando…';await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/service-accruals/${accrual.causacionServicioId}/post`,{method:'POST',body:JSON.stringify({periodoContableId:Number(period.value),cuentaImpuestoCodigo:tax.value||null,cuentaRetencionCodigo:retention.value||null,cuentaPorPagarCodigo:payable.value,correlationId:crypto.randomUUID?crypto.randomUUID():null})});await refresh();}catch(error){showError(`No fue posible contabilizar el servicio. ${error.message}`);post.textContent='4. Contabilizar servicio';updatePost();}});panel.append(post);
+
+  if(posted){const result=document.createElement('div');result.className='accounting-result';const resultTitle=document.createElement('h4');resultTitle.textContent=`Comprobante ${accrual.comprobanteContableId} balanceado`;const debit=accrual.comprobanteLineas.reduce((s,x)=>s+x.debito,0);const credit=accrual.comprobanteLineas.reduce((s,x)=>s+x.credito,0);const balance=document.createElement('p');balance.textContent=`Débitos ${manualCurrency(debit)} · Créditos ${manualCurrency(credit)} · Diferencia ${manualCurrency(debit-credit)}`;result.append(resultTitle,balance,buildDataTable(['Línea','Cuenta','Descripción','Débito','Crédito','Centro / proyecto'],accrual.comprobanteLineas.map(x=>[x.numeroLinea,`${x.cuentaCodigo} · ${x.cuentaNombre}`,x.descripcion,manualCurrency(x.debito),manualCurrency(x.credito),[x.centroCostoCodigo,x.proyectoCodigo].filter(Boolean).join(' · ')||'—'])));panel.append(result);}
+  return panel;
+}
+
+function updateManualTotals() {
+  let total = 0;
+  let requiresWarehouse = false;
+  elements.manualLines.querySelectorAll('[data-manual-line]').forEach((row) => {
+    const classification = row.querySelector('[data-field="classification"]').value;
+    const quantity = Math.max(Number(row.querySelector('[data-field="quantity"]').value) || 0, 0);
+    const unitPrice = Math.max(Number(row.querySelector('[data-field="unitPrice"]').value) || 0, 0);
+    const discount = Math.max(Number(row.querySelector('[data-field="discount"]').value) || 0, 0);
+    const tax = Math.max(Number(row.querySelector('[data-field="tax"]').value) || 0, 0);
+    const charge = Math.max(Number(row.querySelector('[data-field="charge"]').value) || 0, 0);
+    const retention = Math.max(Number(row.querySelector('[data-field="retention"]').value) || 0, 0);
+    const lineTotal = Math.max((quantity * unitPrice) - discount + charge + tax - retention, 0);
+    row.querySelector('[data-field="total"]').textContent = manualCurrency(lineTotal);
+    total += lineTotal;
+    if (classification === 'inventory') requiresWarehouse = true;
+  });
+  elements.manualGrandTotal.textContent = manualCurrency(total);
+  elements.warehouseField.hidden = !requiresWarehouse;
+  elements.manualWarehouse.required = requiresWarehouse;
+}
+
+function manualLineField(labelText,name,type='text',className='') {
+  const label=document.createElement('label'); label.className=`manual-line-field ${className}`.trim(); const span=document.createElement('span'); span.textContent=labelText;
+  const input=type==='select'?document.createElement('select'):type==='textarea'?document.createElement('textarea'):document.createElement('input');
+  if(type!=='select'&&type!=='textarea') input.type=type; input.dataset.field=name; label.append(span,input); return {label,input};
+}
+
+function populateManualArticleOptions(select,classification,current='') {
+  const data=getCompanyMasterData().data; const candidates=state.runtimeMode==='api'&&state.erpSession?.api&&!state.apiContext?[]:compatibleArticles(data,classification);
+  select.replaceChildren(new Option(classification==='inventory'?'Seleccionar artículo inventariable…':'Seleccionar concepto…',''));
+  candidates.forEach(x=>select.add(new Option(`${x.code} · ${x.description}`,x.id)));
+  if([...select.options].some(x=>x.value===String(current))) select.value=String(current);
+}
+
+function addManualLine(defaultClassification = state.registrationMode === 'services' ? 'service' : 'inventory') {
+  state.manualLineSequence += 1;
+  const row = document.createElement('article'); row.className='manual-line-card'; row.dataset.manualLine='true';
+  row.dataset.lineId = String(state.manualLineSequence);
+  const head=document.createElement('div'); head.className='manual-line-head'; const headText=document.createElement('div'); const strong=document.createElement('strong'); strong.textContent=`Línea ${state.manualLineSequence}`; const small=document.createElement('span'); small.textContent=defaultClassification==='service'?'Base, impuestos y retenciones del servicio':'Valores y trazabilidad de la unidad recibida'; headText.append(strong,small);
+  const remove = document.createElement('button'); remove.type='button'; remove.className='remove-line'; remove.setAttribute('aria-label','Eliminar línea'); remove.textContent='×'; head.append(headText,remove);
+  const grid=document.createElement('div'); grid.className='manual-line-grid';
+  const classificationField=manualLineField('Clasificación *','classification','select','medium'); const classification=classificationField.input;
+  Object.entries(classificationLabels).filter(([value])=>state.registrationMode!=='services'||value==='service').forEach(([value, label]) => {
+    const option = document.createElement('option'); option.value = value; option.textContent = label; option.selected = value === defaultClassification; classification.append(option);
+  });
+  const articleField=manualLineField('Artículo o concepto interno *','articleId','select','wide'); populateManualArticleOptions(articleField.input,defaultClassification);
+  const descriptionField=manualLineField('Descripción *','description','text','medium'); descriptionField.input.placeholder=defaultClassification==='service'?'Ej. Mantenimiento preventivo':'Ej. Motocicleta XR190'; descriptionField.input.required=true;
+  const codeField=manualLineField('Código externo','code'); codeField.input.placeholder='Código proveedor';
+  const numericDefinitions=[['Cantidad *','quantity','1','0.000001'],['Valor unitario *','unitPrice','0','0.01'],['Descuento','discount','0','0.01'],['Impuesto','tax','0','0.01'],['Retención','retention','0','0.01'],['Cargo / flete','charge','0','0.01']];
+  const numericFields=numericDefinitions.map(([label,name,value,step])=>{const field=manualLineField(label,name,'number');field.input.min='0';field.input.step=step;field.input.value=value;return field;});
+  const total=document.createElement('div'); total.className='manual-line-total'; const totalLabel=document.createElement('span'); totalLabel.textContent='TOTAL LÍNEA'; const totalValue=document.createElement('strong'); totalValue.dataset.field='total'; totalValue.textContent=manualCurrency(0); total.append(totalLabel,totalValue);
+  const lotField=manualLineField('Número de lote','lot','text'); lotField.input.placeholder='Lote del proveedor';
+  const expiryField=manualLineField('Fecha de vencimiento','expiry','date');
+  const serialField=manualLineField('Unidades serializadas','serials','textarea','full'); serialField.input.placeholder='Una unidad por línea: serial; motor; chasis; VIN; color; modelo';
+  const traceHint=document.createElement('span'); traceHint.className='manual-trace-hint'; traceHint.textContent='Para motos puedes dejar serial vacío: ; MOTOR; CHASIS; VIN; COLOR; MODELO'; serialField.label.append(traceHint);
+  grid.append(classificationField.label,articleField.label,descriptionField.label,codeField.label,...numericFields.map(x=>x.label),total,lotField.label,expiryField.label,serialField.label); row.append(head,grid);
+  const syncArticle=()=>{const article=findById(getCompanyMasterData().data.articles,articleField.input.value);const isInventory=classification.value==='inventory';const retentionField=row.querySelector('[data-field="retention"]');if(article){if(!descriptionField.input.value)descriptionField.input.value=article.description;if(!codeField.input.value)codeField.input.value=article.code;}descriptionField.input.placeholder=classification.value==='service'?'Ej. Mantenimiento preventivo':'Ej. Motocicleta XR190';lotField.label.hidden=!isInventory;expiryField.label.hidden=!isInventory;serialField.label.hidden=!isInventory;lotField.input.disabled=!isInventory||Boolean(article&&!article.lot);expiryField.input.disabled=!isInventory||Boolean(article&&!article.expiry);serialField.input.disabled=!isInventory;retentionField.disabled=classification.value!=='service';if(lotField.input.disabled)lotField.input.value='';if(expiryField.input.disabled)expiryField.input.value='';if(serialField.input.disabled)serialField.input.value='';if(retentionField.disabled)retentionField.value='0';small.textContent=classification.value==='service'?'Base, impuestos y retenciones del servicio':'Valores y trazabilidad de la unidad recibida';};
+  classification.addEventListener('change',()=>{populateManualArticleOptions(articleField.input,classification.value);syncArticle();updateManualTotals();}); articleField.input.addEventListener('change',syncArticle);
+  remove.addEventListener('click', () => {
+    if (elements.manualLines.querySelectorAll('[data-manual-line]').length === 1) return;
+    row.remove(); updateManualTotals();
+  });
+  row.addEventListener('input', updateManualTotals);
+  row.addEventListener('change', updateManualTotals);
+  elements.manualLines.append(row);
+  syncArticle();
+  updateManualTotals();
+}
+
+function collectManualLines() {
+  return Array.from(elements.manualLines.querySelectorAll('[data-manual-line]')).map((row,index) => {
+    const get = (field) => row.querySelector(`[data-field="${field}"]`).value;
+    const quantity = Number(get('quantity')) || 0;
+    const unitPrice = Number(get('unitPrice')) || 0;
+    const discount = Number(get('discount')) || 0;
+    const tax=Number(get('tax'))||0; const retention=Number(get('retention'))||0; const charge=Number(get('charge'))||0; const gross=quantity*unitPrice; const net=Math.max(gross-discount+charge,0);
+    const article=findById(getCompanyMasterData().data.articles,get('articleId'));
+    const serials=get('serials').split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map((value,serialIndex)=>{const [serial='',motor='',chassis='',vin='',color='',model='']=value.split(';').map(x=>x.trim());return {number:serialIndex+1,serial,motor,chassis,vin,color,model,raw:value};});
+    return { line:index+1,classification:get('classification'),articleId:article?.id||null,unitId:article?.unitId||null,article,description:get('description').trim(),code:get('code').trim(),quantity,unitPrice,discount,tax,retention,charge,gross,net,total:net+tax-retention,lot:get('lot').trim(),expiry:get('expiry')||null,serials };
+  });
+}
+
+function appendSummaryValue(parent, label, value) {
+  const box = document.createElement('div');
+  const span = document.createElement('span'); span.textContent = label;
+  const strong = document.createElement('strong'); strong.textContent = value;
+  box.append(span, strong); parent.append(box);
+}
+
+function buildManualSupplierDocumentPayload(draft) {
+  const classification={inventory:'INVENTARIO',service:'SERVICIO_GASTO','acquisition-cost':'COSTO_ADQUISICION'};
+  return {
+    proveedorIdentificacion:draft.nit,proveedorRazonSocial:draft.supplier,tipoDocumento:draft.documentType,numeroDocumento:draft.invoiceNumber,
+    fechaDocumento:draft.issueDate,fechaVencimiento:draft.dueDate||null,moneda:'COP',cufeCude:null,fuente:'MANUAL',
+    subtotalBruto:draft.lines.reduce((s,x)=>s+x.gross,0),descuentoTotal:draft.lines.reduce((s,x)=>s+x.discount,0),
+    impuestoTotal:draft.lines.reduce((s,x)=>s+x.tax,0),cargoTotal:draft.lines.reduce((s,x)=>s+x.charge,0),totalPagar:draft.total,xmlOriginal:null,documentoGuid:draft.id,
+    lineas:draft.lines.map(x=>({numeroLinea:x.line,articuloId:Number(x.articleId)||null,codigoExterno:x.code||null,descripcion:x.description,clasificacion:classification[x.classification],cantidad:x.quantity,
+      unidadMedidaId:Number(x.unitId)||null,factorAUnidadBase:1,precioUnitario:x.unitPrice,subtotalBruto:x.gross,descuento:x.discount,impuesto:x.tax,cargo:x.charge,retencion:x.retention,totalNeto:x.net,
+      numeroLote:x.lot||null,fechaVencimiento:x.expiry||null,seriales:x.serials.map(s=>({numeroUnidad:s.number,serial:s.serial||null,motor:s.motor||null,chasis:s.chassis||null,vin:s.vin||null,color:s.color||null,modelo:s.model||null,informacionOriginal:s.raw||null}))}))
+  };
+}
+
+async function refreshManualWorkflow(documentId,receiptId=null) {
+  const companyId=state.erpSession.company.id; const workflow=await apiRequest(`/api/v1/companies/${companyId}/supplier-documents/${documentId}`); const effectiveReceipt=receiptId||workflow.recepcionMercanciaId;
+  const movements=effectiveReceipt?await apiRequest(`/api/v1/companies/${companyId}/receipts/${effectiveReceipt}/movements`):[];
+  const accrual=workflow.causacionServicioId?await apiRequest(`/api/v1/companies/${companyId}/service-accruals/${workflow.causacionServicioId}`):null;
+  state.manualWorkflow={documentId,receiptId:effectiveReceipt,workflow,movements,accrual}; renderManualDraft(state.manualDraft);
+}
+
+function buildManualWorkflowPanel(draft) {
+  const panel=document.createElement('section'); panel.className='purchase-workflow-panel manual-posting-panel'; const workflow=state.manualWorkflow?.workflow;
+  const inventoryLines=draft.lines.filter(x=>x.classification==='inventory'); const serviceLines=draft.lines.filter(x=>x.classification==='service');
+  const heading=document.createElement('div'); heading.className='purchase-workflow-heading'; heading.innerHTML='<div><span>CONTROL ERP</span><h3>Preparar los efectos de la compra</h3><p>La mercancía y los servicios se procesan por separado. Nada se contabiliza sin confirmación.</p></div>'; panel.append(heading);
+  const actions=document.createElement('div'); actions.className='workflow-actions'; const prepare=document.createElement('button'); prepare.type='button'; prepare.className='button secondary'; prepare.textContent=workflow?.recepcionMercanciaId||workflow?.causacionServicioId?'Procesos preparados':'2. Preparar procesos'; prepare.disabled=!workflow||Boolean(workflow.recepcionMercanciaId||workflow.causacionServicioId);
+  const post=document.createElement('button'); post.type='button'; post.className='button confirm-entry'; post.textContent=workflow?.recepcionEstado==='CONTABILIZADA'?'Mercancía contabilizada':'3. Confirmar mercancía'; post.hidden=inventoryLines.length===0; post.disabled=!workflow?.recepcionMercanciaId||workflow.recepcionEstado==='CONTABILIZADA'; actions.append(prepare,post); panel.append(actions);
+  prepare.addEventListener('click',async()=>{try{prepare.disabled=true;prepare.textContent='Preparando…';const result=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents/${state.manualWorkflow.documentId}/prepare`,{method:'POST',body:JSON.stringify({bodegaId:inventoryLines.length?Number(draft.warehouse):null,periodoInventarioId:inventoryLines.length?Number(draft.period):null,fechaContable:draft.issueDate,numeroRecepcion:inventoryLines.length?`ENT-${draft.invoiceNumber}`.slice(0,50):null,numeroCausacion:serviceLines.length?`CAU-${draft.invoiceNumber}`.slice(0,50):null})});await refreshManualWorkflow(state.manualWorkflow.documentId,result.recepcionMercanciaId);}catch(error){showError(`No fue posible preparar los procesos. ${error.message}`);prepare.disabled=false;prepare.textContent='2. Preparar procesos';}});
+  post.addEventListener('click',async()=>{if(!window.confirm(`Vas a contabilizar la recepción ${workflow.recepcionNumero}. Se crearán existencias y movimientos de Kardex únicamente para la mercancía. ¿Deseas continuar?`))return;try{post.disabled=true;post.textContent='Contabilizando…';await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/receipts/${workflow.recepcionMercanciaId}/post`,{method:'POST',body:JSON.stringify({correlationId:crypto.randomUUID?crypto.randomUUID():null})});await refreshManualWorkflow(state.manualWorkflow.documentId,workflow.recepcionMercanciaId);}catch(error){showError(`No fue posible contabilizar la mercancía. ${error.message}`);post.disabled=false;post.textContent='3. Confirmar mercancía';}});
+  if(workflow){const status=document.createElement('div');status.className='workflow-status';status.innerHTML=`<span>Documento <strong>${workflow.estado}</strong></span><span>Recepción <strong>${workflow.recepcionEstado||'No aplica'}</strong></span><span>Causación <strong>${workflow.causacionEstado||'No aplica'}</strong></span><span>Seriales <strong>${workflow.unidadesSerializadas}</strong></span>`;panel.append(status);}
+  if(state.manualWorkflow?.movements?.length){const wrap=document.createElement('div');wrap.className='workflow-movements';const h=document.createElement('h4');h.textContent='Movimientos de Kardex generados';wrap.append(h,buildDataTable(['Movimiento','Línea','Artículo','Cantidad','Costo unitario','Valor','Lote / vencimiento','Existencia posterior'],state.manualWorkflow.movements.map(x=>[x.movimientoInventarioId,x.numeroLinea,`${x.codigoArticulo} · ${x.descripcion}`,x.cantidadEntrada,manualCurrency(x.costoUnitario),manualCurrency(x.valorMovimiento),x.numeroLote?`${x.numeroLote}${x.fechaVencimiento?` · ${x.fechaVencimiento}`:''}`:'—',x.existenciaPosterior])));panel.append(wrap);}
+  if(state.manualWorkflow?.accrual) panel.append(buildServiceAccountingPanel(state.manualWorkflow.accrual,()=>refreshManualWorkflow(state.manualWorkflow.documentId,state.manualWorkflow.receiptId)));
+  return panel;
+}
+
+function renderManualDraft(draft) {
+  elements.manualResult.replaceChildren();
+  const heading = document.createElement('div'); heading.className = 'manual-result-heading';
+  const headingText = document.createElement('div');
+  const workflow=state.manualWorkflow?.workflow; const allPosted=workflow&&(workflow.recepcionMercanciaId?workflow.recepcionEstado==='CONTABILIZADA':true)&&(workflow.causacionServicioId?workflow.causacionEstado==='CONTABILIZADA':true); const eyebrow = document.createElement('p'); eyebrow.className = 'eyebrow'; eyebrow.textContent = allPosted?'DOCUMENTO CONTABILIZADO':'BORRADOR GUARDADO';
+  const title = document.createElement('h2'); title.textContent = draft.invoiceNumber ? `Documento ${draft.invoiceNumber}` : 'Compra sin número de factura';
+  const description = document.createElement('p'); description.textContent = allPosted?'Mercancía y servicios quedaron procesados según el efecto de cada línea.':'El borrador todavía no afecta inventario ni contabilidad.';
+  headingText.append(eyebrow, title, description);
+  const badge = document.createElement('span'); badge.className = 'draft-badge'; badge.textContent = workflow?workflow.estado:'BORRADOR LOCAL';
+  heading.append(headingText, badge);
+
+  const meta = document.createElement('div'); meta.className = 'draft-meta';
+  appendSummaryValue(meta, 'Proveedor', draft.supplier);
+  appendSummaryValue(meta, 'NIT', draft.nit || 'No informado');
+  appendSummaryValue(meta, 'Fecha', draft.issueDate);
+  appendSummaryValue(meta, 'Bodega', draft.warehouseName || draft.warehouse || 'No aplica');
+
+  const effect = { inventory: 0, service: 0, 'acquisition-cost': 0 };
+  draft.lines.forEach((line) => { effect[line.classification] += line.total; });
+  const effects = document.createElement('div'); effects.className = 'effect-grid draft-effects';
+  [
+    ['inventory', 'Mercancía', 'Entrada y Kardex'],
+    ['service', 'Servicios', 'Causación sin Kardex'],
+    ['acquisition-cost', 'Costos adicionales', 'Pendiente de distribución'],
+  ].forEach(([type, label, detail]) => {
+    const card = document.createElement('div'); card.className = `effect-card ${type}`;
+    const amount = document.createElement('strong'); amount.textContent = manualCurrency(effect[type]);
+    const copy = document.createElement('div'); const name = document.createElement('b'); name.textContent = label;
+    const small = document.createElement('small'); small.textContent = detail; copy.append(name, small); card.append(amount, copy); effects.append(card);
+  });
+
+  const table = buildDataTable(['Clasificación','Artículo','Descripción','Cantidad','Valor unitario','Descuento','Impuesto','Retención','Cargo','Lote / vencimiento','Seriales','Total'], draft.lines.map((line) => [classificationLabels[line.classification],line.article?`${line.article.code} · ${line.article.description}`:line.code,line.description,line.quantity,manualCurrency(line.unitPrice),manualCurrency(line.discount),manualCurrency(line.tax),manualCurrency(line.retention),manualCurrency(line.charge),line.lot?`${line.lot}${line.expiry?` · ${line.expiry}`:''}`:'—',line.serials.length,manualCurrency(line.total)]));
+  const linesCard = invoiceCard('Detalle del borrador', `${draft.lines.length} líneas · Total ${manualCurrency(draft.total)}`, table, 'invoice-table-card manual-draft-lines');
+  elements.manualResult.append(heading, meta, effects, linesCard);
+  if(state.runtimeMode==='api'&&state.erpSession?.api&&['goods','services'].includes(state.registrationMode)) elements.manualResult.append(buildManualWorkflowPanel(draft));
+  elements.manualResult.hidden = false;
+  document.body.classList.add('has-results');
+  elements.manualResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function setRegistrationMode(mode) {
+  state.registrationMode = mode;
+  elements.purchaseModule.hidden = false;
+  elements.masterDataModule.hidden = true;
+  elements.inventoryModule.hidden = true;
+  elements.advancedControlsModule.hidden = true;
+  elements.inventoryNav.classList.remove('active');
+  elements.controlsNav.classList.remove('active');
+  document.querySelector('.breadcrumb span').textContent = 'Compras';
+  document.querySelectorAll('[data-master-view]').forEach((button) => button.classList.remove('active'));
+  document.querySelectorAll('[data-registration-mode]').forEach((button) => button.classList.toggle('active', button.dataset.registrationMode === mode));
+  const modeCopy = {
+    xml: { breadcrumb: 'Entrada automática', title: 'Entrada automática<br>de mercancía' },
+    goods: { breadcrumb: 'Entrada manual', title: 'Entrada manual<br>de mercancía' },
+    services: { breadcrumb: 'Causar servicios', title: 'Causación de<br>servicios' },
+  }[mode];
+  elements.breadcrumbCurrent.textContent = modeCopy.breadcrumb;
+  elements.moduleHeadingTitle.innerHTML = modeCopy.title;
+  const isXml = mode === 'xml';
+  elements.xmlWorkspace.hidden = !isXml;
+  elements.xmlWorkspace.classList.toggle('active', isXml);
+  elements.manualWorkspace.hidden = isXml;
+  elements.manualWorkspace.classList.toggle('active', !isXml);
+  elements.results.hidden = true;
+  elements.manualResult.hidden = true;
+  document.body.classList.remove('has-results');
+  if (!isXml) {
+    const isService = mode === 'services';
+    elements.manualWorkspaceTitle.textContent = isService ? 'Causación manual de servicios' : 'Entrada manual de mercancía';
+    elements.manualWorkspaceSubtitle.textContent = isService ? 'Registra gastos de proveedores sin afectar inventario.' : 'Registra artículos recibidos con o sin factura del proveedor.';
+    elements.manualTypePill.textContent = isService ? 'SERVICIOS' : 'MERCANCÍA';
+    elements.manualLines.replaceChildren();
+    state.manualWorkflow=null; state.manualDraft=null;
+    addManualLine(isService ? 'service' : 'inventory');
+    renderManualReferenceOptions();
+  }
+}
+
+function selectCompany(option) {
+  const email = state.erpSession?.email || state.pendingEmail;
+  const session = {
+    email,
+    name: state.pendingName||state.erpSession?.name || displayNameFromEmail(email), api:option.dataset.api==='true',
+    company: { id: option.dataset.companyId, name: option.dataset.companyName, nit: option.dataset.companyNit, initials: option.dataset.companyInitials, currency:option.dataset.currency||'COP' },
+    signedInAt: state.erpSession?.signedInAt || new Date().toISOString(),
+  };
+  state.apiContext=null; state.purchaseWorkflow=null; state.manualWorkflow=null; state.manualDraft=null;
+  closeErpDialog(elements.companyDialog);
+  enterErp(session);
+}
+
+async function beginLocalLogin(event) {
+  event.preventDefault();
+  const email = elements.loginEmail.value.trim();
+  if (!email || elements.loginPassword.value.length < 4) {
+    elements.loginError.textContent = 'Escribe un correo válido y una contraseña de al menos 4 caracteres.';
+    elements.loginError.hidden = false;
+    return;
+  }
+  elements.loginError.hidden = true;
+  state.pendingEmail = email;
+  state.pendingName='';
+  if(state.runtimeMode!=='api'){ renderCompanyOptions(demoCompanies,false); openErpDialog(elements.companyDialog); return; }
+  const submit=elements.loginForm.querySelector('[type="submit"]'); submit.disabled=true; submit.firstChild.textContent='Conectando ';
+  try {
+    const login=await apiRequest('/api/v1/auth/login',{method:'POST',body:JSON.stringify({correo:email,password:elements.loginPassword.value})});
+    sessionStorage.setItem(uiStorage.apiToken,login.token); state.pendingName=login.nombreCompleto;
+    const companies=await apiRequest('/api/v1/companies'); if(!companies.length) throw new Error('El usuario no tiene empresas activas asignadas.');
+    renderCompanyOptions(companies,true); openErpDialog(elements.companyDialog);
+  } catch(error) { sessionStorage.removeItem(uiStorage.apiToken); elements.loginError.textContent=`No fue posible ingresar a la API. ${error.message}`; elements.loginError.hidden=false; }
+  finally { submit.disabled=false; submit.firstChild.textContent='Continuar '; }
+}
+
+async function saveManualDraft(event) {
+  event.preventDefault(); hideError();
+  const lines = collectManualLines();
+  if (!lines.length || lines.some((line) => !line.description || line.quantity <= 0)) return showError('Completa la descripción y una cantidad mayor que cero en todas las líneas.');
+  if(lines.some(line=>line.discount>line.gross+line.charge)) return showError('El descuento de una línea no puede superar su valor bruto más los cargos.');
+  if(lines.some(line=>line.retention>line.net+line.tax)) return showError('La retención de una línea no puede superar su base más impuestos.');
+  const needsWarehouse = lines.some((line) => line.classification === 'inventory');
+  if (needsWarehouse && !elements.manualWarehouse.value) return showError('Selecciona la bodega para las líneas que afectan inventario.');
+  const isApiManual=state.runtimeMode==='api'&&state.erpSession?.api&&['goods','services'].includes(state.registrationMode);
+  if(isApiManual){
+    if(!state.apiContext) return showError('Espera a que terminen de cargar los maestros de la empresa.');
+    if(needsWarehouse&&!elements.manualPeriod.value) return showError('Selecciona el periodo de inventario.');
+    if(state.registrationMode==='goods'&&!lines.some(line=>line.classification==='inventory')) return showError('La entrada manual de mercancía debe contener al menos una línea inventariable.');
+    if(state.registrationMode==='services'&&lines.some(line=>line.classification!=='service')) return showError('La causación de servicios solo admite líneas de servicio o gasto. Para una factura mixta usa Entrada manual.');
+    if(lines.some(line=>['inventory','service'].includes(line.classification)&&!line.articleId)) return showError('Selecciona el artículo o concepto interno de todas las líneas de mercancía y servicio.');
+    for(const line of lines.filter(x=>x.classification==='inventory')){
+      if(line.lot&&!line.article?.lot) return showError(`El artículo ${line.article?.code||line.description} no está configurado para manejar lotes.`);
+      if(line.expiry&&!line.lot) return showError(`La fecha de vencimiento de ${line.article?.code||line.description} requiere un número de lote.`);
+      if(line.article?.expiry&&(!line.lot||!line.expiry)) return showError(`El artículo ${line.article.code} requiere lote y fecha de vencimiento.`);
+      if(line.article?.serial){
+        if(!Number.isInteger(line.quantity)||line.serials.length!==line.quantity) return showError(`El artículo ${line.article.code} requiere ${line.quantity} unidad(es) serializada(s), una por cada unidad recibida.`);
+        if(line.serials.some(x=>!x.serial&&!x.motor&&!x.chassis&&!x.vin)) return showError(`Completa al menos serial, motor, chasis o VIN para cada unidad de ${line.article.code}.`);
+      } else if(line.serials.length) return showError(`El artículo ${line.article?.code||line.description} no está configurado para manejar seriales.`);
+    }
+  }
+  const draft = {
+    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+    createdAt: new Date().toISOString(),
+    supplier: $('#manualSupplier').value.trim(), nit: $('#manualNit').value.trim().replace(/[^0-9]/g,''),documentType:$('#manualDocumentType').value,invoiceNumber: $('#manualInvoiceNumber').value.trim(),
+    issueDate: $('#manualIssueDate').value, dueDate: $('#manualDueDate').value, warehouse: needsWarehouse ? elements.manualWarehouse.value : '',warehouseName:needsWarehouse?elements.manualWarehouse.selectedOptions[0]?.textContent:'No aplica',period:needsWarehouse?elements.manualPeriod.value:'',
+    lines, total: lines.reduce((sum, line) => sum + line.total, 0), status: 'draft', source: 'manual',
+  };
+  state.manualDraft=draft;
+  if(isApiManual){
+    const submit=elements.manualForm.querySelector('[type="submit"]');submit.disabled=true;submit.firstChild.textContent='Guardando ';
+    try{const result=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents`,{method:'POST',body:JSON.stringify(buildManualSupplierDocumentPayload(draft))});elements.manualFormStatus.textContent=result.yaExistia?'Documento existente recuperado sin duplicar':'Borrador guardado en SQL Server';await refreshManualWorkflow(result.documentoProveedorId);}
+    catch(error){showError(`No fue posible guardar la entrada manual. ${error.message}`);}
+    finally{submit.disabled=false;submit.firstChild.textContent='Revisar y guardar borrador ';}
+    return;
+  }
+  const drafts = JSON.parse(localStorage.getItem('nexo.purchaseDrafts') || '[]');
+  drafts.push(draft); localStorage.setItem('nexo.purchaseDrafts', JSON.stringify(drafts));
+  elements.manualFormStatus.textContent = `Borrador guardado · ${new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}`;
+  renderManualDraft(draft);
+}
+
+$('#manualIssueDate').value = new Date().toISOString().slice(0, 10);
+document.querySelectorAll('[data-registration-mode]').forEach((button) => button.addEventListener('click', () => setRegistrationMode(button.dataset.registrationMode)));
+elements.inventoryNav.addEventListener('click',()=>showInventoryView(state.inventoryView));
+document.querySelectorAll('[data-inventory-view]').forEach(button=>button.addEventListener('click',()=>showInventoryView(button.dataset.inventoryView)));
+$('#refreshInventory').addEventListener('click',()=>void refreshInventory());
+elements.inventorySearch.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();void refreshInventory();}});
+elements.inventoryWarehouse.addEventListener('change',()=>void refreshInventory());
+$('#addManualLine').addEventListener('click', () => addManualLine());
+elements.manualForm.addEventListener('submit', saveManualDraft);
+
+elements.browseButton.addEventListener('click', (event) => { event.stopPropagation(); elements.fileInput.click(); });
+elements.dropZone.addEventListener('click', (event) => {
+  if (event.target !== elements.fileInput) elements.fileInput.click();
+});
+elements.dropZone.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') elements.fileInput.click(); });
+elements.fileInput.addEventListener('click', () => { elements.fileInput.value = ''; });
+elements.fileInput.addEventListener('change', () => handleFile(elements.fileInput.files[0]));
+['dragenter', 'dragover'].forEach((name) => elements.dropZone.addEventListener(name, (event) => { event.preventDefault(); elements.dropZone.classList.add('dragging'); }));
+['dragleave', 'drop'].forEach((name) => elements.dropZone.addEventListener(name, (event) => { event.preventDefault(); elements.dropZone.classList.remove('dragging'); }));
+elements.dropZone.addEventListener('drop', (event) => handleFile(event.dataTransfer.files[0]));
+elements.analyzeButton.addEventListener('click', analyze);
+elements.exampleButton.addEventListener('click', () => { elements.xmlInput.value = exampleXml; state.fileName = 'factura-ejemplo.xml'; elements.inputStatus.textContent = 'Ejemplo de factura cargado'; analyze(); });
+elements.fieldFilter.addEventListener('input', () => { const query = elements.fieldFilter.value.toLocaleLowerCase(); renderAllFields(state.fields.filter((field) => `${field.path} ${field.value}`.toLocaleLowerCase().includes(query))); });
+document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach((item) => item.classList.toggle('active', item === tab));
+  document.querySelectorAll('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === tab.dataset.panel));
+}));
+$('#exportJson').addEventListener('click', () => download('datos-xml.json', JSON.stringify(state.json, null, 2), 'application/json'));
+$('#exportCsv').addEventListener('click', exportCsv);
+$('#exportExcel').addEventListener('click', exportExcel);
+$('#copyJson').addEventListener('click', async () => { await navigator.clipboard.writeText(JSON.stringify(state.json, null, 2)); $('#copyJson').textContent = 'Copiado'; setTimeout(() => { $('#copyJson').textContent = 'Copiar'; }, 1200); });
+
+elements.loginForm.addEventListener('submit', beginLocalLogin);
+$('#togglePassword').addEventListener('click', () => {
+  const show = elements.loginPassword.type === 'password';
+  elements.loginPassword.type = show ? 'text' : 'password';
+  $('#togglePassword').textContent = show ? 'Ocultar' : 'Ver';
+  $('#togglePassword').setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
+});
+$('#companyOptions').addEventListener('click',(event)=>{const option=event.target.closest('.company-option');if(option)selectCompany(option);});
+document.querySelectorAll('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => closeErpDialog($(`#${button.dataset.closeDialog}`))));
+elements.companySwitcher.addEventListener('click', () => openErpDialog(elements.companyDialog));
+elements.runtimeBadge.addEventListener('click', () => {
+  updateRuntimeMode(state.runtimeMode, false);
+  openErpDialog(elements.environmentDialog);
+});
+elements.environmentForm.addEventListener('change', (event) => {
+  if (event.target.name !== 'runtimeMode') return;
+  elements.environmentMessage.textContent = event.target.value === 'api'
+    ? 'Al volver a iniciar sesión, usarás empresas, maestros y registros reales de SQL Server.'
+    : 'Los archivos XML y borradores permanecerán únicamente en este equipo.';
+});
+elements.environmentForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const selected = new FormData(elements.environmentForm).get('runtimeMode');
+  updateRuntimeMode(selected);
+  closeErpDialog(elements.environmentDialog);
+});
+document.querySelectorAll('[data-master-view]').forEach((button) => button.addEventListener('click', () => showMasterView(button.dataset.masterView)));
+elements.addMasterRecord.addEventListener('click', openMasterForm);
+elements.masterRecordForm.addEventListener('submit', saveMasterRecord);
+elements.masterSearch.addEventListener('input', renderMasterView);
+elements.logoutButton.addEventListener('click', leaveErp);
+setupCollapsibleNavigation();
+initializeErpUi();
