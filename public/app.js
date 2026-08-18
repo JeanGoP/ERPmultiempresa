@@ -5,9 +5,7 @@ const elements = {
   fileInput: $('#fileInput'), dropZone: $('#dropZone'), browseButton: $('#browseButton'),
   xmlInput: $('#xmlInput'), analyzeButton: $('#analyzeButton'), exampleButton: $('#exampleButton'),
   inputStatus: $('#inputStatus'), results: $('#results'), errorBox: $('#errorBox'),
-  stats: $('#stats'), documentTitle: $('#documentTitle'), headerTable: $('#headerTable'),
-  detailSections: $('#detailSections'), allTable: $('#allTable'), fieldFilter: $('#fieldFilter'),
-  fieldCount: $('#fieldCount'), treeView: $('#treeView'), jsonView: $('#jsonView'),
+  documentTitle: $('#documentTitle'),
   invoicePanel: $('#invoicePanel'), xmlWorkspace: $('#xmlWorkspace'), manualWorkspace: $('#manualWorkspace'),
   manualForm: $('#manualForm'), manualLines: $('#manualLines'), manualGrandTotal: $('#manualGrandTotal'),
   manualResult: $('#manualResult'), manualWarehouse: $('#manualWarehouse'), warehouseField: $('#warehouseField'), manualPeriod:$('#manualPeriod'), manualPeriodField:$('#manualPeriodField'),
@@ -657,28 +655,10 @@ function analyze() {
 function renderResults() {
   const root = state.document.documentElement;
   elements.documentTitle.textContent = state.fileName || localName(root);
-  const nodes = Array.from(state.document.getElementsByTagName('*'));
-  const values = [nodes.length, nodes.reduce((sum, node) => sum + node.attributes.length, 0), state.headers.length, state.details.reduce((sum, group) => sum + group.rows.length, 0)];
-  const labels = ['Elementos', 'Atributos', 'Campos de cabecera', 'Registros de detalle'];
-  elements.stats.innerHTML = values.map((value, index) => `<div class="stat"><strong>${value}</strong><span>${labels[index]}</span></div>`).join('');
-  elements.headerTable.replaceChildren(buildKeyValueTable(state.headers));
-  renderInvoice(); renderDetails(); renderAllFields(state.fields);
-  elements.treeView.replaceChildren(buildTreeNode(root));
-  elements.jsonView.textContent = JSON.stringify(state.json, null, 2);
+  renderInvoice();
   document.body.classList.add('has-results');
   elements.results.hidden = false;
   elements.results.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-function buildKeyValueTable(fields) {
-  if (!fields.length) return emptyMessage('No se detectaron campos únicos de cabecera.');
-  const table = document.createElement('table');
-  table.innerHTML = '<thead><tr><th>Ruta</th><th>Valor</th><th>Tipo</th></tr></thead>';
-  const body = table.createTBody();
-  fields.forEach((field) => {
-    const row = body.insertRow();
-    [field.path, field.value, field.type].forEach((value) => { const cell = row.insertCell(); cell.textContent = value; });
-  });
-  return table;
 }
 function formatCurrency(value, currency = 'COP') {
   if (value === null || value === undefined) return 'No informado';
@@ -950,44 +930,6 @@ function renderInvoice() {
   elements.invoicePanel.append(hero, meta, amounts, invoiceOperationalSummary(invoice), buildHomologationPanel(invoice), buildPurchaseWorkflowPanel(invoice));
   if (serials) elements.invoicePanel.append(serials);
   elements.invoicePanel.append(items, support);
-}
-function renderDetails() {
-  elements.detailSections.replaceChildren();
-  if (!state.details.length) {
-    const card = document.createElement('article'); card.className = 'result-card';
-    card.append(emptyMessage('No se encontraron elementos hermanos repetidos. El contenido completo sigue disponible en “Todos los datos”.'));
-    elements.detailSections.append(card); return;
-  }
-  state.details.forEach((group, index) => {
-    const card = document.createElement('article'); card.className = 'result-card';
-    const heading = document.createElement('div'); heading.className = 'card-heading';
-    const number = document.createElement('span'); number.className = 'number'; number.textContent = String(index + 2).padStart(2, '0');
-    const titleWrap = document.createElement('div');
-    const title = document.createElement('h3'); title.textContent = `Detalle: ${group.name}`;
-    const description = document.createElement('p'); description.textContent = `${group.rows.length} registros · ${group.path}`;
-    titleWrap.append(title, description); heading.append(number, titleWrap); card.append(heading);
-    const wrap = document.createElement('div'); wrap.className = 'table-wrap'; wrap.append(buildRecordTable(group.rows)); card.append(wrap);
-    elements.detailSections.append(card);
-  });
-}
-function buildRecordTable(rows) {
-  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
-  const table = document.createElement('table'); const head = table.createTHead().insertRow();
-  columns.forEach((column) => { const th = document.createElement('th'); th.textContent = column; head.append(th); });
-  const body = table.createTBody();
-  rows.forEach((record) => { const row = body.insertRow(); columns.forEach((column) => { const cell = row.insertCell(); cell.textContent = record[column] ?? ''; }); });
-  return table;
-}
-function renderAllFields(fields) { elements.allTable.replaceChildren(buildKeyValueTable(fields)); elements.fieldCount.textContent = `${fields.length} campos`; }
-function buildTreeNode(element) {
-  const details = document.createElement('details'); details.open = element === state.document.documentElement;
-  const summary = document.createElement('summary'); summary.textContent = `<${element.nodeName}>`;
-  for (const attr of element.attributes) { const item = document.createElement('span'); item.className = 'tree-attribute'; item.textContent = ` ${attr.name}="${attr.value}"`; summary.append(item); }
-  details.append(summary);
-  const text = directText(element);
-  if (text) { const value = document.createElement('span'); value.className = 'tree-value'; value.textContent = text; details.append(value); }
-  elementChildren(element).forEach((child) => details.append(buildTreeNode(child)));
-  return details;
 }
 function emptyMessage(text) { const node = document.createElement('div'); node.className = 'empty'; node.textContent = text; return node; }
 function showError(message) { elements.errorBox.textContent = message; elements.errorBox.hidden = false; elements.errorBox.scrollIntoView({ behavior: 'smooth' }); }
@@ -1483,15 +1425,9 @@ elements.fileInput.addEventListener('change', () => handleFile(elements.fileInpu
 elements.dropZone.addEventListener('drop', (event) => handleFile(event.dataTransfer.files[0]));
 elements.analyzeButton.addEventListener('click', analyze);
 elements.exampleButton.addEventListener('click', () => { elements.xmlInput.value = exampleXml; state.fileName = 'factura-ejemplo.xml'; elements.inputStatus.textContent = 'Ejemplo de factura cargado'; analyze(); });
-elements.fieldFilter.addEventListener('input', () => { const query = elements.fieldFilter.value.toLocaleLowerCase(); renderAllFields(state.fields.filter((field) => `${field.path} ${field.value}`.toLocaleLowerCase().includes(query))); });
-document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => {
-  document.querySelectorAll('.tab').forEach((item) => item.classList.toggle('active', item === tab));
-  document.querySelectorAll('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === tab.dataset.panel));
-}));
 $('#exportJson').addEventListener('click', () => download('datos-xml.json', JSON.stringify(state.json, null, 2), 'application/json'));
 $('#exportCsv').addEventListener('click', exportCsv);
 $('#exportExcel').addEventListener('click', exportExcel);
-$('#copyJson').addEventListener('click', async () => { await navigator.clipboard.writeText(JSON.stringify(state.json, null, 2)); $('#copyJson').textContent = 'Copiado'; setTimeout(() => { $('#copyJson').textContent = 'Copiar'; }, 1200); });
 
 elements.loginForm.addEventListener('submit', beginLocalLogin);
 $('#togglePassword').addEventListener('click', () => {

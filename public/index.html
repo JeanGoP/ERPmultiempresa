@@ -290,34 +290,7 @@
             </div>
           </div>
 
-          <div id="stats" class="stats"></div>
           <section id="invoicePanel" class="invoice-profile" hidden></section>
-
-          <nav class="tabs" aria-label="Vistas del resultado">
-            <button class="tab active" data-panel="summaryPanel" type="button">Resumen técnico</button>
-            <button class="tab" data-panel="allPanel" type="button">Todos los datos</button>
-            <button class="tab" data-panel="treePanel" type="button">Árbol XML</button>
-            <button class="tab" data-panel="jsonPanel" type="button">JSON</button>
-          </nav>
-
-          <div id="summaryPanel" class="panel active">
-            <article class="result-card">
-              <div class="card-heading"><span class="number">01</span><div><h3>Cabecera técnica</h3><p>Campos únicos fuera de los grupos repetidos</p></div></div>
-              <div id="headerTable" class="table-wrap"></div>
-            </article>
-            <div id="detailSections"></div>
-          </div>
-
-          <div id="allPanel" class="panel">
-            <article class="result-card">
-              <div class="card-heading"><span class="number">∞</span><div><h3>Todos los campos</h3><p>Ruta completa, tipo y valor de cada dato</p></div></div>
-              <div class="filter-row"><input id="fieldFilter" type="search" placeholder="Filtrar por ruta o valor…"><span id="fieldCount"></span></div>
-              <div id="allTable" class="table-wrap"></div>
-            </article>
-          </div>
-
-          <div id="treePanel" class="panel"><article class="result-card"><div id="treeView" class="tree-view"></div></article></div>
-          <div id="jsonPanel" class="panel"><article class="result-card code-card"><button id="copyJson" class="copy-button" type="button">Copiar</button><pre id="jsonView"></pre></article></div>
         </section>
 
         <section id="errorBox" class="error-box" hidden role="alert"></section>
