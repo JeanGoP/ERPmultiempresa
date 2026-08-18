@@ -1379,7 +1379,7 @@ async function createCompanyAsSuperAdmin(event) {
     if(option)selectCompany(option);
   } catch(error) {
     elements.companyCreateError.textContent=error.message;elements.companyCreateError.hidden=false;
-  } finally {submit.disabled=false;submit.textContent='Crear y entrar a la empresa';}
+  } finally {submit.disabled=false;submit.textContent='Crear empresa operativa';}
 }
 
 async function openCompanyManager() {

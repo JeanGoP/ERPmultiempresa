@@ -1,6 +1,7 @@
 using System.Data;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
 
@@ -194,7 +195,7 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
             audit.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@EmpresaId,@UsuarioId,'EMPRESA_CREADA','core.Empresa',CONVERT(nvarchar(100),@EmpresaId),@Valores,'NexoERP.Api');";
             audit.Parameters.Add(new SqlParameter("@EmpresaId",SqlDbType.BigInt){Value=companyId});
             audit.Parameters.Add(new SqlParameter("@UsuarioId",SqlDbType.BigInt){Value=userId});
-            audit.Parameters.Add(new SqlParameter("@Valores",SqlDbType.NVarChar,-1){Value=$"Código={code}; NIT={nit}; Razón social={name}"});
+            audit.Parameters.Add(new SqlParameter("@Valores",SqlDbType.NVarChar,-1){Value=JsonSerializer.Serialize(new { codigo=code,nit,razonSocial=name,monedaFuncional=currency,zonaHoraria=timezone,marcoContable=framework })});
             await audit.ExecuteNonQueryAsync(cancellationToken);
         }
         await transaction.CommitAsync(cancellationToken);

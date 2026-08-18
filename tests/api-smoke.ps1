@@ -14,6 +14,7 @@ $outputLog=Join-Path $env:TEMP "nexo-api-$PID.out.log"
 $errorLog=Join-Path $env:TEMP "nexo-api-$PID.err.log"
 $adminPassword='ApiQa-Admin-2026!'
 $viewerPassword='ApiQa-Viewer-2026!'
+$superPassword='ApiQa-Super-2026!'
 
 function Assert-Status([scriptblock]$Request,[int]$Expected,[string]$Message) {
     try {
@@ -54,8 +55,10 @@ COMMIT;
 
     $adminSecure=ConvertTo-SecureString $adminPassword -AsPlainText -Force
     $viewerSecure=ConvertTo-SecureString $viewerPassword -AsPlainText -Force
+    $superSecure=ConvertTo-SecureString $superPassword -AsPlainText -Force
     & (Join-Path $projectRoot 'database\scripts\set-local-user.ps1') -Correo 'admin.api@qa.local' -Password $adminSecure -NombreCompleto 'Administrador API QA' -EmpresaCodigo 'APIQA' -DatabaseName $databaseName -Instance $Instance
     & (Join-Path $projectRoot 'database\scripts\set-local-user.ps1') -Correo 'consulta.api@qa.local' -Password $viewerSecure -NombreCompleto 'Consulta API QA' -EmpresaCodigo 'APIQA' -DatabaseName $databaseName -Instance $Instance
+    & (Join-Path $projectRoot 'database\scripts\set-local-user.ps1') -Correo 'super.api@qa.local' -Password $superSecure -NombreCompleto 'Superadministrador API QA' -EmpresaCodigo 'APIQA' -DatabaseName $databaseName -Instance $Instance
     $viewerSql=@"
 DECLARE @EmpresaId bigint=(SELECT EmpresaId FROM core.Empresa WHERE Codigo='APIQA');
 DECLARE @UsuarioId bigint=(SELECT UsuarioId FROM seg.Usuario WHERE Correo='consulta.api@qa.local');
@@ -65,13 +68,15 @@ IF @ViewerId IS NULL BEGIN INSERT seg.Rol(Codigo,Nombre) VALUES('API_VIEWER',N'C
 IF NOT EXISTS(SELECT 1 FROM seg.UsuarioEmpresaRol WHERE EmpresaId=@EmpresaId AND UsuarioId=@UsuarioId AND RolId=@ViewerId)
     INSERT seg.UsuarioEmpresaRol(EmpresaId,UsuarioId,RolId) VALUES(@EmpresaId,@UsuarioId,@ViewerId);
 UPDATE seg.UsuarioEmpresaRol SET Activo=0 WHERE EmpresaId=@EmpresaId AND UsuarioId=@UsuarioId AND RolId=@AdminId;
+UPDATE seg.Usuario SET EsSuperAdministrador=1 WHERE Correo='super.api@qa.local';
+DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usuario WHERE Correo='super.api@qa.local');
 "@
     & sqlcmd -S $Instance -E -b -d $databaseName -Q $viewerSql
     if($LASTEXITCODE -ne 0){ throw 'No fue posible preparar el usuario restringido.' }
     $companyId=[long]((& sqlcmd -S $Instance -E -h -1 -W -d $databaseName -Q "SET NOCOUNT ON; SELECT EmpresaId FROM core.Empresa WHERE Codigo='APIQA';") | Select-Object -First 1).Trim()
 
     $env:ConnectionStrings__NexoErp="Server=$Instance;Database=$databaseName;Integrated Security=true;TrustServerCertificate=true"
-    $apiProcess=Start-Process -FilePath 'dotnet' -ArgumentList @('run','--no-build','--project','backend/NexoERP.Api','--urls',$baseUrl) -WorkingDirectory $projectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $outputLog -RedirectStandardError $errorLog
+    $apiProcess=Start-Process -FilePath 'dotnet' -ArgumentList @('run','--no-build','--configuration','Release','--project','backend/NexoERP.Api','--urls',$baseUrl) -WorkingDirectory $projectRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $outputLog -RedirectStandardError $errorLog
     $healthy=$false
     for($attempt=0;$attempt -lt 30;$attempt++){
         Start-Sleep -Milliseconds 300
@@ -81,6 +86,14 @@ UPDATE seg.UsuarioEmpresaRol SET Activo=0 WHERE EmpresaId=@EmpresaId AND Usuario
     if($health.status -ne 'ok' -or $health.migrations -ne 38){ throw 'La salud de la API no reporto las 38 migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
+
+    $superLogin=Invoke-RestMethod -Uri "$baseUrl/api/v1/auth/login" -Method Post -ContentType 'application/json' -Body (@{correo='super.api@qa.local';password=$superPassword}|ConvertTo-Json)
+    if(-not $superLogin.esSuperAdministrador){ throw 'La API no identifico el superadministrador global.' }
+    $superHeaders=@{Authorization="Bearer $($superLogin.token)"}
+    $superCompany=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies" -Headers $superHeaders -Method Post -ContentType 'application/json' -Body (@{codigo='SUPERQA';nit='900777099';digitoVerificacion='1';razonSocial='Empresa creada por superadministrador';monedaFuncional='COP';zonaHoraria='America/Bogota';marcoContable='GRUPO_2'}|ConvertTo-Json)
+    $superAudit=[int]((& sqlcmd -S $Instance -E -h -1 -W -d $databaseName -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM audit.Evento WHERE EmpresaId=$($superCompany.empresaId) AND Operacion='EMPRESA_CREADA' AND ISJSON(ValoresPosteriores)=1;") | Select-Object -First 1).Trim()
+    $superAssignments=[int]((& sqlcmd -S $Instance -E -h -1 -W -d $databaseName -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usuario WHERE Correo='super.api@qa.local');") | Select-Object -First 1).Trim()
+    if($superCompany.codigo -ne 'SUPERQA' -or $superAudit -ne 1 -or $superAssignments -ne 0){ throw 'La creacion global de empresa no conservo auditoria JSON o asigno indebidamente el superadministrador.' }
 
     Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/inventory/balances" -Method Get } 401 'Una consulta anonima no fue rechazada.'
 

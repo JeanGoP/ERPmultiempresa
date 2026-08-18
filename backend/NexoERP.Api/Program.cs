@@ -123,8 +123,19 @@ app.MapPost("/api/v1/companies",async(CreateCompanyRequest input,HttpContext con
         return Results.ValidationProblem(new Dictionary<string,string[]> { ["empresa"]=["Código, NIT y razón social son obligatorios."] });
     if(input.Codigo.Trim().Length>20||input.Nit.Trim().Length>20||input.RazonSocial.Trim().Length>200)
         return Results.ValidationProblem(new Dictionary<string,string[]> { ["empresa"]=["Uno de los campos excede la longitud permitida."] });
-    var created=await auth.CreateCompanyAsync(Convert.ToInt64(context.Items["UsuarioId"]),input,ct);
-    return Results.Created($"/api/v1/companies/{created.EmpresaId}",created);
+    try
+    {
+        var created=await auth.CreateCompanyAsync(Convert.ToInt64(context.Items["UsuarioId"]),input,ct);
+        return Results.Created($"/api/v1/companies/{created.EmpresaId}",created);
+    }
+    catch(ArgumentException error)
+    {
+        return Results.ValidationProblem(new Dictionary<string,string[]> { ["empresa"]=[error.Message] });
+    }
+    catch(SqlException error) when(error.Number is 2601 or 2627)
+    {
+        return Results.Conflict(new { error="Ya existe una empresa con el mismo código o NIT." });
+    }
 }).RequireSuperAdministrator();
 app.MapGet("/api/v1/companies/{empresaId:long}/operations/status",async(long empresaId,ProductionOperationsRepository operations,OperationalMetrics metrics,CancellationToken ct)=>Results.Ok(new { company=await operations.GetCompanyStatusAsync(empresaId,ct),runtime=metrics.Snapshot() })).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
 app.MapGet("/api/v1/companies/{empresaId:long}/operations/alerts",async(long empresaId,ProductionOperationsRepository operations,CancellationToken ct)=>Results.Ok(await operations.GetAlertsAsync(empresaId,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");

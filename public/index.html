@@ -338,7 +338,7 @@
       <button class="company-option" type="button" data-company-id="3" data-company-name="Servicios Corporativos SAS" data-company-nit="NIT 901.800.100-4" data-company-initials="SC"><span>SC</span><strong>Servicios Corporativos SAS<small>NIT 901.800.100-4 · Empresa demo</small></strong><i>→</i></button>
     </div>
     <section id="superAdminCompanyPanel" class="super-admin-company" hidden>
-      <div class="super-admin-heading"><span>SUPERADMINISTRADOR GLOBAL</span><strong>Crear una empresa</strong><p>La compañía quedará aislada y disponible inmediatamente para su configuración inicial.</p></div>
+      <div class="super-admin-heading"><span>SUPERADMINISTRADOR GLOBAL</span><strong>Crear la primera empresa del ERP</strong><p>Esto registra una compañía operativa. No asigna la empresa al superadministrador, que continuará teniendo alcance global.</p></div>
       <form id="companyCreateForm" class="company-create-form">
         <label><span>Código</span><input name="codigo" required maxlength="20" placeholder="MONTELIBANO"></label>
         <label><span>NIT</span><input name="nit" required maxlength="20" inputmode="numeric" placeholder="900123456"></label>
@@ -347,7 +347,7 @@
         <label><span>Moneda</span><select name="monedaFuncional"><option value="COP">COP · Peso colombiano</option><option value="USD">USD · Dólar</option></select></label>
         <label><span>Marco contable</span><select name="marcoContable"><option value="GRUPO_2">Grupo 2</option><option value="GRUPO_1">Grupo 1</option><option value="GRUPO_3">Grupo 3</option></select></label>
         <p id="companyCreateError" class="login-error wide" hidden></p>
-        <button class="button primary wide" type="submit">Crear y entrar a la empresa</button>
+        <button class="button primary wide" type="submit">Crear empresa operativa</button>
       </form>
     </section>
     <p class="dialog-footnote">En modo local se muestran empresas de demostración. En modo API solo aparecen las empresas autorizadas para el usuario.</p>
