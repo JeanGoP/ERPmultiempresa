@@ -27,6 +27,8 @@ tmp/
 # Editores y sistema operativo
 .vs/
 .vscode/
+.netlify/
+deno.lock
 *.user
 *.suo
 .DS_Store

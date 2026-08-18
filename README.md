@@ -48,3 +48,17 @@ Para preparación productiva consulta el [manual operativo](docs/operations-manu
 Para usar SQL Server, selecciona `API ERP`, cierra la sesión local e ingresa con un usuario creado mediante `set-local-user.ps1`. El selector mostrará únicamente las empresas autorizadas. La homologación del XML usa los artículos reales de la empresa.
 
 Consulta [docs/implementation-status.md](docs/implementation-status.md) para el avance y los pendientes.
+
+## Despliegue del frontend en Netlify
+
+El repositorio incluye `netlify.toml`, por lo que Netlify puede desplegarlo sin configurar manualmente el comando de construcción ni el directorio de publicación.
+
+1. Importa `JeanGoP/ERPmultiempresa` desde Netlify.
+2. Selecciona la rama `main`.
+3. Conserva la configuración detectada y ejecuta el despliegue.
+
+La configuración ejecuta las validaciones JavaScript, publica `public/`, conserva las rutas de la SPA y envía `/erp-api/*` al backend alojado en `http://stecno.dyndns.org/ERP`.
+
+Después del despliegue, comprueba `https://TU-SITIO.netlify.app/erp-api/api/v1/health`. Debe responder con `status: ok`, `database: connected` y `migrations: 37`.
+
+> Seguridad pendiente: habilitar HTTPS en el backend y actualizar el destino del proxy en `netlify.toml`. La exportación a Excel no forma parte de esta configuración de Netlify.

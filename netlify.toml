@@ -1,0 +1,42 @@
+[build]
+  command = "npm run check && npm test"
+  publish = "public"
+
+[build.environment]
+  NODE_VERSION = "22.13.0"
+
+# Conserva las rutas relativas que usa el frontend y evita exponer CORS al navegador.
+[[redirects]]
+  from = "/erp-api/*"
+  to = "http://stecno.dyndns.org/ERP/:splat"
+  status = 200
+  force = true
+
+# Respaldo para navegación directa y futuras rutas de la SPA.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "no-cache, must-revalidate"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "no-cache, must-revalidate"
