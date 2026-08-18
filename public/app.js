@@ -65,7 +65,8 @@ async function apiRequest(path, options = {}) {
   if (apiToken()) headers.Authorization = `Bearer ${apiToken()}`;
   const response = await fetch(`/erp-api${path}`, { ...options, headers });
   const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(payload?.error || payload?.title || `La API respondió ${response.status}.`);
+  const validationMessage=payload?.errors?Object.values(payload.errors).flat()[0]:null;
+  if (!response.ok) throw new Error(payload?.error || validationMessage || payload?.detail || payload?.title || `La API respondió ${response.status}.`);
   return payload;
 }
 

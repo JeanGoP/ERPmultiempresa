@@ -25,6 +25,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
+const string ReleaseVersion="2026.08.17.3";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -97,7 +98,7 @@ app.MapGet("/api/v1/health", async (TenantConnectionFactory connections, Cancell
     await using var command = connection.CreateCommand();
     command.CommandText = "SELECT COUNT(*) FROM core.SchemaMigration;";
     var migrations = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
-    return Results.Ok(new { status = "ok", database = "connected", migrations });
+    return Results.Ok(new { status = "ok", database = "connected", migrations, release=ReleaseVersion });
 });
 app.MapGet("/api/v1/health/live",()=>Results.Ok(new { status="live",utc=DateTime.UtcNow }));
 app.MapGet("/api/v1/health/ready",async(ProductionOperationsRepository operations,IOptions<OutboxOptions> options,CancellationToken ct)=>
@@ -135,6 +136,11 @@ app.MapPost("/api/v1/companies",async(CreateCompanyRequest input,HttpContext con
     catch(SqlException error) when(error.Number is 2601 or 2627)
     {
         return Results.Conflict(new { error="Ya existe una empresa con el mismo código o NIT." });
+    }
+    catch(SqlException error)
+    {
+        app.Logger.LogError(error,"No fue posible crear la empresa desde el aprovisionamiento global.");
+        return Results.Json(new { error="SQL Server rechazó la creación de la empresa.",code=$"SQL-{error.Number}",release=ReleaseVersion },statusCode:StatusCodes.Status500InternalServerError);
     }
 }).RequireSuperAdministrator();
 app.MapGet("/api/v1/companies/{empresaId:long}/operations/status",async(long empresaId,ProductionOperationsRepository operations,OperationalMetrics metrics,CancellationToken ct)=>Results.Ok(new { company=await operations.GetCompanyStatusAsync(empresaId,ct),runtime=metrics.Snapshot() })).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
