@@ -170,8 +170,8 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
             command.Transaction=(SqlTransaction)transaction;
             command.CommandText="""
                 INSERT core.Empresa(Codigo,Nit,DigitoVerificacion,RazonSocial,MonedaFuncional,ZonaHoraria,MarcoContable)
-                OUTPUT inserted.EmpresaId
                 VALUES(@Codigo,@Nit,@Dv,@Nombre,@Moneda,@Zona,@Marco);
+                SELECT CONVERT(bigint,SCOPE_IDENTITY());
                 """;
             command.Parameters.Add(new SqlParameter("@Codigo",SqlDbType.NVarChar,20){Value=code});
             command.Parameters.Add(new SqlParameter("@Nit",SqlDbType.NVarChar,20){Value=nit});

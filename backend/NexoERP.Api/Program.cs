@@ -25,7 +25,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.08.17.3";
+const string ReleaseVersion="2026.08.17.4";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
