@@ -101,10 +101,38 @@ public sealed class MasterDataRepository(TenantConnectionFactory connections)
             current.Transaction=transaction;current.CommandText="SELECT Codigo FROM inv.Articulo WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId;";Add(current,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(current,"@ArticuloId",SqlDbType.BigInt,articleId);
             var value=await current.ExecuteScalarAsync(ct);if(value is null)throw new InvalidOperationException("El artículo no existe en esta empresa.");code=Convert.ToString(value)!;
         }
-        if(await HasArticleReferencesAsync(connection,transaction,articleId,ct)) throw new InvalidOperationException("No se puede eliminar el artículo porque tiene documentos, movimientos, saldos, seriales, conversiones u homologaciones relacionadas.");
+        if(await HasArticleOperationalHistoryAsync(connection,transaction,articleId,ct)) throw new InvalidOperationException("No se puede eliminar el artículo porque tiene documentos, movimientos, saldos, lotes, seriales u otro historial operativo relacionado.");
+        int removedMappings;
+        await using(var mappings=connection.CreateCommand())
+        {
+            mappings.Transaction=transaction;mappings.CommandText="DELETE comp.HomologacionArticuloProveedor WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId;";Add(mappings,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(mappings,"@ArticuloId",SqlDbType.BigInt,articleId);removedMappings=await mappings.ExecuteNonQueryAsync(ct);
+        }
+        int removedConversions;
+        await using(var conversions=connection.CreateCommand())
+        {
+            conversions.Transaction=transaction;conversions.CommandText="DELETE inv.ArticuloUnidad WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId;";Add(conversions,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(conversions,"@ArticuloId",SqlDbType.BigInt,articleId);removedConversions=await conversions.ExecuteNonQueryAsync(ct);
+        }
         await using(var command=connection.CreateCommand()){command.Transaction=transaction;command.CommandText="DELETE inv.Articulo WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId;";Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@ArticuloId",SqlDbType.BigInt,articleId);await command.ExecuteNonQueryAsync(ct);}
-        await AuditArticleAsync(connection,transaction,empresaId,actorId,"ARTICULO_ELIMINADO",articleId,new { Codigo=code },ct);
+        await AuditArticleAsync(connection,transaction,empresaId,actorId,"ARTICULO_ELIMINADO",articleId,new { Codigo=code,HomologacionesEliminadas=removedMappings,ConversionesEliminadas=removedConversions },ct);
         await transaction.CommitAsync(ct);
+    }
+
+    private static async Task<bool> HasArticleOperationalHistoryAsync(SqlConnection connection,SqlTransaction transaction,long articleId,CancellationToken ct)
+    {
+        await using var command=connection.CreateCommand();command.Transaction=transaction;
+        command.CommandText="""
+            DECLARE @Sql nvarchar(max)=N'',@HasHistory bit=0;
+            SELECT @Sql=STRING_AGG(CONVERT(nvarchar(max),N'IF EXISTS(SELECT 1 FROM '+QUOTENAME(SCHEMA_NAME(t.schema_id))+N'.'+QUOTENAME(t.name)+N' WHERE '+QUOTENAME(c.name)+N'=@ArticleId) SET @HasHistory=1;'),NCHAR(10))
+            FROM sys.tables t
+            JOIN sys.columns c ON c.object_id=t.object_id AND c.name=N'ArticuloId'
+            WHERE t.object_id<>OBJECT_ID(N'inv.Articulo')
+              AND NOT(SCHEMA_NAME(t.schema_id)=N'inv' AND t.name=N'ArticuloUnidad')
+              AND NOT(SCHEMA_NAME(t.schema_id)=N'comp' AND t.name=N'HomologacionArticuloProveedor');
+            IF NULLIF(@Sql,N'') IS NOT NULL EXEC sys.sp_executesql @Sql,N'@ArticleId bigint,@HasHistory bit OUTPUT',@ArticleId,@HasHistory OUTPUT;
+            SELECT @HasHistory;
+            """;
+        Add(command,"@ArticleId",SqlDbType.BigInt,articleId);
+        return Convert.ToBoolean(await command.ExecuteScalarAsync(ct));
     }
 
     private static async Task<bool> HasArticleReferencesAsync(SqlConnection connection,SqlTransaction transaction,long articleId,CancellationToken ct)
