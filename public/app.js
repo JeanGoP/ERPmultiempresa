@@ -1,5 +1,5 @@
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
-const state = { document: null, containerDocument: null, invoice: null, json: null, fields: [], headers: [], details: [], fileName: '', registrationMode: 'xml', manualLineSequence: 0, erpSession: null, pendingEmail: '', pendingName: '', pendingSuperAdmin: false, runtimeMode: 'api', masterView: 'suppliers', inventoryView: 'stock', inventoryData: [], advancedView: 'landed', advancedData: [], securityView: 'users', securityData: null, securityEditingUserId: null, securityEditingRoleId: null, securityPasswordUserId: null, apiContext: null, purchaseWorkflow: null, manualWorkflow: null, manualDraft: null, savedPurchaseDocuments: [], savedPurchaseDetail: null };
+const state = { document: null, containerDocument: null, invoice: null, json: null, fields: [], headers: [], details: [], fileName: '', registrationMode: 'xml', manualLineSequence: 0, erpSession: null, pendingEmail: '', pendingName: '', pendingSuperAdmin: false, runtimeMode: 'api', masterView: 'suppliers', masterEditingArticleId: null, inventoryView: 'stock', inventoryData: [], advancedView: 'landed', advancedData: [], securityView: 'users', securityData: null, securityEditingUserId: null, securityEditingRoleId: null, securityPasswordUserId: null, apiContext: null, purchaseWorkflow: null, manualWorkflow: null, manualDraft: null, savedPurchaseDocuments: [], savedPurchaseDetail: null };
 const $ = (selector) => document.querySelector(selector);
 const elements = {
   fileInput: $('#fileInput'), dropZone: $('#dropZone'), browseButton: $('#browseButton'),
@@ -26,7 +26,7 @@ const elements = {
   securityRoleDialog:$('#securityRoleDialog'),securityRoleForm:$('#securityRoleForm'),securityRolePermissions:$('#securityRolePermissions'),securityRoleError:$('#securityRoleError'),
   securityPasswordDialog:$('#securityPasswordDialog'),securityPasswordForm:$('#securityPasswordForm'),securityPasswordError:$('#securityPasswordError'),
   masterStats: $('#masterStats'), masterViewTitle: $('#masterViewTitle'), masterViewSubtitle: $('#masterViewSubtitle'),
-  masterTable: $('#masterTable'), masterSearch: $('#masterSearch'), masterCount: $('#masterCount'), addMasterRecord: $('#addMasterRecord'),
+  masterTable: $('#masterTable'), masterSearch: $('#masterSearch'), masterCount: $('#masterCount'), masterNotice: $('#masterNotice'), addMasterRecord: $('#addMasterRecord'),
   masterRecordDialog: $('#masterRecordDialog'), masterRecordForm: $('#masterRecordForm'), masterFormFields: $('#masterFormFields'), masterFormError: $('#masterFormError'), masterDialogTitle: $('#masterDialogTitle'), masterDialogSubtitle: $('#masterDialogSubtitle'),
   superAdminCompanyPanel:$('#superAdminCompanyPanel'),companyCreateForm:$('#companyCreateForm'),companyCreateError:$('#companyCreateError')
 };
@@ -281,17 +281,45 @@ function masterRows(view,data) {
   return { headers:['Proveedor','Código externo','Descripción externa','Artículo interno','Unidad','Factor'], rows:data.mappings.map(x=>[findById(data.suppliers,x.supplierId)?.name||'—',x.externalCode,x.externalDescription||'',`${findById(data.articles,x.articleId)?.code||'—'} · ${findById(data.articles,x.articleId)?.description||''}`,findById(data.units,x.unitId)?.code||'Base',x.factor]) };
 }
 
+function masterActionButton(label,action,id,danger=false) {
+  const button=document.createElement('button'); button.type='button'; button.textContent=label; button.className=`master-row-action${danger?' danger':''}`;
+  button.dataset.masterArticleAction=action; button.dataset.id=String(id); return button;
+}
+
+function renderArticleMasterTable(data,query) {
+  const articles=data.articles.filter((article)=>{
+    const unit=findById(data.units,article.unitId)?.code||'';
+    return !query||[article.code,article.description,article.type,unit,activeLabel(article.active)].join(' ').toLocaleLowerCase('es-CO').includes(query);
+  });
+  const table=document.createElement('table'); const head=document.createElement('thead');
+  head.innerHTML='<tr><th>Código</th><th>Descripción</th><th>Tipo</th><th>Unidad base</th><th>Controles</th><th>Estado</th><th>Acciones</th></tr>';
+  const body=document.createElement('tbody');
+  articles.forEach((article)=>{
+    const row=document.createElement('tr');
+    const values=[article.code,article.description,article.type,findById(data.units,article.unitId)?.code||'—',[article.inventory?'Inventario':'Sin inventario',article.serial?'Serial / motor / chasis':'',article.lot?'Lote':'',article.expiry?'Vencimiento':''].filter(Boolean).join(' · '),activeLabel(article.active)];
+    values.forEach((value)=>{const cell=document.createElement('td');cell.textContent=value;row.append(cell);});
+    const actions=document.createElement('td'); actions.className='master-row-actions'; actions.append(masterActionButton('Editar','edit',article.id),masterActionButton('Eliminar','delete',article.id,true)); row.append(actions); body.append(row);
+  });
+  if(!articles.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=7;cell.className='empty';cell.textContent='No hay artículos que coincidan con la búsqueda.';row.append(cell);body.append(row);}
+  table.append(head,body); elements.masterTable.replaceChildren(table); return articles.length;
+}
+
+function showMasterNotice(message,isError=false) {
+  elements.masterNotice.textContent=message; elements.masterNotice.classList.toggle('error',isError); elements.masterNotice.hidden=!message;
+}
+
 function renderMasterView() {
   const context=getCompanyMasterData(); const data=context.data; const config=masterViewConfig[state.masterView];
   elements.masterViewTitle.textContent=config[0]; elements.masterViewSubtitle.textContent=config[1]; elements.addMasterRecord.textContent=state.masterView==='mappings'?'＋ Nueva homologación':'＋ Nuevo registro';
   renderMasterStats(data);
-  const source=masterRows(state.masterView,data); const query=elements.masterSearch.value.trim().toLocaleLowerCase('es-CO');
-  const rows=query?source.rows.filter(row=>row.join(' ').toLocaleLowerCase('es-CO').includes(query)):source.rows;
+  const query=elements.masterSearch.value.trim().toLocaleLowerCase('es-CO');
+  if(state.masterView==='articles'){const count=renderArticleMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
+  const source=masterRows(state.masterView,data); const rows=query?source.rows.filter(row=>row.join(' ').toLocaleLowerCase('es-CO').includes(query)):source.rows;
   elements.masterTable.replaceChildren(buildDataTable(source.headers,rows)); elements.masterCount.textContent=`${rows.length} ${config[2]}`;
 }
 
 function showMasterView(view) {
-  state.masterView=view; elements.purchaseModule.hidden=true; elements.masterDataModule.hidden=false;elements.savedPurchasesModule.hidden=true;elements.inventoryModule.hidden=true;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.savedPurchasesNav.classList.remove('active');elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');
+  state.masterView=view; state.masterEditingArticleId=null; showMasterNotice(''); elements.purchaseModule.hidden=true; elements.masterDataModule.hidden=false;elements.savedPurchasesModule.hidden=true;elements.inventoryModule.hidden=true;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.savedPurchasesNav.classList.remove('active');elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');
   document.querySelector('.breadcrumb span').textContent='Maestros'; elements.breadcrumbCurrent.textContent=masterViewConfig[view][0];
   document.querySelectorAll('[data-registration-mode]').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('[data-master-view]').forEach(x=>x.classList.toggle('active',x.dataset.masterView===view));
@@ -427,14 +455,21 @@ function addMasterCheck(labelText,name,checked=false) {
   const span=document.createElement('span'); span.textContent=labelText; label.append(input,span); elements.masterFormFields.append(label); return input;
 }
 
-function openMasterForm() {
-  const data=getCompanyMasterData().data; elements.masterFormFields.replaceChildren(); elements.masterFormError.hidden=true;
-  elements.masterDialogTitle.textContent=`Nuevo: ${masterViewConfig[state.masterView][0]}`;
+function openMasterForm(article=null) {
+  const data=getCompanyMasterData().data; const editing=state.masterView==='articles'&&article?.id!=null?article:null; state.masterEditingArticleId=editing?.id||null;
+  elements.masterFormFields.replaceChildren(); elements.masterFormError.hidden=true;
+  elements.masterDialogTitle.textContent=editing?'Editar artículo':`Nuevo: ${masterViewConfig[state.masterView][0]}`;
+  elements.masterDialogSubtitle.textContent=editing?'Actualiza la información permitida del artículo.':'Completa la información requerida.';
   if(state.masterView==='suppliers') { addMasterField('Tipo de identificación','identificationType','text',[['NIT','NIT'],['CC','Cédula'],['CE','Cédula de extranjería']]); addMasterField('Número de identificación *','identification'); addMasterField('Dígito de verificación','verificationDigit','text',null,false,false); addMasterField('Razón social *','name','text',null,true); }
   else if(state.masterView==='units') { addMasterField('Código *','code'); addMasterField('Símbolo *','symbol'); addMasterField('Nombre *','name','text',null,true); }
   else if(state.masterView==='articles') { addMasterField('Código interno *','code'); addMasterField('Tipo *','type','text',[['INVENTARIO','Artículo inventariable'],['SERVICIO','Servicio'],['ACTIVO_FIJO','Activo fijo'],['CONCEPTO','Concepto de costo']]); addMasterField('Descripción *','description','text',null,true); addMasterField('Unidad base *','unitId','text',data.units.map(x=>[x.id,`${x.code} · ${x.name}`])); addMasterField('Unidad de compra','purchaseUnitId','text',[['','Igual a la unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const purchaseFactor=addMasterField('Factor a unidad base','purchaseFactor','number',null,false,false); purchaseFactor.min='0.0000000001'; purchaseFactor.step='0.0000000001'; purchaseFactor.value='1'; addMasterCheck('Maneja inventario','inventory',true); addMasterCheck('Maneja serial / motor / chasis','serial'); addMasterCheck('Maneja lote','lot'); addMasterCheck('Requiere vencimiento','expiry'); }
   else if(state.masterView==='warehouses') { addMasterField('Código *','code'); addMasterField('Nombre *','name'); addMasterCheck('Usa ubicaciones','locations'); addMasterCheck('Es bodega de tránsito','transit'); }
   else { addMasterField('Proveedor *','supplierId','text',data.suppliers.map(x=>[x.id,`${x.identification} · ${x.name}`]),true); addMasterField('Código externo *','externalCode'); addMasterField('Descripción externa','externalDescription','text',null,true,false); addMasterField('Artículo interno *','articleId','text',data.articles.map(x=>[x.id,`${x.code} · ${x.description}`]),true); addMasterField('Unidad','unitId','text',[['','Unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const factor=addMasterField('Factor a unidad base *','factor','number'); factor.min='0.0000000001'; factor.step='0.0000000001'; factor.value='1'; }
+  if(editing){
+    const values={code:editing.code,type:editing.type,description:editing.description,unitId:editing.unitId,purchaseUnitId:editing.purchaseUnitId||'',purchaseFactor:editing.purchaseFactor||1};
+    Object.entries(values).forEach(([name,value])=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].value=String(value);});
+    ['inventory','serial','lot','expiry'].forEach(name=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].checked=Boolean(editing[name]);});
+  }
   openErpDialog(elements.masterRecordDialog);
 }
 
@@ -449,15 +484,26 @@ async function saveMasterRecord(event) {
       else if(state.masterView==='articles'){path='articles';payload={codigo:values.code.trim().toUpperCase(),descripcion:values.description.trim(),tipo:values.type,unidadBaseId:Number(values.unitId),manejaInventario:values.type==='SERVICIO'?false:checkbox('inventory'),manejaLote:checkbox('lot'),manejaSerial:checkbox('serial'),requiereVencimiento:checkbox('expiry'),pesoBaseKg:null,volumenBaseM3:null};}
       else if(state.masterView==='warehouses'){path='warehouses';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),usaUbicaciones:checkbox('locations'),esTransito:checkbox('transit')};}
       else{path='item-mappings';payload={terceroId:Number(values.supplierId),codigoExterno:values.externalCode.trim(),descripcionExterna:values.externalDescription.trim()||null,articuloId:Number(values.articleId),unidadMedidaId:values.unitId?Number(values.unitId):null,factorAUnidadBase:Number(values.factor)||1};}
-      await apiRequest(`${base}/${path}`,{method:'POST',body:JSON.stringify(payload)});await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();if(state.invoice)renderInvoice();return;
+      const editingArticle=state.masterView==='articles'&&state.masterEditingArticleId; const endpoint=editingArticle?`${base}/articles/${editingArticle}`:`${base}/${path}`;
+      await apiRequest(endpoint,{method:editingArticle?'PUT':'POST',body:JSON.stringify(payload)}); state.masterEditingArticleId=null; await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice(editingArticle?'Artículo actualizado correctamente.':'Registro guardado correctamente.');if(state.invoice)renderInvoice();return;
     }
     if(state.masterView==='suppliers') { const current=data.suppliers.find(x=>x.identification===values.identification); const record={id:current?.id||masterId('sup'),identificationType:values.identificationType,identification:values.identification.trim(),verificationDigit:values.verificationDigit.trim(),name:values.name.trim(),active:true}; current?Object.assign(current,record):data.suppliers.push(record); }
     else if(state.masterView==='units') { const current=data.units.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const record={id:current?.id||masterId('unit'),code:values.code.trim().toUpperCase(),name:values.name.trim(),symbol:values.symbol.trim(),active:true}; current?Object.assign(current,record):data.units.push(record); }
-    else if(state.masterView==='articles') { const current=data.articles.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const inventory=values.type==='SERVICIO'?false:checkbox('inventory'); const record={id:current?.id||masterId('art'),code:values.code.trim().toUpperCase(),description:values.description.trim(),type:values.type,unitId:values.unitId,purchaseUnitId:values.purchaseUnitId||'',purchaseFactor:Number(values.purchaseFactor)||1,inventory,serial:checkbox('serial'),lot:checkbox('lot'),expiry:checkbox('expiry'),active:true}; current?Object.assign(current,record):data.articles.push(record); }
+    else if(state.masterView==='articles') { const editing=findById(data.articles,state.masterEditingArticleId); const normalizedCode=values.code.trim().toUpperCase(); const duplicate=data.articles.find(x=>x!==editing&&x.code.toUpperCase()===normalizedCode); if(duplicate)throw new Error('Ya existe otro artículo con ese código.'); const current=editing||data.articles.find(x=>x.code.toUpperCase()===normalizedCode); const inventory=values.type==='SERVICIO'?false:checkbox('inventory'); const record={id:current?.id||masterId('art'),code:normalizedCode,description:values.description.trim(),type:values.type,unitId:values.unitId,purchaseUnitId:values.purchaseUnitId||'',purchaseFactor:Number(values.purchaseFactor)||1,inventory,serial:checkbox('serial'),lot:checkbox('lot'),expiry:checkbox('expiry'),active:true}; current?Object.assign(current,record):data.articles.push(record); state.masterEditingArticleId=null; }
     else if(state.masterView==='warehouses') { const current=data.warehouses.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const record={id:current?.id||masterId('wh'),code:values.code.trim().toUpperCase(),name:values.name.trim(),locations:checkbox('locations'),transit:checkbox('transit'),active:true}; current?Object.assign(current,record):data.warehouses.push(record); }
     else { const current=data.mappings.find(x=>x.supplierId===values.supplierId&&x.externalCode.toUpperCase()===values.externalCode.trim().toUpperCase()); const record={id:current?.id||masterId('map'),supplierId:values.supplierId,externalCode:values.externalCode.trim(),externalDescription:values.externalDescription.trim(),articleId:values.articleId,unitId:values.unitId||findById(data.articles,values.articleId)?.unitId||'',factor:Number(values.factor)||1,active:true}; current?Object.assign(current,record):data.mappings.push(record); }
-    saveCompanyMasterData(context); closeErpDialog(elements.masterRecordDialog); renderMasterView(); if(state.invoice) renderInvoice();
+    saveCompanyMasterData(context); closeErpDialog(elements.masterRecordDialog); renderMasterView(); showMasterNotice('Registro guardado correctamente.'); if(state.invoice) renderInvoice();
   } catch(error) { elements.masterFormError.textContent=error.message||'No fue posible guardar el registro.'; elements.masterFormError.hidden=false; }
+}
+
+async function deleteMasterArticle(article) {
+  if(!article||!window.confirm(`¿Eliminar el artículo ${article.code} · ${article.description}?\n\nSolo podrá eliminarse si nunca ha sido utilizado.`))return;
+  const context=getCompanyMasterData();
+  try{
+    if(context.api){await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/articles/${article.id}`,{method:'DELETE'});await loadApiCompanyContext();}
+    else{if(context.data.mappings.some(x=>String(x.articleId)===String(article.id)))throw new Error('El artículo tiene homologaciones con proveedores y no puede eliminarse.');context.data.articles=context.data.articles.filter(x=>String(x.id)!==String(article.id));saveCompanyMasterData(context);}
+    renderMasterView();showMasterNotice(`Artículo ${article.code} eliminado correctamente.`);if(state.invoice)renderInvoice();
+  }catch(error){showMasterNotice(error.message||'No fue posible eliminar el artículo.',true);}
 }
 
 const exampleXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -1802,7 +1848,8 @@ elements.environmentForm.addEventListener('submit', (event) => {
   closeErpDialog(elements.environmentDialog);
 });
 document.querySelectorAll('[data-master-view]').forEach((button) => button.addEventListener('click', () => showMasterView(button.dataset.masterView)));
-elements.addMasterRecord.addEventListener('click', openMasterForm);
+elements.addMasterRecord.addEventListener('click',()=>openMasterForm());
+elements.masterTable.addEventListener('click',(event)=>{const button=event.target.closest('[data-master-article-action]');if(!button)return;const article=findById(getCompanyMasterData().data.articles,button.dataset.id);if(button.dataset.masterArticleAction==='edit')openMasterForm(article);else if(button.dataset.masterArticleAction==='delete')void deleteMasterArticle(article);});
 elements.masterRecordForm.addEventListener('submit', saveMasterRecord);
 elements.masterSearch.addEventListener('input', renderMasterView);
 elements.logoutButton.addEventListener('click', leaveErp);

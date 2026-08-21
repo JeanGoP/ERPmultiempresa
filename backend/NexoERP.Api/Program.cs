@@ -26,7 +26,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.08.20.4";
+const string ReleaseVersion="2026.08.21.1";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -214,6 +214,21 @@ app.MapPost("/api/v1/companies/{empresaId:long}/master-data/articles", async (lo
 {
     if(string.IsNullOrWhiteSpace(input.Codigo)||string.IsNullOrWhiteSpace(input.Descripcion)||input.UnidadBaseId<=0) return Results.ValidationProblem(new Dictionary<string,string[]> { ["articulo"]=["Código, descripción y unidad base son obligatorios."] });
     return Results.Ok(await masters.SaveArticleAsync(empresaId,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct));
+}).RequireErpPermission("MAESTROS.ARTICULO.ADMINISTRAR");
+
+app.MapPut("/api/v1/companies/{empresaId:long}/master-data/articles/{articuloId:long}",async(long empresaId,long articuloId,SaveArticleRequest input,HttpContext context,MasterDataRepository masters,CancellationToken ct)=>
+{
+    if(string.IsNullOrWhiteSpace(input.Codigo)||string.IsNullOrWhiteSpace(input.Descripcion)||input.UnidadBaseId<=0||input.Tipo is not ("INVENTARIO" or "SERVICIO" or "ACTIVO_FIJO" or "CONCEPTO")) return Results.ValidationProblem(new Dictionary<string,string[]> { ["articulo"]=["Código, descripción, tipo válido y unidad base son obligatorios."] });
+    try{return Results.Ok(await masters.UpdateArticleAsync(empresaId,articuloId,input,Convert.ToInt64(context.Items["UsuarioId"]),ct));}
+    catch(InvalidOperationException error){return Results.Conflict(new { error=error.Message });}
+    catch(SqlException error) when(error.Number is 2601 or 2627){return Results.Conflict(new { error="Ya existe otro artículo con el mismo código." });}
+}).RequireErpPermission("MAESTROS.ARTICULO.ADMINISTRAR");
+
+app.MapDelete("/api/v1/companies/{empresaId:long}/master-data/articles/{articuloId:long}",async(long empresaId,long articuloId,HttpContext context,MasterDataRepository masters,CancellationToken ct)=>
+{
+    try{await masters.DeleteArticleAsync(empresaId,articuloId,Convert.ToInt64(context.Items["UsuarioId"]),ct);return Results.NoContent();}
+    catch(InvalidOperationException error){return Results.Conflict(new { error=error.Message });}
+    catch(SqlException error) when(error.Number==547){return Results.Conflict(new { error="No se puede eliminar el artículo porque está relacionado con información del ERP." });}
 }).RequireErpPermission("MAESTROS.ARTICULO.ADMINISTRAR");
 
 app.MapPost("/api/v1/companies/{empresaId:long}/master-data/articles/{articuloId:long}/units", async (long empresaId,long articuloId,SaveArticleUnitRequest input,HttpContext context,MasterDataRepository masters,CancellationToken ct) =>

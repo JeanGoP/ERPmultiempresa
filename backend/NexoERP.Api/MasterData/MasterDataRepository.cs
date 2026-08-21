@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
 using NexoERP.Api.Inventory;
@@ -60,6 +61,77 @@ public sealed class MasterDataRepository(TenantConnectionFactory connections)
     public Task<MasterSaveResponse> SaveArticleAsync(long e,SaveArticleRequest r,CancellationToken ct)=>ExecuteSaveAsync(e,"inv.usp_GuardarArticulo",r.UsuarioId,ct,c=>{Add(c,"@Codigo",SqlDbType.NVarChar,r.Codigo,50);Add(c,"@Descripcion",SqlDbType.NVarChar,r.Descripcion,300);Add(c,"@Tipo",SqlDbType.VarChar,r.Tipo,20);Add(c,"@UnidadBaseId",SqlDbType.BigInt,r.UnidadBaseId);Add(c,"@ManejaInventario",SqlDbType.Bit,r.ManejaInventario);Add(c,"@ManejaLote",SqlDbType.Bit,r.ManejaLote);Add(c,"@ManejaSerial",SqlDbType.Bit,r.ManejaSerial);Add(c,"@RequiereVencimiento",SqlDbType.Bit,r.RequiereVencimiento);AddDecimal(c,"@PesoBaseKg",r.PesoBaseKg,20,8);AddDecimal(c,"@VolumenBaseM3",r.VolumenBaseM3,20,10);});
     public Task<MasterSaveResponse> SaveArticleUnitAsync(long e,long articleId,SaveArticleUnitRequest r,CancellationToken ct)=>ExecuteSaveAsync(e,"inv.usp_GuardarArticuloUnidad",r.UsuarioId,ct,c=>{Add(c,"@ArticuloId",SqlDbType.BigInt,articleId);Add(c,"@UnidadMedidaId",SqlDbType.BigInt,r.UnidadMedidaId);AddDecimal(c,"@FactorAUnidadBase",r.FactorAUnidadBase,20,10);Add(c,"@EsUnidadCompra",SqlDbType.Bit,r.EsUnidadCompra);Add(c,"@EsUnidadVenta",SqlDbType.Bit,r.EsUnidadVenta);});
     public Task<MasterSaveResponse> SaveMappingAsync(long e,SaveItemMappingRequest r,CancellationToken ct)=>ExecuteSaveAsync(e,"comp.usp_GuardarHomologacionArticulo",r.UsuarioId,ct,c=>{Add(c,"@TerceroId",SqlDbType.BigInt,r.TerceroId);Add(c,"@CodigoExterno",SqlDbType.NVarChar,r.CodigoExterno,80);Add(c,"@DescripcionExterna",SqlDbType.NVarChar,r.DescripcionExterna,300);Add(c,"@ArticuloId",SqlDbType.BigInt,r.ArticuloId);Add(c,"@UnidadMedidaId",SqlDbType.BigInt,r.UnidadMedidaId);AddDecimal(c,"@FactorAUnidadBase",r.FactorAUnidadBase,20,10);});
+
+    public async Task<MasterSaveResponse> UpdateArticleAsync(long empresaId,long articleId,SaveArticleRequest input,long actorId,CancellationToken ct)
+    {
+        await using var connection=await connections.OpenAsync(empresaId,false,ct);
+        await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(ct);
+        string oldType; long oldUnit; bool oldInventory; bool oldLot; bool oldSerial; bool oldExpiry;
+        await using(var current=connection.CreateCommand())
+        {
+            current.Transaction=transaction;
+            current.CommandText="SELECT Tipo,UnidadBaseId,ManejaInventario,ManejaLote,ManejaSerial,RequiereVencimiento FROM inv.Articulo WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId;";
+            Add(current,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(current,"@ArticuloId",SqlDbType.BigInt,articleId);
+            await using var reader=await current.ExecuteReaderAsync(ct);
+            if(!await reader.ReadAsync(ct)) throw new InvalidOperationException("El artículo no existe en esta empresa.");
+            oldType=reader.GetString(0);oldUnit=reader.GetInt64(1);oldInventory=reader.GetBoolean(2);oldLot=reader.GetBoolean(3);oldSerial=reader.GetBoolean(4);oldExpiry=reader.GetBoolean(5);
+        }
+        var hasReferences=await HasArticleReferencesAsync(connection,transaction,articleId,ct);
+        var changesOperationalData=oldType!=input.Tipo||oldUnit!=input.UnidadBaseId||oldInventory!=input.ManejaInventario||oldLot!=input.ManejaLote||oldSerial!=input.ManejaSerial||oldExpiry!=input.RequiereVencimiento;
+        if(hasReferences&&changesOperationalData) throw new InvalidOperationException("El artículo ya tiene relaciones o movimientos. Puedes editar su código y descripción, pero no su tipo, unidad base ni controles de inventario.");
+        await using(var command=connection.CreateCommand())
+        {
+            command.Transaction=transaction;
+            command.CommandText="UPDATE inv.Articulo SET Codigo=@Codigo,Descripcion=@Descripcion,Tipo=@Tipo,UnidadBaseId=@UnidadBaseId,ManejaInventario=@ManejaInventario,ManejaLote=@ManejaLote,ManejaSerial=@ManejaSerial,RequiereVencimiento=@RequiereVencimiento,PesoBaseKg=COALESCE(@PesoBaseKg,PesoBaseKg),VolumenBaseM3=COALESCE(@VolumenBaseM3,VolumenBaseM3) WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId;";
+            Add(command,"@Codigo",SqlDbType.NVarChar,input.Codigo.Trim().ToUpperInvariant(),50);Add(command,"@Descripcion",SqlDbType.NVarChar,input.Descripcion.Trim(),300);Add(command,"@Tipo",SqlDbType.VarChar,input.Tipo,20);Add(command,"@UnidadBaseId",SqlDbType.BigInt,input.UnidadBaseId);Add(command,"@ManejaInventario",SqlDbType.Bit,input.ManejaInventario);Add(command,"@ManejaLote",SqlDbType.Bit,input.ManejaLote);Add(command,"@ManejaSerial",SqlDbType.Bit,input.ManejaSerial);Add(command,"@RequiereVencimiento",SqlDbType.Bit,input.RequiereVencimiento);AddDecimal(command,"@PesoBaseKg",input.PesoBaseKg,20,8);AddDecimal(command,"@VolumenBaseM3",input.VolumenBaseM3,20,10);Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@ArticuloId",SqlDbType.BigInt,articleId);
+            await command.ExecuteNonQueryAsync(ct);
+        }
+        await AuditArticleAsync(connection,transaction,empresaId,actorId,"ARTICULO_ACTUALIZADO",articleId,new { input.Codigo,input.Descripcion,input.Tipo,input.UnidadBaseId,input.ManejaInventario,input.ManejaLote,input.ManejaSerial,input.RequiereVencimiento },ct);
+        await transaction.CommitAsync(ct);
+        return new(articleId,false);
+    }
+
+    public async Task DeleteArticleAsync(long empresaId,long articleId,long actorId,CancellationToken ct)
+    {
+        await using var connection=await connections.OpenAsync(empresaId,false,ct);
+        await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(ct);
+        string code;
+        await using(var current=connection.CreateCommand())
+        {
+            current.Transaction=transaction;current.CommandText="SELECT Codigo FROM inv.Articulo WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId;";Add(current,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(current,"@ArticuloId",SqlDbType.BigInt,articleId);
+            var value=await current.ExecuteScalarAsync(ct);if(value is null)throw new InvalidOperationException("El artículo no existe en esta empresa.");code=Convert.ToString(value)!;
+        }
+        if(await HasArticleReferencesAsync(connection,transaction,articleId,ct)) throw new InvalidOperationException("No se puede eliminar el artículo porque tiene documentos, movimientos, saldos, seriales, conversiones u homologaciones relacionadas.");
+        await using(var command=connection.CreateCommand()){command.Transaction=transaction;command.CommandText="DELETE inv.Articulo WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId;";Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@ArticuloId",SqlDbType.BigInt,articleId);await command.ExecuteNonQueryAsync(ct);}
+        await AuditArticleAsync(connection,transaction,empresaId,actorId,"ARTICULO_ELIMINADO",articleId,new { Codigo=code },ct);
+        await transaction.CommitAsync(ct);
+    }
+
+    private static async Task<bool> HasArticleReferencesAsync(SqlConnection connection,SqlTransaction transaction,long articleId,CancellationToken ct)
+    {
+        await using var command=connection.CreateCommand();command.Transaction=transaction;
+        command.CommandText="""
+            DECLARE @Sql nvarchar(max)=N'',@HasReferences bit=0;
+            SELECT @Sql=STRING_AGG(CONVERT(nvarchar(max),N'IF EXISTS(SELECT 1 FROM '+QUOTENAME(SCHEMA_NAME(t.schema_id))+N'.'+QUOTENAME(t.name)+N' WHERE '+QUOTENAME(c.name)+N'=@ArticleId) SET @HasReferences=1;'),NCHAR(10))
+            FROM sys.foreign_key_columns fkc
+            JOIN sys.tables t ON t.object_id=fkc.parent_object_id
+            JOIN sys.columns c ON c.object_id=fkc.parent_object_id AND c.column_id=fkc.parent_column_id
+            JOIN sys.columns referenced ON referenced.object_id=fkc.referenced_object_id AND referenced.column_id=fkc.referenced_column_id
+            WHERE fkc.referenced_object_id=OBJECT_ID(N'inv.Articulo') AND referenced.name=N'ArticuloId';
+            IF NULLIF(@Sql,N'') IS NOT NULL EXEC sys.sp_executesql @Sql,N'@ArticleId bigint,@HasReferences bit OUTPUT',@ArticleId,@HasReferences OUTPUT;
+            SELECT @HasReferences;
+            """;
+        Add(command,"@ArticleId",SqlDbType.BigInt,articleId);
+        return Convert.ToBoolean(await command.ExecuteScalarAsync(ct));
+    }
+
+    private static async Task AuditArticleAsync(SqlConnection connection,SqlTransaction transaction,long empresaId,long actorId,string operation,long articleId,object values,CancellationToken ct)
+    {
+        await using var command=connection.CreateCommand();command.Transaction=transaction;
+        command.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@EmpresaId,@Actor,@Operacion,'inv.Articulo',CONVERT(nvarchar(100),@ArticuloId),@Valores,'MAESTROS');";
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@Actor",SqlDbType.BigInt,actorId);Add(command,"@Operacion",SqlDbType.VarChar,operation,80);Add(command,"@ArticuloId",SqlDbType.BigInt,articleId);Add(command,"@Valores",SqlDbType.NVarChar,JsonSerializer.Serialize(values));
+        await command.ExecuteNonQueryAsync(ct);
+    }
 
     private async Task<MasterSaveResponse> ExecuteSaveAsync(long e,string procedure,long? userId,CancellationToken ct,Action<SqlCommand> parameters)
     {
