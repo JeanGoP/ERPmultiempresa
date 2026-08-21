@@ -26,8 +26,8 @@ INSERT @Resultado EXEC comp.usp_AsegurarArticulosDocumentoXml
 IF (SELECT COUNT(*) FROM @Resultado)<>3 THROW 51980,'Solo las líneas de inventario deben asegurar artículos.',1;
 IF (SELECT COUNT(*) FROM @Resultado WHERE ArticuloCreado=1)<>2 THROW 51981,'No se creó exactamente una moto y un artículo general.',1;
 IF (SELECT COUNT(DISTINCT ArticuloId) FROM @Resultado WHERE CodigoExterno='MOTO-EXT-01')<>1 THROW 51982,'El mismo código externo no reutilizó el artículo.',1;
-IF NOT EXISTS(SELECT 1 FROM @Resultado WHERE CodigoInterno LIKE 'MOT-%') THROW 51983,'La moto no recibió consecutivo MOT.',1;
-IF NOT EXISTS(SELECT 1 FROM @Resultado WHERE CodigoInterno LIKE 'ART-%') THROW 51984,'El artículo general no recibió consecutivo ART.',1;
+IF NOT EXISTS(SELECT 1 FROM @Resultado WHERE CodigoExterno='MOTO-EXT-01' AND CodigoInterno='MOTO-EXT-01') THROW 51983,'La moto no conservó el código del proveedor.',1;
+IF NOT EXISTS(SELECT 1 FROM @Resultado WHERE CodigoExterno='REP-EXT-01' AND CodigoInterno='REP-EXT-01') THROW 51984,'El artículo general no conservó el código del proveedor.',1;
 IF (SELECT COUNT(*) FROM comp.HomologacionArticuloProveedor WHERE EmpresaId=@EmpresaId)<>2 THROW 51985,'Las homologaciones del proveedor no quedaron guardadas.',1;
 
 DECLARE @Segundo table(NumeroLinea int,ArticuloId bigint,UnidadMedidaId bigint,CodigoExterno nvarchar(80),CodigoInterno nvarchar(50),ArticuloCreado bit);

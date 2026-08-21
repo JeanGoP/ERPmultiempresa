@@ -141,7 +141,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     $autoSecond=@{}+$autoBody;$autoSecond.numeroDocumento='FV-AUTO-ITEM-2';$autoSecond.cufeCude='CUFE-AUTO-ITEM-2';$autoSecond.xmlOriginal='<Invoice><ID>FV-AUTO-ITEM-2</ID></Invoice>';$autoSecond.documentoGuid=[guid]::NewGuid()
     $autoReused=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/supplier-documents" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body ($autoSecond|ConvertTo-Json -Depth 8)
     $articlesAfterAuto=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/master-data/articles" -Headers $adminHeaders -Method Get
-    if($autoCreated.articulosCreados -ne 1 -or $autoReused.articulosCreados -ne 0 -or -not (@($articlesAfterAuto)|Where-Object codigo -like 'MOT-*')){ throw 'La API no creó y reutilizó correctamente el artículo automático del XML.' }
+    if($autoCreated.articulosCreados -ne 1 -or $autoReused.articulosCreados -ne 0 -or -not (@($articlesAfterAuto)|Where-Object codigo -eq 'MOTO-AUTO-EXT')){ throw 'La API no creó el artículo con el código del proveedor o no lo reutilizó correctamente.' }
     $documentBody=@{
         proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-POINT4';fechaDocumento='2026-08-20';fechaVencimiento='2026-09-19';condicionPago='CREDITO';diasCredito=30;crearArticulosFaltantes=$false;moneda='COP';
         cufeCude='CUFE-POINT4-UNICO';fuente='XML_DIAN';subtotalBruto=100;descuentoTotal=10;impuestoTotal=17.1;cargoTotal=0;totalPagar=107.1;xmlOriginal='<Invoice><ID>FV-POINT4</ID></Invoice>';

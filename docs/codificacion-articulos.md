@@ -2,7 +2,9 @@
 
 ## Identidad interna
 
-El ERP asigna un código propio, consecutivo y estable por empresa:
+El ERP usa como primera opción el código informado por el proveedor en el XML. Por ejemplo, un código externo `60006485` se guarda como código interno `60006485`.
+
+Cuando el XML no informa código, el código supera la longitud permitida o entra en conflicto con otro artículo claramente diferente, el ERP asigna un consecutivo estable por empresa:
 
 - `MOT-00000001`: motocicleta u otro artículo con control por serial, motor, chasis o VIN.
 - `ART-00000001`: artículo inventariable sin control serial.
@@ -11,7 +13,7 @@ El consecutivo se administra en `core.Consecutivo`. El usuario no tiene que calc
 
 ## Código del proveedor
 
-El código informado en el XML no reemplaza el código interno. Se guarda en `comp.HomologacionArticuloProveedor` como equivalencia entre:
+El código informado en el XML se usa como código interno cuando está disponible y no presenta conflictos. También se guarda en `comp.HomologacionArticuloProveedor` como equivalencia entre:
 
 `empresa + proveedor + código externo -> artículo interno`
 
@@ -25,5 +27,5 @@ Motor, chasis, VIN y serial identifican cada unidad física. No son códigos de 
 
 - Una equivalencia escogida manualmente siempre tiene prioridad sobre la creación automática.
 - Los servicios, gastos, fletes y costos de adquisición no crean artículos de inventario.
-- Un código externo solo se reutiliza dentro del mismo proveedor y empresa. No se fusionan automáticamente referencias entre proveedores distintos.
+- Un código externo se reutiliza dentro del mismo proveedor y empresa. Entre proveedores diferentes solo se comparte el artículo si el código y la descripción coinciden; si existe un conflicto se usa un consecutivo `MOT-`/`ART-` sin fusionarlos.
 - La creación del artículo, la homologación y el documento del proveedor se ejecutan dentro de la misma transacción: si falla el guardado, no quedan artículos huérfanos.

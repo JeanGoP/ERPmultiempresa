@@ -114,7 +114,7 @@ BEGIN
         IF @CodigoExterno IS NULL
             SET @CodigoExterno=CONCAT(N'DESC-',LEFT(CONVERT(varchar(64),HASHBYTES('SHA2_256',LOWER(LTRIM(RTRIM(@Descripcion)))),2),16));
 
-        DECLARE @ArticuloId bigint=NULL,@UnidadMedidaId bigint=NULL,@CodigoInterno nvarchar(50)=NULL;
+        DECLARE @ArticuloId bigint=NULL,@UnidadMedidaId bigint=NULL,@CodigoInterno nvarchar(50)=NULL,@ArticuloCreado bit=0;
         SELECT @ArticuloId=h.ArticuloId,@UnidadMedidaId=COALESCE(h.UnidadMedidaId,a.UnidadBaseId),@CodigoInterno=a.Codigo
         FROM comp.HomologacionArticuloProveedor h WITH(UPDLOCK,HOLDLOCK)
         JOIN inv.Articulo a ON a.EmpresaId=h.EmpresaId AND a.ArticuloId=h.ArticuloId AND a.Activo=1
@@ -132,37 +132,72 @@ BEGIN
                 SET @UnidadMedidaId=SCOPE_IDENTITY();
             END;
 
-            DECLARE @TipoConsecutivo varchar(40)=CASE WHEN @ManejaSerial=1 THEN 'ARTICULO_MOTO' ELSE 'ARTICULO' END;
-            DECLARE @Prefijo nvarchar(10)=CASE WHEN @ManejaSerial=1 THEN N'MOT' ELSE N'ART' END;
-            DECLARE @Numero bigint;
-            SELECT @Numero=SiguienteNumero FROM core.Consecutivo WITH(UPDLOCK,HOLDLOCK)
-            WHERE EmpresaId=@EmpresaId AND TipoDocumento=@TipoConsecutivo;
-            IF @Numero IS NULL
+            DECLARE @CodigoProveedor nvarchar(50)=CASE
+                WHEN LEN(@CodigoExterno)<=50 AND @CodigoExterno NOT LIKE N'DESC-%' THEN @CodigoExterno
+                ELSE NULL END;
+            DECLARE @ArticuloCodigoExistenteId bigint=NULL,@DescripcionCodigoExistente nvarchar(300)=NULL;
+            IF @CodigoProveedor IS NOT NULL
             BEGIN
-                SET @Numero=1;
-                INSERT core.Consecutivo(EmpresaId,TipoDocumento,Prefijo,SiguienteNumero)
-                VALUES(@EmpresaId,@TipoConsecutivo,@Prefijo,2);
+                SELECT @ArticuloCodigoExistenteId=ArticuloId,@DescripcionCodigoExistente=Descripcion
+                FROM inv.Articulo WITH(UPDLOCK,HOLDLOCK)
+                WHERE EmpresaId=@EmpresaId AND Codigo=@CodigoProveedor AND Activo=1;
+                IF @ArticuloCodigoExistenteId IS NULL
+                    SET @CodigoInterno=@CodigoProveedor;
+                ELSE IF UPPER(LTRIM(RTRIM(@DescripcionCodigoExistente)))=UPPER(LTRIM(RTRIM(LEFT(@Descripcion,300))))
+                BEGIN
+                    SELECT @ArticuloId=ArticuloId,@UnidadMedidaId=UnidadBaseId,@CodigoInterno=Codigo
+                    FROM inv.Articulo WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloCodigoExistenteId;
+                END;
             END
+
+            IF @ArticuloId IS NULL
+            BEGIN
+                IF @CodigoInterno IS NULL
+                BEGIN
+                    DECLARE @TipoConsecutivo varchar(40)=CASE WHEN @ManejaSerial=1 THEN 'ARTICULO_MOTO' ELSE 'ARTICULO' END;
+                    DECLARE @Prefijo nvarchar(10)=CASE WHEN @ManejaSerial=1 THEN N'MOT' ELSE N'ART' END;
+                    DECLARE @Numero bigint;
+                    SELECT @Numero=SiguienteNumero FROM core.Consecutivo WITH(UPDLOCK,HOLDLOCK)
+                    WHERE EmpresaId=@EmpresaId AND TipoDocumento=@TipoConsecutivo;
+                    IF @Numero IS NULL
+                    BEGIN
+                        SET @Numero=1;
+                        INSERT core.Consecutivo(EmpresaId,TipoDocumento,Prefijo,SiguienteNumero)
+                        VALUES(@EmpresaId,@TipoConsecutivo,@Prefijo,2);
+                    END
+                    ELSE
+                        UPDATE core.Consecutivo SET SiguienteNumero=@Numero+1,Prefijo=@Prefijo
+                        WHERE EmpresaId=@EmpresaId AND TipoDocumento=@TipoConsecutivo;
+                    SET @CodigoInterno=CONCAT(@Prefijo,N'-',RIGHT(CONCAT(N'00000000',@Numero),8));
+                END;
+
+                INSERT inv.Articulo(EmpresaId,Codigo,Descripcion,Tipo,ManejaInventario,UnidadBaseId,ManejaSerial)
+                VALUES(@EmpresaId,@CodigoInterno,LEFT(@Descripcion,300),'INVENTARIO',1,@UnidadMedidaId,@ManejaSerial);
+                SET @ArticuloId=SCOPE_IDENTITY();
+                SET @ArticuloCreado=1;
+                INSERT inv.ArticuloUnidad(EmpresaId,ArticuloId,UnidadMedidaId,FactorAUnidadBase,EsUnidadCompra,EsUnidadVenta)
+                VALUES(@EmpresaId,@ArticuloId,@UnidadMedidaId,1,1,1);
+
+                INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen)
+                VALUES(@EmpresaId,@UsuarioId,'ARTICULO_CREADO_XML','inv.Articulo',CONVERT(nvarchar(100),@ArticuloId),
+                       CONCAT(N'{"codigo":"',STRING_ESCAPE(@CodigoInterno,'json'),N'","codigoProveedor":"',STRING_ESCAPE(@CodigoExterno,'json'),N'"}'),'COMPRAS');
+            END;
+
+            DECLARE @HomologacionId bigint=NULL;
+            SELECT @HomologacionId=HomologacionArticuloProveedorId
+            FROM comp.HomologacionArticuloProveedor WITH(UPDLOCK,HOLDLOCK)
+            WHERE EmpresaId=@EmpresaId AND TerceroId=@TerceroId AND CodigoExterno=@CodigoExterno;
+            IF @HomologacionId IS NULL
+                INSERT comp.HomologacionArticuloProveedor
+                    (EmpresaId,TerceroId,CodigoExterno,DescripcionExterna,ArticuloId,UnidadMedidaId,FactorAUnidadBase,CreadoPorUsuarioId)
+                VALUES(@EmpresaId,@TerceroId,@CodigoExterno,LEFT(@Descripcion,300),@ArticuloId,@UnidadMedidaId,1,@UsuarioId);
             ELSE
-                UPDATE core.Consecutivo SET SiguienteNumero=@Numero+1,Prefijo=@Prefijo
-                WHERE EmpresaId=@EmpresaId AND TipoDocumento=@TipoConsecutivo;
+                UPDATE comp.HomologacionArticuloProveedor
+                SET DescripcionExterna=LEFT(@Descripcion,300),ArticuloId=@ArticuloId,UnidadMedidaId=@UnidadMedidaId,
+                    FactorAUnidadBase=1,Activa=1,ActualizadoEnUtc=SYSUTCDATETIME()
+                WHERE EmpresaId=@EmpresaId AND HomologacionArticuloProveedorId=@HomologacionId;
 
-            SET @CodigoInterno=CONCAT(@Prefijo,N'-',RIGHT(CONCAT(N'00000000',@Numero),8));
-            INSERT inv.Articulo(EmpresaId,Codigo,Descripcion,Tipo,ManejaInventario,UnidadBaseId,ManejaSerial)
-            VALUES(@EmpresaId,@CodigoInterno,LEFT(@Descripcion,300),'INVENTARIO',1,@UnidadMedidaId,@ManejaSerial);
-            SET @ArticuloId=SCOPE_IDENTITY();
-            INSERT inv.ArticuloUnidad(EmpresaId,ArticuloId,UnidadMedidaId,FactorAUnidadBase,EsUnidadCompra,EsUnidadVenta)
-            VALUES(@EmpresaId,@ArticuloId,@UnidadMedidaId,1,1,1);
-
-            INSERT comp.HomologacionArticuloProveedor
-                (EmpresaId,TerceroId,CodigoExterno,DescripcionExterna,ArticuloId,UnidadMedidaId,FactorAUnidadBase,CreadoPorUsuarioId)
-            VALUES(@EmpresaId,@TerceroId,@CodigoExterno,LEFT(@Descripcion,300),@ArticuloId,@UnidadMedidaId,1,@UsuarioId);
-
-            INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen)
-            VALUES(@EmpresaId,@UsuarioId,'ARTICULO_CREADO_XML','inv.Articulo',CONVERT(nvarchar(100),@ArticuloId),
-                   CONCAT(N'{"codigo":"',STRING_ESCAPE(@CodigoInterno,'json'),N'","codigoProveedor":"',STRING_ESCAPE(@CodigoExterno,'json'),N'"}'),'COMPRAS');
-
-            UPDATE @Lineas SET ArticuloCreado=1 WHERE NumeroLinea=@NumeroLinea;
+            UPDATE @Lineas SET ArticuloCreado=@ArticuloCreado WHERE NumeroLinea=@NumeroLinea;
         END;
 
         UPDATE @Lineas SET ArticuloId=@ArticuloId,UnidadMedidaId=@UnidadMedidaId,CodigoExterno=@CodigoExterno,CodigoInterno=@CodigoInterno
