@@ -394,16 +394,111 @@ function propertyValue(properties, aliases) {
   const match = properties.find((property) => property.value && aliases.some((alias) => normalizePropertyName(property.name).includes(alias)));
   return match?.value || '';
 }
-function extractMotoSerials(properties) {
-  return properties.filter((property) => normalizePropertyName(property.name) === 'informacionmoto' && property.value).map((property, index) => {
+function propertyNameMatches(property, aliases) {
+  const name = normalizePropertyName(property.name);
+  return aliases.some((alias) => name.includes(alias));
+}
+function splitIdentifierValues(value) {
+  return String(value || '').split(/[|,\r\n]+/).map((part) => part.trim()).filter(Boolean);
+}
+function extractMotoSerials(properties, itemNode) {
+  const found = [];
+  const add = (serial) => {
+    const normalized = {
+      serial: String(serial.serial || '').trim(), motor: String(serial.motor || '').trim(), chassis: String(serial.chassis || '').trim(),
+      vin: String(serial.vin || '').trim(), color: String(serial.color || '').trim(), technical: String(serial.technical || '').trim(),
+      model: String(serial.model || '').trim(), raw: String(serial.raw || '').trim(),
+    };
+    if (!normalized.serial && !normalized.motor && !normalized.chassis && !normalized.vin) return;
+    const key = [normalized.serial, normalized.motor, normalized.chassis, normalized.vin].map((value) => value.toUpperCase()).join('|');
+    if (!found.some((item) => item.key === key)) found.push({ key, ...normalized });
+  };
+
+  properties.filter((property) => normalizePropertyName(property.name) === 'informacionmoto' && property.value).forEach((property) => {
     const [color = '', chassis = '', motor = '', technical = '', model = ''] = property.value.split(';').map((value) => value.trim());
-    return { number: index + 1, color, chassis, motor, technical, model, raw: property.value };
-  }).filter((serial) => serial.motor || serial.chassis);
+    add({ color, chassis, motor, technical, model, raw: property.value });
+  });
+
+  const combined = properties.filter((property) => {
+    const name = normalizePropertyName(property.name);
+    return property.value && (name.includes('motor') || name.includes('engine')) && (name.includes('chasis') || name.includes('chassis') || name.includes('vin') || name.includes('bastidor'));
+  });
+  combined.forEach((property) => {
+    const parts = property.value.split(/\s*\/\s*/).map((value) => value.trim()).filter(Boolean);
+    if (parts.length >= 2) add({ chassis: parts[0], motor: parts.slice(1).join('/'), raw: property.value });
+  });
+
+  const standalone = properties.filter((property) => !combined.includes(property) && normalizePropertyName(property.name) !== 'informacionmoto');
+  const valuesFor = (aliases) => standalone.filter((property) => property.value && propertyNameMatches(property, aliases)).flatMap((property) => splitIdentifierValues(property.value));
+  const chassisValues = valuesFor(['chasis', 'chassis', 'bastidor']);
+  const vinValues = valuesFor(['vin']);
+  const motorValues = valuesFor(['motor', 'engine']);
+  const serialValues = valuesFor(['numeroserie', 'serialnumber', 'serial']);
+  const colorValues = valuesFor(['color']);
+  const modelValues = valuesFor(['modelo', 'model']);
+  const count = Math.max(chassisValues.length, vinValues.length, motorValues.length, serialValues.length, colorValues.length, modelValues.length);
+  for (let index = 0; index < count; index += 1) {
+    const vin = vinValues[index] || '';
+    add({ serial: serialValues[index], motor: motorValues[index], chassis: chassisValues[index], vin, color: colorValues[index], model: modelValues[index], raw: standalone.map((property) => `${property.name}=${property.value}`).join('; ') });
+  }
+
+  descendantsByLocal(itemNode, 'ItemInstance').forEach((instance) => {
+    const serial = firstDescendantText(instance, 'SerialID', 'LotNumberID');
+    if (serial) add({ serial, raw: serial });
+  });
+  return found.map(({ key, ...serial }, index) => ({ number: index + 1, ...serial }));
 }
 function joinUnique(values) { return [...new Set(values.filter(Boolean))].join(' | '); }
 function identifierInDescription(description, labelPattern) {
   const match = String(description || '').match(new RegExp(`\\b(?:${labelPattern})\\s*(?:n(?:o|umero)?\\.?\\s*)?[:#-]?\\s*([A-Z0-9][A-Z0-9.-]{3,})`, 'i'));
   return match?.[1] || '';
+}
+
+const retentionTaxCodes = new Set(['05', '06', '07']);
+const taxNamesByCode = { '01': 'IVA', '03': 'ICA', '04': 'INC', '05': 'ReteIVA', '06': 'Retención en la fuente', '07': 'ReteICA' };
+function isRetentionTax(code, name, totalName = '') {
+  return totalName === 'WithholdingTaxTotal' || retentionTaxCodes.has(String(code || '').trim()) || /rete|retenci|withhold/i.test(String(name || ''));
+}
+function extractTaxComponents(parent, totalName) {
+  return childrenByLocal(parent, totalName).flatMap((total) => {
+    const subtotals = childrenByLocal(total, 'TaxSubtotal');
+    if (!subtotals.length) {
+      const amount = numeric(textAt(total, ['TaxAmount']));
+      return amount === null ? [] : [{ code: '', name: totalName === 'WithholdingTaxTotal' ? 'Retención' : 'Impuesto', rate: null, taxableAmount: null, amount, retention: totalName === 'WithholdingTaxTotal' }];
+    }
+    return subtotals.map((subtotal) => {
+      const category = childByLocal(subtotal, 'TaxCategory') || subtotal;
+      const scheme = childByLocal(category, 'TaxScheme') || category;
+      const code = textAt(scheme, ['ID']);
+      const rawName = textAt(scheme, ['Name']);
+      const name = rawName || taxNamesByCode[code] || (totalName === 'WithholdingTaxTotal' ? 'Retención' : 'Impuesto');
+      return {
+        code, name, rate: numeric(textAt(category, ['Percent']) || firstDescendantText(subtotal, 'Percent')),
+        taxableAmount: numeric(textAt(subtotal, ['TaxableAmount'])), amount: numeric(textAt(subtotal, ['TaxAmount'])),
+        retention: isRetentionTax(code, name, totalName),
+      };
+    });
+  });
+}
+function extractCustomRetentions(root) {
+  const values = new Map();
+  let generalTotal = null;
+  descendantsByLocal(root, 'CustomField').forEach((field) => {
+    const name = field.getAttribute?.('Name') || firstDescendantText(field, 'Name');
+    const value = numeric(field.getAttribute?.('Value') || firstDescendantText(field, 'Value'));
+    if (value === null || value <= 0) return;
+    const normalized = normalizePropertyName(name);
+    if (normalized.includes('totalretenciones')) { generalTotal = Math.max(generalTotal || 0, value); return; }
+    const definition = normalized.includes('retefuente') ? ['06', 'Retención en la fuente']
+      : normalized.includes('reteiva') ? ['05', 'ReteIVA']
+        : normalized.includes('reteica') ? ['07', 'ReteICA'] : null;
+    if (!definition) return;
+    const [code, label] = definition;
+    values.set(code, { code, name: label, rate: null, taxableAmount: null, amount: Math.max(values.get(code)?.amount || 0, value), retention: true });
+  });
+  const result = [...values.values()];
+  if (!result.length && generalTotal) result.push({ code: '', name: 'Retenciones', rate: null, taxableAmount: null, amount: generalTotal, retention: true });
+  return result;
 }
 
 function inferLineClassification(description) {
@@ -465,11 +560,13 @@ function extractInvoiceData(documentNode) {
     const description = firstDescendantText(itemNode, 'Description', 'Name');
     const code = firstDescendantText(nodeAt(itemNode, ['SellersItemIdentification']) || nodeAt(itemNode, ['StandardItemIdentification']) || itemNode, 'ID');
     const properties = extractItemProperties(itemNode);
-    const serials = extractMotoSerials(properties);
+    let serials = extractMotoSerials(properties, itemNode);
     const motor = joinUnique(serials.map((serial) => serial.motor)) || propertyValue(properties.filter((property) => normalizePropertyName(property.name) !== 'informacionmoto'), ['motor', 'engine']) || identifierInDescription(description, 'motor|engine');
-    const chassis = joinUnique(serials.map((serial) => serial.chassis)) || propertyValue(properties.filter((property) => normalizePropertyName(property.name) !== 'informacionmoto'), ['chasis', 'chassis', 'vin', 'bastidor'])
+    const chassis = joinUnique(serials.map((serial) => serial.chassis || serial.vin)) || propertyValue(properties.filter((property) => normalizePropertyName(property.name) !== 'informacionmoto'), ['chasis', 'chassis', 'vin', 'bastidor'])
       || firstDescendantText(nodeAt(itemNode, ['ItemInstance']), 'SerialID')
       || identifierInDescription(description, 'chasis|chassis|vin|bastidor');
+    if (!serials.length && (motor || chassis)) serials = [{ number: 1, serial: '', motor, chassis, vin: '', color: '', technical: '', model: '', raw: description }];
+    const lineTaxComponents = [...extractTaxComponents(line, 'TaxTotal'), ...extractTaxComponents(line, 'WithholdingTaxTotal')];
     const quantity = numeric(quantityNode ? directText(quantityNode) : '');
     const unitPrice = numeric(textAt(priceNode, ['PriceAmount']));
     const lineTotal = numeric(textAt(line, ['LineExtensionAmount']));
@@ -484,20 +581,27 @@ function extractInvoiceData(documentNode) {
       quantity,
       unit: quantityNode?.getAttribute('unitCode') || '',
       unitPrice, grossTotal, discount, discountRate, surcharge, lineTotal,
-      tax: numeric(firstDescendantText(childByLocal(line, 'TaxTotal'), 'TaxAmount')),
+      tax: lineTaxComponents.filter((component) => !component.retention).reduce((sum, component) => sum + (component.amount || 0), 0),
+      retention: lineTaxComponents.filter((component) => component.retention).reduce((sum, component) => sum + (component.amount || 0), 0),
     };
   });
-  const taxes = [];
-  childrenByLocal(root, 'TaxTotal').forEach((total) => {
-    const subtotals = childrenByLocal(total, 'TaxSubtotal');
-    if (!subtotals.length) taxes.push({ name: 'Impuesto', rate: null, taxableAmount: null, amount: numeric(textAt(total, ['TaxAmount'])) });
-    subtotals.forEach((subtotal) => taxes.push({
-      name: firstDescendantText(subtotal, 'Name', 'ID') || 'Impuesto',
-      rate: numeric(firstDescendantText(subtotal, 'Percent')),
-      taxableAmount: numeric(firstDescendantText(subtotal, 'TaxableAmount')),
-      amount: numeric(firstDescendantText(subtotal, 'TaxAmount')),
-    }));
-  });
+  const rootTaxComponents = [...extractTaxComponents(root, 'TaxTotal'), ...extractTaxComponents(root, 'WithholdingTaxTotal')];
+  const taxes = rootTaxComponents.filter((component) => !component.retention);
+  const standardRetentions = rootTaxComponents.filter((component) => component.retention && (component.amount || 0) > 0);
+  const retentions = standardRetentions.length ? standardRetentions : extractCustomRetentions(root);
+  const retentionTotal = retentions.reduce((sum, retention) => sum + (retention.amount || 0), 0);
+  const explicitLineRetention = items.reduce((sum, item) => sum + (item.retention || 0), 0);
+  const pendingRetention = Math.max(retentionTotal - explicitLineRetention, 0);
+  if (pendingRetention > 0 && items.length) {
+    const bases = items.map((item) => Math.max(item.lineTotal || item.grossTotal || 0, 0));
+    const totalBase = bases.reduce((sum, base) => sum + base, 0);
+    let allocated = 0;
+    items.forEach((item, index) => {
+      const share = index === items.length - 1 ? pendingRetention - allocated : (totalBase > 0 ? pendingRetention * bases[index] / totalBase : pendingRetention / items.length);
+      item.retention = (item.retention || 0) + share;
+      allocated += share;
+    });
+  }
   const charges = childrenByLocal(root, 'AllowanceCharge').filter((charge) => /^true$/i.test(textAt(charge, ['ChargeIndicator']))).map((charge) => {
     const reason = textAt(charge, ['AllowanceChargeReason']) || textAt(charge, ['AllowanceChargeReasonCode']) || 'Cargo';
     return { reason, amount: numeric(textAt(charge, ['Amount'])), baseAmount: numeric(textAt(charge, ['BaseAmount'])), isFreight: /flete|freight|transporte|env[ií]o/i.test(reason) };
@@ -532,8 +636,9 @@ function extractInvoiceData(documentNode) {
       otherCharges,
       payable: numeric(textAt(monetary, ['PayableAmount'])),
       freight,
+      retentions: retentionTotal,
     },
-    taxes, charges, items,
+    taxes, retentions, charges, items,
   };
 }
 function inferType(value) {
@@ -792,7 +897,7 @@ function buildInvoiceClassificationTable(invoice) {
   if (!invoice.items.length) return emptyMessage('No se encontraron líneas en la factura.');
   const table = document.createElement('table');
   table.className = 'classification-table';
-  const headers = ['Clasificación', 'Línea', 'Código', 'Descripción', 'Cantidad', 'Unidad', 'Precio unitario', 'Subtotal bruto', 'Descuento', 'Descuento %', 'Impuesto', 'Total neto'];
+  const headers = ['Clasificación', 'Línea', 'Código', 'Descripción', 'Cantidad', 'Unidad', 'Precio unitario', 'Subtotal bruto', 'Descuento', 'Descuento %', 'Impuesto', 'Retención', 'Total neto'];
   const head = table.createTHead().insertRow();
   headers.forEach((header) => { const th = document.createElement('th'); th.textContent = header; head.append(th); });
   const body = table.createTBody();
@@ -814,7 +919,7 @@ function buildInvoiceClassificationTable(invoice) {
       renderInvoice();
     });
     classificationCell.append(select);
-    [item.line, item.code, item.description, item.quantity, item.unit, formatCurrency(item.unitPrice, invoice.currency), formatCurrency(item.grossTotal, invoice.currency), formatCurrency(item.discount, invoice.currency), formatPercentage(item.discountRate), formatCurrency(item.tax, invoice.currency), formatCurrency(item.lineTotal, invoice.currency)]
+    [item.line, item.code, item.description, item.quantity, item.unit, formatCurrency(item.unitPrice, invoice.currency), formatCurrency(item.grossTotal, invoice.currency), formatCurrency(item.discount, invoice.currency), formatPercentage(item.discountRate), formatCurrency(item.tax, invoice.currency), formatCurrency(item.retention, invoice.currency), formatCurrency(item.lineTotal, invoice.currency)]
       .forEach((value) => { const cell = row.insertCell(); cell.textContent = value ?? ''; });
   });
   return table;
@@ -832,9 +937,9 @@ function buildSupplierDocumentPayload(invoice) {
       clasificacion:classification[item.classification],cantidad:item.quantity||1,unidadMedidaId:mapping?.unitId||findById(getCompanyMasterData().data.articles,mapping?.articleId)?.unitId||null,
       factorAUnidadBase:mapping?.factor||1,precioUnitario:item.unitPrice||0,subtotalBruto:item.grossTotal??item.lineTotal??0,descuento:item.discount||0,
       impuesto:item.tax||0,cargo:item.surcharge||0,totalNeto:item.lineTotal??Math.max((item.grossTotal||0)-(item.discount||0)+(item.surcharge||0),0),
-      retencion:0,
+      retencion:item.retention||0,
       numeroLote:null,fechaVencimiento:null,
-      seriales:serials.map((serial,serialIndex)=>({numeroUnidad:serial.number||serialIndex+1,serial:null,motor:serial.motor||null,chasis:serial.chassis||null,vin:null,color:serial.color||null,modelo:serial.model||null,informacionOriginal:serial.raw||null})),
+      seriales:serials.map((serial,serialIndex)=>({numeroUnidad:serial.number||serialIndex+1,serial:serial.serial||null,motor:serial.motor||null,chasis:serial.chassis||null,vin:serial.vin||null,color:serial.color||null,modelo:serial.model||null,informacionOriginal:serial.raw||null})),
     };
   });
   const taxTotal=invoice.taxes.reduce((sum,tax)=>sum+(tax.amount||0),0); const lineCharges=invoice.items.reduce((sum,item)=>sum+(item.surcharge||0),0);
@@ -909,10 +1014,11 @@ function renderInvoice() {
   });
 
   const taxTotal = invoice.taxes.reduce((sum, tax) => sum + (tax.amount || 0), 0);
+  const retentionTotal = invoice.retentions.reduce((sum, retention) => sum + (retention.amount || 0), 0);
   const amounts = document.createElement('div'); amounts.className = 'amount-grid';
   const amountData = [
     ['Subtotal bruto', invoice.totals.grossSubtotal], ['Descuentos', invoice.totals.allowances], ['Subtotal neto', invoice.totals.cost],
-    ['Impuestos', taxTotal], ['Fletes detectados', invoice.totals.freight], ['Otros cargos', invoice.totals.otherCharges], ['Total a pagar', invoice.totals.payable],
+    ['Impuestos', taxTotal], ...(retentionTotal > 0 ? [['Retenciones', retentionTotal]] : []), ['Fletes detectados', invoice.totals.freight], ['Otros cargos', invoice.totals.otherCharges], ['Total a pagar', invoice.totals.payable],
   ];
   amountData.forEach(([label, value], index) => {
     const card = document.createElement('div'); card.className = `amount-card${index === amountData.length - 1 ? ' total' : ''}`;
@@ -922,11 +1028,12 @@ function renderInvoice() {
   });
 
   const items = invoiceCard('Clasificación de artículos y servicios', `${invoice.items.length} líneas encontradas · revisa la propuesta antes de continuar`, buildInvoiceClassificationTable(invoice), 'invoice-table-card articles-card');
-  const serialRows = invoice.items.flatMap((item) => item.serials.map((serial) => [item.line, item.code, serial.number, item.description, serial.motor, serial.chassis, serial.color, serial.model]));
-  const serials = serialRows.length ? invoiceCard('Seriales de motos', `${serialRows.length} motos identificadas`, buildDataTable(['Línea', 'Código', 'Moto #', 'Descripción', 'Motor', 'Chasis / VIN', 'Color', 'Modelo'], serialRows), 'invoice-table-card serials-card') : null;
+  const serialRows = invoice.items.flatMap((item) => item.serials.map((serial) => [item.line, item.code, serial.number, item.description, serial.motor, serial.chassis, serial.vin, serial.color, serial.model]));
+  const serials = serialRows.length ? invoiceCard('Seriales de motos', `${serialRows.length} motos identificadas`, buildDataTable(['Línea', 'Código', 'Moto #', 'Descripción', 'Motor', 'Chasis', 'VIN', 'Color', 'Modelo'], serialRows), 'invoice-table-card serials-card') : null;
   const taxes = invoiceCard('Impuestos', `${invoice.taxes.length} conceptos encontrados`, buildDataTable(['Impuesto', 'Tarifa %', 'Base', 'Valor'], invoice.taxes.map((tax) => [tax.name, tax.rate, formatCurrency(tax.taxableAmount, invoice.currency), formatCurrency(tax.amount, invoice.currency)])));
+  const retentions = invoiceCard('Retenciones', invoice.retentions.length ? `${invoice.retentions.length} conceptos encontrados` : 'No se encontraron retenciones en el XML', invoice.retentions.length ? buildDataTable(['Retención', 'Tarifa %', 'Base', 'Valor'], invoice.retentions.map((retention) => [retention.name, retention.rate, formatCurrency(retention.taxableAmount, invoice.currency), formatCurrency(retention.amount, invoice.currency)])) : emptyMessage('Este XML no informa retenciones.'));
   const charges = invoiceCard('Fletes y otros cargos', `${invoice.charges.length} cargos encontrados`, buildDataTable(['Concepto', 'Base', 'Valor', 'Clasificación'], invoice.charges.map((charge) => [charge.reason, formatCurrency(charge.baseAmount, invoice.currency), formatCurrency(charge.amount, invoice.currency), charge.isFreight ? 'Flete' : 'Otro cargo'])));
-  const support = document.createElement('div'); support.className = 'invoice-support-grid'; support.append(taxes, charges);
+  const support = document.createElement('div'); support.className = 'invoice-support-grid'; support.append(taxes, retentions, charges);
   elements.invoicePanel.append(hero, meta, amounts, invoiceOperationalSummary(invoice), buildHomologationPanel(invoice), buildPurchaseWorkflowPanel(invoice));
   if (serials) elements.invoicePanel.append(serials);
   elements.invoicePanel.append(items, support);
