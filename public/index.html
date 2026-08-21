@@ -55,11 +55,12 @@
         <button class="nav-item muted" type="button" disabled><span class="nav-icon">⌂</span>Inicio</button>
         <p class="nav-label">OPERACIÓN</p>
         <details class="nav-group" data-nav-group="purchases" open>
-          <summary class="nav-item parent"><span class="nav-icon">▤</span><span>Compras</span><span class="nav-count">3</span><span class="chevron">⌄</span></summary>
+          <summary class="nav-item parent"><span class="nav-icon">▤</span><span>Compras</span><span class="nav-count">4</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
             <button class="nav-subitem active" type="button" data-registration-mode="xml">Entrada automática</button>
             <button class="nav-subitem" type="button" data-registration-mode="goods">Entrada manual</button>
             <button class="nav-subitem" type="button" data-registration-mode="services">Causar servicios</button>
+            <button id="savedPurchasesNav" class="nav-subitem" type="button">Entradas guardadas</button>
             <span class="nav-subitem muted">Órdenes de compra <small>Próximamente</small></span>
           </div>
         </details>
@@ -137,6 +138,24 @@
             <div id="masterTable" class="table-wrap master-table"></div>
           </section>
           <div class="master-scope-note"><strong>Preparación para la API</strong><span>Los catálogos de esta pantalla se guardan localmente y separados por empresa. La estructura SQL y los endpoints reales ya están preparados para la conexión gradual.</span></div>
+        </section>
+
+        <section id="savedPurchasesModule" class="saved-purchases-module" hidden>
+          <section class="module-heading saved-purchases-heading">
+            <div><p class="eyebrow">COMPRAS · TRAZABILIDAD</p><h1>Entradas<br>guardadas</h1><p class="lede">Consulta borradores y entradas contabilizadas, abre su detalle y revisa inmediatamente los seriales de cada moto.</p></div>
+            <div class="module-state ready"><span></span><div><small>REGISTROS EN SQL SERVER</small><strong id="savedPurchasesStatus">Consulta disponible</strong></div></div>
+          </section>
+          <div id="savedPurchasesStats" class="inventory-stats"></div>
+          <section class="saved-purchases-workspace">
+            <div class="saved-purchases-toolbar">
+              <label><span>Buscar</span><input id="savedPurchasesSearch" type="search" placeholder="Factura, proveedor, NIT, motor, chasis o VIN"></label>
+              <label><span>Estado</span><select id="savedPurchasesState"><option value="">Todos</option><option value="BORRADOR">Borrador</option><option value="VALIDADO">Preparado</option><option value="CONTABILIZADO">Contabilizado</option><option value="RECHAZADO">Anulado</option></select></label>
+              <button id="refreshSavedPurchases" class="button primary" type="button">Actualizar</button>
+            </div>
+            <div id="savedPurchasesNotice" class="inventory-notice" hidden></div>
+            <div id="savedPurchasesTable" class="table-wrap saved-purchases-table"></div>
+          </section>
+          <section id="savedPurchaseDetail" class="saved-purchase-detail" hidden></section>
         </section>
 
         <section id="inventoryModule" class="inventory-module" hidden>
@@ -291,7 +310,10 @@
 
             <div class="manual-form-actions">
               <p id="manualFormStatus">El documento se guardará como borrador local.</p>
-              <button class="button primary large" type="submit">Revisar y guardar borrador <span>→</span></button>
+              <div class="manual-submit-actions">
+                <button id="manualDraftButton" class="button secondary" type="submit" name="intent" value="draft">Guardar solo como borrador</button>
+                <button id="manualPostButton" class="button primary large" type="submit" name="intent" value="post">Guardar y contabilizar entrada <span>→</span></button>
+              </div>
             </div>
           </form>
         </section>

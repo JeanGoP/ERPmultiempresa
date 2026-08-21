@@ -26,7 +26,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.08.20.3";
+const string ReleaseVersion="2026.08.20.4";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -337,11 +337,26 @@ app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents", async (long
     }
 }).RequireErpPermission("COMPRAS.DOCUMENTO.CREAR");
 
+app.MapGet("/api/v1/companies/{empresaId:long}/supplier-documents",async(long empresaId,string? q,string? estado,PurchasingRepository purchasing,CancellationToken cancellationToken)=>
+    Results.Ok(await purchasing.GetDocumentsAsync(empresaId,q,estado,cancellationToken)));
+
 app.MapGet("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:long}", async (long empresaId,long documentoId,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
 {
     var result=await purchasing.GetWorkflowAsync(empresaId,documentoId,cancellationToken);
     return result is null?Results.NotFound():Results.Ok(result);
 });
+
+app.MapGet("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:long}/detail",async(long empresaId,long documentoId,PurchasingRepository purchasing,CancellationToken cancellationToken)=>
+{
+    var result=await purchasing.GetDocumentDetailAsync(empresaId,documentoId,cancellationToken);
+    return result is null?Results.NotFound():Results.Ok(result);
+});
+
+app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:long}/reject",async(long empresaId,long documentoId,HttpContext context,PurchasingRepository purchasing,CancellationToken cancellationToken)=>
+{
+    try{return Results.Ok(await purchasing.RejectDocumentAsync(empresaId,documentoId,Convert.ToInt64(context.Items["UsuarioId"]),cancellationToken));}
+    catch(SqlException error) when(error.Number is >=51340 and <=51349){return Results.Conflict(new{error=error.Message,code=error.Number});}
+}).RequireErpPermission("COMPRAS.DOCUMENTO.CREAR");
 
 app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:long}/prepare", async (long empresaId, long documentoId, PrepareSupplierDocumentRequest input, HttpContext context, PurchasingRepository purchasing, CancellationToken cancellationToken) =>
 {

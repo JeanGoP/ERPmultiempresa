@@ -57,6 +57,26 @@ public sealed record CreateSupplierDocumentRequest(
 
 public sealed record SupplierDocumentResponse(long DocumentoProveedorId, bool YaExistia, int ArticulosCreados);
 
+public sealed record SupplierDocumentListItemResponse(
+    long DocumentoProveedorId,string Estado,string TipoDocumento,string NumeroDocumento,string Proveedor,
+    string ProveedorIdentificacion,DateOnly FechaDocumento,DateOnly? FechaVencimiento,string CondicionPago,string Moneda,
+    decimal TotalPagar,int Lineas,int UnidadesSerializadas,string Fuente,DateTime CreadoEnUtc,
+    long? RecepcionMercanciaId,string? RecepcionEstado,string? Bodega);
+
+public sealed record SupplierDocumentSerialDetailResponse(
+    int NumeroUnidad,string? Serial,string? Motor,string? Chasis,string? Vin,string? Color,string? Modelo,string? InformacionOriginal);
+
+public sealed record SupplierDocumentLineDetailResponse(
+    long DocumentoProveedorLineaId,int NumeroLinea,long? ArticuloId,string? CodigoArticulo,string? CodigoExterno,
+    string Descripcion,string Clasificacion,decimal Cantidad,string? Unidad,decimal PrecioUnitario,decimal SubtotalBruto,
+    decimal Descuento,decimal Impuesto,decimal Retencion,decimal Cargo,decimal TotalNeto,
+    IReadOnlyList<SupplierDocumentSerialDetailResponse> Seriales);
+
+public sealed record SupplierDocumentDetailResponse(
+    SupplierDocumentWorkflowResponse Documento,IReadOnlyList<SupplierDocumentLineDetailResponse> Lineas);
+
+public sealed record RejectSupplierDocumentResponse(long DocumentoProveedorId,string Estado,bool YaExistia);
+
 public sealed record SupplierDocumentWorkflowResponse(
     long DocumentoProveedorId,string Estado,string TipoDocumento,string NumeroDocumento,string Proveedor,
     string ProveedorIdentificacion,DateOnly FechaDocumento,DateOnly? FechaVencimiento,string CondicionPago,int DiasCredito,string Moneda,

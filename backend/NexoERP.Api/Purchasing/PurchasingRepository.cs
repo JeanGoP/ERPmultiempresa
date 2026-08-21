@@ -201,6 +201,101 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         return new(documentoId,yaExistia,articulosCreados);
     }
 
+    public async Task<IReadOnlyList<SupplierDocumentListItemResponse>> GetDocumentsAsync(long empresaId,string? query,string? estado,CancellationToken cancellationToken)
+    {
+        var normalizedQuery=string.IsNullOrWhiteSpace(query)?null:query.Trim();
+        var normalizedStatus=string.IsNullOrWhiteSpace(estado)?null:estado.Trim().ToUpperInvariant();
+        await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
+        await using var command=connection.CreateCommand();
+        command.CommandText="""
+            SELECT TOP(250) d.DocumentoProveedorId,d.Estado,d.TipoDocumento,d.NumeroDocumento,t.RazonSocial,t.NumeroIdentificacion,
+                   d.FechaDocumento,d.FechaVencimiento,d.CondicionPago,d.Moneda,d.TotalPagar,
+                   (SELECT COUNT(*) FROM comp.DocumentoProveedorLinea l WHERE l.EmpresaId=d.EmpresaId AND l.DocumentoProveedorId=d.DocumentoProveedorId),
+                   (SELECT COUNT(*) FROM comp.DocumentoProveedorLineaUnidad u JOIN comp.DocumentoProveedorLinea l ON l.EmpresaId=u.EmpresaId AND l.DocumentoProveedorLineaId=u.DocumentoProveedorLineaId WHERE l.EmpresaId=d.EmpresaId AND l.DocumentoProveedorId=d.DocumentoProveedorId),
+                   d.Fuente,d.CreadoEnUtc,r.RecepcionMercanciaId,r.Estado,b.Nombre
+            FROM comp.DocumentoProveedor d
+            JOIN ter.Tercero t ON t.EmpresaId=d.EmpresaId AND t.TerceroId=d.TerceroId
+            LEFT JOIN inv.RecepcionMercancia r ON r.EmpresaId=d.EmpresaId AND r.DocumentoProveedorId=d.DocumentoProveedorId
+            LEFT JOIN inv.Bodega b ON b.EmpresaId=r.EmpresaId AND b.BodegaId=r.BodegaId
+            WHERE d.EmpresaId=@EmpresaId AND (@Estado IS NULL OR d.Estado=@Estado)
+              AND (@Query IS NULL OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial LIKE '%'+@Query+'%' OR t.NumeroIdentificacion LIKE '%'+@Query+'%'
+                   OR EXISTS(SELECT 1 FROM comp.DocumentoProveedorLineaUnidad u JOIN comp.DocumentoProveedorLinea l ON l.EmpresaId=u.EmpresaId AND l.DocumentoProveedorLineaId=u.DocumentoProveedorLineaId WHERE l.EmpresaId=d.EmpresaId AND l.DocumentoProveedorId=d.DocumentoProveedorId AND (u.Serial LIKE '%'+@Query+'%' OR u.Motor LIKE '%'+@Query+'%' OR u.Chasis LIKE '%'+@Query+'%' OR u.Vin LIKE '%'+@Query+'%')))
+            ORDER BY d.CreadoEnUtc DESC,d.DocumentoProveedorId DESC;
+            """;
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
+        Add(command,"@Query",SqlDbType.NVarChar,normalizedQuery,120);
+        Add(command,"@Estado",SqlDbType.VarChar,normalizedStatus,15);
+        await using var reader=await command.ExecuteReaderAsync(cancellationToken);
+        var result=new List<SupplierDocumentListItemResponse>();
+        while(await reader.ReadAsync(cancellationToken)) result.Add(new(
+            reader.GetInt64(0),reader.GetString(1),reader.GetString(2),reader.GetString(3),reader.GetString(4),reader.GetString(5),
+            DateOnly.FromDateTime(reader.GetDateTime(6)),reader.IsDBNull(7)?null:DateOnly.FromDateTime(reader.GetDateTime(7)),reader.GetString(8),reader.GetString(9),reader.GetDecimal(10),
+            reader.GetInt32(11),reader.GetInt32(12),reader.GetString(13),reader.GetDateTime(14),reader.IsDBNull(15)?null:reader.GetInt64(15),reader.IsDBNull(16)?null:reader.GetString(16),reader.IsDBNull(17)?null:reader.GetString(17)));
+        return result;
+    }
+
+    public async Task<SupplierDocumentDetailResponse?> GetDocumentDetailAsync(long empresaId,long documentoId,CancellationToken cancellationToken)
+    {
+        var workflow=await GetWorkflowAsync(empresaId,documentoId,cancellationToken);
+        if(workflow is null) return null;
+        await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
+        await using var command=connection.CreateCommand();
+        command.CommandText="""
+            SELECT l.DocumentoProveedorLineaId,l.NumeroLinea,l.ArticuloId,a.Codigo,l.CodigoExterno,l.Descripcion,l.Clasificacion,l.Cantidad,u.Codigo,
+                   l.PrecioUnitario,l.SubtotalBruto,l.Descuento,l.Impuesto,l.Retencion,l.Cargo,l.TotalNeto
+            FROM comp.DocumentoProveedorLinea l
+            LEFT JOIN inv.Articulo a ON a.EmpresaId=l.EmpresaId AND a.ArticuloId=l.ArticuloId
+            LEFT JOIN inv.UnidadMedida u ON u.EmpresaId=l.EmpresaId AND u.UnidadMedidaId=l.UnidadMedidaId
+            WHERE l.EmpresaId=@EmpresaId AND l.DocumentoProveedorId=@DocumentoProveedorId
+            ORDER BY l.NumeroLinea;
+            SELECT u.DocumentoProveedorLineaId,u.NumeroUnidad,u.Serial,u.Motor,u.Chasis,u.Vin,u.Color,u.Modelo,u.InformacionOriginal
+            FROM comp.DocumentoProveedorLineaUnidad u
+            JOIN comp.DocumentoProveedorLinea l ON l.EmpresaId=u.EmpresaId AND l.DocumentoProveedorLineaId=u.DocumentoProveedorLineaId
+            WHERE l.EmpresaId=@EmpresaId AND l.DocumentoProveedorId=@DocumentoProveedorId
+            ORDER BY l.NumeroLinea,u.NumeroUnidad;
+            """;
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
+        Add(command,"@DocumentoProveedorId",SqlDbType.BigInt,documentoId);
+        await using var reader=await command.ExecuteReaderAsync(cancellationToken);
+        var lines=new List<SupplierDocumentLineDetailResponse>();
+        var serialsByLine=new Dictionary<long,List<SupplierDocumentSerialDetailResponse>>();
+        while(await reader.ReadAsync(cancellationToken))
+        {
+            var lineId=reader.GetInt64(0);var serials=new List<SupplierDocumentSerialDetailResponse>();serialsByLine[lineId]=serials;
+            lines.Add(new(lineId,reader.GetInt32(1),reader.IsDBNull(2)?null:reader.GetInt64(2),reader.IsDBNull(3)?null:reader.GetString(3),reader.IsDBNull(4)?null:reader.GetString(4),reader.GetString(5),reader.GetString(6),reader.GetDecimal(7),reader.IsDBNull(8)?null:reader.GetString(8),reader.GetDecimal(9),reader.GetDecimal(10),reader.GetDecimal(11),reader.GetDecimal(12),reader.GetDecimal(13),reader.GetDecimal(14),reader.GetDecimal(15),serials));
+        }
+        if(await reader.NextResultAsync(cancellationToken)) while(await reader.ReadAsync(cancellationToken))
+        {
+            var lineId=reader.GetInt64(0);
+            if(serialsByLine.TryGetValue(lineId,out var serials)) serials.Add(new(reader.GetInt32(1),reader.IsDBNull(2)?null:reader.GetString(2),reader.IsDBNull(3)?null:reader.GetString(3),reader.IsDBNull(4)?null:reader.GetString(4),reader.IsDBNull(5)?null:reader.GetString(5),reader.IsDBNull(6)?null:reader.GetString(6),reader.IsDBNull(7)?null:reader.GetString(7),reader.IsDBNull(8)?null:reader.GetString(8)));
+        }
+        return new(workflow,lines);
+    }
+
+    public async Task<RejectSupplierDocumentResponse> RejectDocumentAsync(long empresaId,long documentoId,long userId,CancellationToken cancellationToken)
+    {
+        await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
+        await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var command=connection.CreateCommand();command.Transaction=transaction;
+        command.CommandText="""
+            DECLARE @Estado varchar(15);
+            SELECT @Estado=Estado FROM comp.DocumentoProveedor WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@EmpresaId AND DocumentoProveedorId=@DocumentoProveedorId;
+            IF @Estado IS NULL THROW 51340,'El borrador no existe.',1;
+            IF @Estado='RECHAZADO' BEGIN SELECT @DocumentoProveedorId,'RECHAZADO',CAST(1 AS bit); RETURN; END;
+            IF @Estado<>'BORRADOR' OR EXISTS(SELECT 1 FROM inv.RecepcionMercancia WHERE EmpresaId=@EmpresaId AND DocumentoProveedorId=@DocumentoProveedorId) OR EXISTS(SELECT 1 FROM comp.CausacionServicio WHERE EmpresaId=@EmpresaId AND DocumentoProveedorId=@DocumentoProveedorId)
+                THROW 51341,'Solo se puede anular un borrador que todavía no tenga procesos preparados.',1;
+            UPDATE comp.DocumentoProveedor SET Estado='RECHAZADO' WHERE EmpresaId=@EmpresaId AND DocumentoProveedorId=@DocumentoProveedorId;
+            INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,DocumentoNumero,ValoresPosteriores,AplicacionOrigen)
+            SELECT @EmpresaId,@UsuarioId,'DOCUMENTO_PROVEEDOR_ANULADO','comp.DocumentoProveedor',CONVERT(nvarchar(100),DocumentoProveedorId),NumeroDocumento,N'{"estado":"RECHAZADO"}','COMPRAS'
+            FROM comp.DocumentoProveedor WHERE EmpresaId=@EmpresaId AND DocumentoProveedorId=@DocumentoProveedorId;
+            SELECT @DocumentoProveedorId,'RECHAZADO',CAST(0 AS bit);
+            """;
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@DocumentoProveedorId",SqlDbType.BigInt,documentoId);Add(command,"@UsuarioId",SqlDbType.BigInt,userId);
+        RejectSupplierDocumentResponse result;
+        await using(var reader=await command.ExecuteReaderAsync(cancellationToken)){if(!await reader.ReadAsync(cancellationToken))throw new InvalidOperationException("No fue posible anular el borrador.");result=new(reader.GetInt64(0),reader.GetString(1),reader.GetBoolean(2));}
+        await transaction.CommitAsync(cancellationToken);return result;
+    }
+
     public async Task<SupplierDocumentWorkflowResponse?> GetWorkflowAsync(long empresaId,long documentoId,CancellationToken cancellationToken)
     {
         await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);

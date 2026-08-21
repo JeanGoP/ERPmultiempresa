@@ -25,6 +25,8 @@ La API usa el prefijo `/api/v1`. Salvo salud e inicio de sesion, todas las rutas
 | GET | `/companies/{empresaId}/security/roles` | Catálogo global de roles y permisos incluidos. |
 | GET | `/companies/{empresaId}/security/permissions` | Catálogo de permisos disponibles. |
 | GET | `/companies/{empresaId}/supplier-documents/{id}` | Estado, XML, totales, recepción y causación. |
+| GET | `/companies/{empresaId}/supplier-documents?q=&estado=` | Bandeja de documentos guardados; admite búsqueda por factura, proveedor, motor, chasis, serial o VIN. |
+| GET | `/companies/{empresaId}/supplier-documents/{id}/detail` | Documento, líneas y unidades serializadas, incluidos color y modelo. |
 | GET | `/companies/{empresaId}/receipts/{id}/movements` | Movimientos de Kardex creados por la recepción. |
 | GET | `/companies/{empresaId}/service-accruals/{id}` | Líneas, dimensiones, totales y comprobante de la causación. |
 | GET | `/companies/{empresaId}/inventory/balances` | Existencias y valores actuales. |
@@ -37,6 +39,7 @@ La API usa el prefijo `/api/v1`. Salvo salud e inicio de sesion, todas las rutas
 | --- | --- | --- |
 | POST | `/companies/{empresaId}/inventory/entries` | `COMPRAS.RECEPCION.CONTABILIZAR` |
 | POST | `/companies/{empresaId}/supplier-documents` | `COMPRAS.DOCUMENTO.CREAR` |
+| POST | `/companies/{empresaId}/supplier-documents/{id}/reject` | `COMPRAS.DOCUMENTO.CREAR`; solo borradores sin recepción ni causación preparada. |
 | POST | `/companies/{empresaId}/supplier-documents/{id}/prepare` | `COMPRAS.DOCUMENTO.CREAR` |
 | POST | `/companies/{empresaId}/receipts/{id}/post` | `COMPRAS.RECEPCION.CONTABILIZAR` |
 | PUT | `/companies/{empresaId}/service-accruals/{id}/accounts` | `COMPRAS.SERVICIO.CAUSAR` |

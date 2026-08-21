@@ -14,6 +14,8 @@ Abre <http://127.0.0.1:4173> e inicia también la API local en el puerto `5180`.
 
 En modo API, tanto la entrada automática como la entrada manual crean el documento como borrador y separan sus efectos. La mercancía prepara una recepción y solo contabiliza Kardex después de una confirmación explícita; los servicios generan una causación independiente con cuentas, centro de costo, proyecto, impuestos, retenciones, comprobante balanceado y cuenta por pagar, siempre sin afectar Kardex. En modo local, el comportamiento anterior y los borradores del navegador permanecen iguales.
 
+La interfaz ofrece **Guardar solo como borrador** y **Guardar y contabilizar entrada**. La segunda opción ejecuta el registro, preparación y contabilización de mercancía en una sola acción confirmada. **Compras → Entradas guardadas** permite recuperar documentos después de cerrar la sesión, buscar por factura, proveedor, motor, chasis o VIN, revisar todos los seriales desde el borrador, contabilizar pendientes y anular borradores que todavía no tengan procesos preparados.
+
 El menú **Administración → Usuarios y permisos** permite crear usuarios, activar o suspender su acceso por empresa, asignar uno o varios roles y restablecer contraseñas. El superadministrador también puede crear roles y seleccionar sus permisos operativos.
 
 Al crear una empresa, el sistema deja preparados automáticamente la unidad `UND`, la bodega principal `PPL` y los períodos contable y de inventario del mes actual. Para una empresa creada antes de esta mejora, el superadministrador puede abrir una factura con mercancía y usar **Preparar empresa ahora**; después se habilitan los selectores de bodega y período.
