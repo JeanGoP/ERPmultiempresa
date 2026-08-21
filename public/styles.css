@@ -243,6 +243,8 @@ td:first-child { color: var(--muted); font-family: Consolas, monospace; font-siz
 pre { margin: 0; overflow: auto; color: #d9e7df; font: 11px/1.65 Consolas, monospace; }
 .copy-button { position: absolute; top: 12px; right: 12px; padding: 7px 10px; border: 1px solid #51615a; border-radius: 6px; color: white; background: #293a32; }
 .error-box { margin: 22px 0; padding: 16px 19px; border-left: 4px solid #b44e42; border-radius: 6px; color: #78352d; background: #fae8e3; }
+.success-toast { position: fixed; z-index: 1000; top: 22px; right: 22px; max-width: min(430px, calc(100vw - 44px)); padding: 15px 18px; border-left: 4px solid #2f9b70; border-radius: 8px; color: #124d39; background: #e8f7f0; box-shadow: 0 12px 32px rgba(24, 64, 47, .18); font-size: 13px; font-weight: 700; line-height: 1.45; opacity: 0; pointer-events: none; transform: translateY(-12px); transition: opacity .18s ease, transform .18s ease; }
+.success-toast.visible { opacity: 1; transform: translateY(0); }
 footer { display: flex; justify-content: space-between; margin-top: 58px; padding: 24px 0 34px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 footer span { color: var(--ink); font-weight: 800; }
 footer p { margin: 0; }

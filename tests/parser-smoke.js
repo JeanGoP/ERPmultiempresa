@@ -8,6 +8,10 @@ const appSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js')
 for (const fragment of ['DOMParser', 'CDATA_SECTION_NODE', 'findEmbeddedBusinessDocument', 'extractInvoiceData', 'AllowanceCharge', 'ChargeIndicator', 'MultiplierFactorNumeric', 'Subtotal bruto', 'Descuento %', 'AdditionalItemProperty', 'normalizePropertyName', 'informacionmoto', 'inferColorFromDescription', 'inferModelYearFromVin', 'Modelo (año)', 'WithholdingTaxTotal', 'retentionTaxCodes', 'Retenciones', 'Seriales de motos', "'Motor', 'Chasis', 'VIN'", 'retencion:item.retention', 'vin:serial.vin', 'paymentCondition', 'creditDays', 'externalProductCode', 'crearArticulosFaltantes', 'findDetailGroups', 'elementToJson', 'decodeXmlBuffer', 'TextDecoder', 'exportCsv', 'exportExcel', 'inferLineClassification', 'buildInvoiceClassificationTable', 'buildHomologationPanel', 'getCompanyMasterData', 'saveMasterRecord', 'purchaseFactor', 'addManualLine', 'saveManualDraft', 'nexo.purchaseDrafts', 'nexo.erpSession.v1', 'nexo.masterData.v1', 'initializeErpUi', 'selectCompany', 'runtimeMode', 'textContent']) {
   if (!appSource.includes(fragment)) throw new Error(`Falta la función requerida: ${fragment}`);
 }
+assert.match(appSource, /function\s+showSuccess\s*\(/, 'Debe existir la confirmación visual de operaciones exitosas.');
+assert.doesNotMatch(appSource, /forEach\s*\(\s*document\s*=>/, 'Una variable local no puede ocultar el document del navegador.');
+assert.doesNotMatch(appSource, /const\s+document\s*=\s*detail\.documento/, 'El detalle no puede ocultar el document del navegador.');
+assert.doesNotMatch(appSource, /function\s+savedPurchaseEffectiveState\s*\(\s*document\s*\)/, 'La bandeja no debe usar document como nombre de un registro.');
 new vm.Script(appSource);
 
 const parserStart = appSource.indexOf('function localName');
