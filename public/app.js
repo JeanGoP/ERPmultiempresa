@@ -401,6 +401,38 @@ function propertyNameMatches(property, aliases) {
 function splitIdentifierValues(value) {
   return String(value || '').split(/[|,\r\n]+/).map((part) => part.trim()).filter(Boolean);
 }
+function extractModelYear(value) {
+  const match = String(value || '').match(/\b((?:19|20)\d{2})\b/);
+  return match?.[1] || '';
+}
+const colorWords = new Set(['NEGRO', 'NEGRA', 'GRIS', 'AZUL', 'ROJO', 'ROJA', 'VERDE', 'DORADO', 'DORADA', 'BLANCO', 'BLANCA', 'PLATA', 'AMARILLO', 'AMARILLA', 'NARANJA', 'BEIGE', 'CAFE', 'MARRON', 'MORADO', 'MORADA', 'VIOLETA', 'ROSADO', 'ROSADA', 'BRONCE']);
+const colorQualifiers = new Set(['MATE', 'NEBULOSA', 'GRAFITO', 'CARBONO', 'ACERO', 'METALIZADO', 'METALIZADA', 'PERLADO', 'PERLADA', 'ASPAS']);
+function inferColorFromDescription(description) {
+  const tokens = String(description || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+  const colors = [];
+  tokens.forEach((token, index) => {
+    if (!colorWords.has(token)) return;
+    const qualifiers = [];
+    let cursor = index + 1;
+    while (cursor < tokens.length && colorQualifiers.has(tokens[cursor])) { qualifiers.push(tokens[cursor]); cursor += 1; }
+    const decorative = tokens[index - 1] === 'CALCOMANIA';
+    const phrase = `${decorative ? 'CALCOMANÍA ' : ''}${token}${qualifiers.length ? ` ${qualifiers.join(' ')}` : ''}`;
+    if (!colors.includes(phrase)) colors.push(phrase);
+  });
+  return colors.join(' / ');
+}
+const vinYearCodes = 'ABCDEFGHJKLMNPRSTVWXY123456789';
+function inferModelYearFromVin(value, invoiceYear) {
+  const vin = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const referenceYear = Number(invoiceYear);
+  if (vin.length !== 17 || !Number.isInteger(referenceYear)) return '';
+  const codeIndex = vinYearCodes.indexOf(vin[9]);
+  if (codeIndex < 0) return '';
+  const candidates = [];
+  for (let year = 1980 + codeIndex; year <= referenceYear + 2; year += 30) candidates.push(year);
+  const best = candidates.sort((left, right) => Math.abs(left - referenceYear) - Math.abs(right - referenceYear))[0];
+  return best >= referenceYear - 1 && best <= referenceYear + 2 ? String(best) : '';
+}
 function extractMotoSerials(properties, itemNode) {
   const found = [];
   const add = (serial) => {
@@ -434,8 +466,8 @@ function extractMotoSerials(properties, itemNode) {
   const vinValues = valuesFor(['vin']);
   const motorValues = valuesFor(['motor', 'engine']);
   const serialValues = valuesFor(['numeroserie', 'serialnumber', 'serial']);
-  const colorValues = valuesFor(['color']);
-  const modelValues = valuesFor(['modelo', 'model']);
+  const colorValues = valuesFor(['color', 'colour']);
+  const modelValues = valuesFor(['anomodelo', 'modelyear', 'yearmodel', 'modelo', 'model']);
   const count = Math.max(chassisValues.length, vinValues.length, motorValues.length, serialValues.length, colorValues.length, modelValues.length);
   for (let index = 0; index < count; index += 1) {
     const vin = vinValues[index] || '';
@@ -547,6 +579,8 @@ function extractInvoiceData(documentNode) {
   const root = documentNode.documentElement;
   const documentType = localName(root);
   if (!['Invoice', 'CreditNote', 'DebitNote'].includes(documentType)) return null;
+  const issueDate = textAt(root, ['IssueDate']);
+  const invoiceYear = Number(issueDate.slice(0, 4));
   const lineName = documentType === 'CreditNote' ? 'CreditNoteLine' : documentType === 'DebitNote' ? 'DebitNoteLine' : 'InvoiceLine';
   const quantityName = documentType === 'CreditNote' ? 'CreditedQuantity' : documentType === 'DebitNote' ? 'DebitedQuantity' : 'InvoicedQuantity';
   const monetary = childByLocal(root, 'LegalMonetaryTotal') || childByLocal(root, 'RequestedMonetaryTotal');
@@ -566,6 +600,13 @@ function extractInvoiceData(documentNode) {
       || firstDescendantText(nodeAt(itemNode, ['ItemInstance']), 'SerialID')
       || identifierInDescription(description, 'chasis|chassis|vin|bastidor');
     if (!serials.length && (motor || chassis)) serials = [{ number: 1, serial: '', motor, chassis, vin: '', color: '', technical: '', model: '', raw: description }];
+    const inferredColor = inferColorFromDescription(description);
+    const descriptionYear = extractModelYear(description);
+    serials = serials.map((serial) => ({
+      ...serial,
+      color: serial.color || inferredColor,
+      model: extractModelYear(serial.model) || descriptionYear || inferModelYearFromVin(serial.vin || serial.chassis, invoiceYear),
+    }));
     const lineTaxComponents = [...extractTaxComponents(line, 'TaxTotal'), ...extractTaxComponents(line, 'WithholdingTaxTotal')];
     const quantity = numeric(quantityNode ? directText(quantityNode) : '');
     const unitPrice = numeric(textAt(priceNode, ['PriceAmount']));
@@ -621,7 +662,7 @@ function extractInvoiceData(documentNode) {
     documentType,
     number: textAt(root, ['ID']),
     cufeCude: textAt(root, ['UUID']),
-    issueDate: textAt(root, ['IssueDate']),
+    issueDate,
     dueDate,
     currency: textAt(root, ['DocumentCurrencyCode']) || 'COP',
     supplier: extractParty(root, 'AccountingSupplierParty'),
@@ -1029,7 +1070,7 @@ function renderInvoice() {
 
   const items = invoiceCard('Clasificación de artículos y servicios', `${invoice.items.length} líneas encontradas · revisa la propuesta antes de continuar`, buildInvoiceClassificationTable(invoice), 'invoice-table-card articles-card');
   const serialRows = invoice.items.flatMap((item) => item.serials.map((serial) => [item.line, item.code, serial.number, item.description, serial.motor, serial.chassis, serial.vin, serial.color, serial.model]));
-  const serials = serialRows.length ? invoiceCard('Seriales de motos', `${serialRows.length} motos identificadas`, buildDataTable(['Línea', 'Código', 'Moto #', 'Descripción', 'Motor', 'Chasis', 'VIN', 'Color', 'Modelo'], serialRows), 'invoice-table-card serials-card') : null;
+  const serials = serialRows.length ? invoiceCard('Seriales de motos', `${serialRows.length} motos identificadas`, buildDataTable(['Línea', 'Código', 'Moto #', 'Descripción', 'Motor', 'Chasis', 'VIN', 'Color', 'Modelo (año)'], serialRows), 'invoice-table-card serials-card') : null;
   const taxes = invoiceCard('Impuestos', `${invoice.taxes.length} conceptos encontrados`, buildDataTable(['Impuesto', 'Tarifa %', 'Base', 'Valor'], invoice.taxes.map((tax) => [tax.name, tax.rate, formatCurrency(tax.taxableAmount, invoice.currency), formatCurrency(tax.amount, invoice.currency)])));
   const retentions = invoiceCard('Retenciones', invoice.retentions.length ? `${invoice.retentions.length} conceptos encontrados` : 'No se encontraron retenciones en el XML', invoice.retentions.length ? buildDataTable(['Retención', 'Tarifa %', 'Base', 'Valor'], invoice.retentions.map((retention) => [retention.name, retention.rate, formatCurrency(retention.taxableAmount, invoice.currency), formatCurrency(retention.amount, invoice.currency)])) : emptyMessage('Este XML no informa retenciones.'));
   const charges = invoiceCard('Fletes y otros cargos', `${invoice.charges.length} cargos encontrados`, buildDataTable(['Concepto', 'Base', 'Valor', 'Clasificación'], invoice.charges.map((charge) => [charge.reason, formatCurrency(charge.baseAmount, invoice.currency), formatCurrency(charge.amount, invoice.currency), charge.isFreight ? 'Flete' : 'Otro cargo'])));
