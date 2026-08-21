@@ -11,6 +11,7 @@ $tests = @(
     (Join-Path $projectRoot 'tests\sql\granular-permissions.sql'),
     (Join-Path $projectRoot 'tests\sql\master-data-homologation.sql'),
     (Join-Path $projectRoot 'tests\sql\supplier-document-flow.sql'),
+    (Join-Path $projectRoot 'tests\sql\purchase-payment-auto-items.sql'),
     (Join-Path $projectRoot 'tests\sql\landed-cost-allocation.sql'),
     (Join-Path $projectRoot 'tests\sql\receipt-posting.sql'),
     (Join-Path $projectRoot 'tests\sql\service-accrual-accounting.sql'),

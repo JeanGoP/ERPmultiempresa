@@ -9,6 +9,7 @@ const elements = {
   invoicePanel: $('#invoicePanel'), xmlWorkspace: $('#xmlWorkspace'), manualWorkspace: $('#manualWorkspace'),
   manualForm: $('#manualForm'), manualLines: $('#manualLines'), manualGrandTotal: $('#manualGrandTotal'),
   manualResult: $('#manualResult'), manualWarehouse: $('#manualWarehouse'), warehouseField: $('#warehouseField'), manualPeriod:$('#manualPeriod'), manualPeriodField:$('#manualPeriodField'),
+  manualPaymentCondition:$('#manualPaymentCondition'),manualCreditDays:$('#manualCreditDays'),manualCreditDaysField:$('#manualCreditDaysField'),
   manualWorkspaceTitle: $('#manualWorkspaceTitle'), manualWorkspaceSubtitle: $('#manualWorkspaceSubtitle'),
   manualTypePill: $('#manualTypePill'), manualFormStatus: $('#manualFormStatus'),
   loginView: $('#loginView'), loginForm: $('#loginForm'), loginEmail: $('#loginEmail'), loginPassword: $('#loginPassword'), loginError: $('#loginError'),
@@ -381,6 +382,21 @@ function numeric(value) {
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
 }
+
+function datePlusDays(value, days) {
+  if (!value) return '';
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return '';
+  date.setUTCDate(date.getUTCDate() + Number(days || 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function daysBetweenDates(start, end) {
+  if (!start || !end) return 0;
+  const from = new Date(`${start}T00:00:00Z`); const to = new Date(`${end}T00:00:00Z`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return 0;
+  return Math.max(Math.round((to - from) / 86400000), 0);
+}
 function normalizePropertyName(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -648,7 +664,13 @@ function extractInvoiceData(documentNode) {
     return { reason, amount: numeric(textAt(charge, ['Amount'])), baseAmount: numeric(textAt(charge, ['BaseAmount'])), isFreight: /flete|freight|transporte|env[ií]o/i.test(reason) };
   });
   items.filter((item) => /flete|freight|transporte|env[ií]o/i.test(item.description)).forEach((item) => charges.push({ reason: item.description, amount: item.lineTotal, baseAmount: item.lineTotal, isFreight: true }));
-  const dueDate = textAt(root, ['DueDate']) || firstDescendantText(childByLocal(root, 'PaymentMeans'), 'PaymentDueDate');
+  const paymentMeans = childByLocal(root, 'PaymentMeans');
+  const informedDueDate = textAt(root, ['DueDate']) || firstDescendantText(paymentMeans, 'PaymentDueDate');
+  const paymentMeansCode = firstDescendantText(paymentMeans, 'ID');
+  const informedCreditDays = daysBetweenDates(issueDate, informedDueDate);
+  const paymentCondition = paymentMeansCode === '2' || informedCreditDays > 0 ? 'CREDITO' : 'CONTADO';
+  const creditDays = paymentCondition === 'CREDITO' ? (informedCreditDays || 30) : 0;
+  const dueDate = paymentCondition === 'CREDITO' ? (informedCreditDays > 0 ? informedDueDate : datePlusDays(issueDate, creditDays)) : issueDate;
   const chargeTotal = numeric(textAt(monetary, ['ChargeTotalAmount']));
   const freight = charges.filter((charge) => charge.isFreight).reduce((sum, charge) => sum + (charge.amount || 0), 0);
   const otherCharges = chargeTotal === null
@@ -664,6 +686,9 @@ function extractInvoiceData(documentNode) {
     cufeCude: textAt(root, ['UUID']),
     issueDate,
     dueDate,
+    paymentCondition,
+    creditDays,
+    autoCreateItems: true,
     currency: textAt(root, ['DocumentCurrencyCode']) || 'COP',
     supplier: extractParty(root, 'AccountingSupplierParty'),
     customer: extractParty(root, 'AccountingCustomerParty'),
@@ -887,10 +912,19 @@ function ensureInvoiceSupplier(context,invoice) {
   return supplier;
 }
 
+function externalProductCode(item) {
+  const explicit=String(item.code||'').trim();
+  if(explicit) return explicit;
+  const normalized=normalizePropertyName(item.description||'ARTICULO SIN DESCRIPCION');
+  let hash=2166136261;
+  for(let index=0;index<normalized.length;index++){ hash^=normalized.charCodeAt(index); hash=Math.imul(hash,16777619); }
+  return `DESC-${(hash>>>0).toString(16).padStart(8,'0').toUpperCase()}`;
+}
+
 function mappingForLine(data,invoice,item) {
   const supplier=data.suppliers.find(x=>x.identification===invoice.supplier.identification);
   if(!supplier) return null;
-  const externalCode=String(item.code||`LINEA-${item.line}`).trim().toUpperCase();
+  const externalCode=externalProductCode(item).toUpperCase();
   return data.mappings.find(x=>x.active&&x.supplierId===supplier.id&&x.externalCode.toUpperCase()===externalCode)||null;
 }
 
@@ -919,12 +953,12 @@ function buildHomologationPanel(invoice) {
         if(!select.value){ renderInvoice(); return; }
         try {
           const supplier=await ensureApiSupplier(invoice); const article=findById(data.articles,select.value);
-          await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/item-mappings`,{method:'POST',body:JSON.stringify({terceroId:supplier.id,codigoExterno:String(item.code||`LINEA-${item.line}`).trim(),descripcionExterna:item.description,articuloId:article.id,unidadMedidaId:article.unitId,factorAUnidadBase:1})});
+          await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/item-mappings`,{method:'POST',body:JSON.stringify({terceroId:supplier.id,codigoExterno:externalProductCode(item),descripcionExterna:item.description,articuloId:article.id,unidadMedidaId:article.unitId,factorAUnidadBase:1})});
           await loadApiCompanyContext();
         } catch(error) { showError(`No fue posible guardar la homologación. ${error.message}`); renderInvoice(); }
         return;
       }
-      const externalCode=String(item.code||`LINEA-${item.line}`).trim(); const supplier=ensureInvoiceSupplier(context,invoice); const existing=context.data.mappings.find(x=>x.supplierId===supplier.id&&x.externalCode.toUpperCase()===externalCode.toUpperCase());
+      const externalCode=externalProductCode(item); const supplier=ensureInvoiceSupplier(context,invoice); const existing=context.data.mappings.find(x=>x.supplierId===supplier.id&&x.externalCode.toUpperCase()===externalCode.toUpperCase());
       if(!select.value){ if(existing) existing.active=false; }
       else { const article=findById(context.data.articles,select.value); const record={id:existing?.id||masterId('map'),supplierId:supplier.id,externalCode,externalDescription:item.description,articleId:article.id,unitId:article.unitId,factor:1,active:true}; existing?Object.assign(existing,record):context.data.mappings.push(record); }
       saveCompanyMasterData(context); renderInvoice();
@@ -974,8 +1008,9 @@ function buildSupplierDocumentPayload(invoice) {
   const lineas=invoice.items.map((item,index)=>{
     const mapping=mappedLine(invoice,item); const serials=item.serials.length?item.serials:(item.motor||item.chassis?[{number:1,motor:item.motor,chassis:item.chassis,raw:item.description}]:[]);
     return {
-      numeroLinea:Number(item.line)||index+1,articuloId:mapping?.articleId||null,codigoExterno:item.code||null,descripcion:item.description||`Línea ${index+1}`,
+      numeroLinea:Number(item.line)||index+1,articuloId:mapping?.articleId||null,codigoExterno:externalProductCode(item),descripcion:item.description||`Línea ${index+1}`,
       clasificacion:classification[item.classification],cantidad:item.quantity||1,unidadMedidaId:mapping?.unitId||findById(getCompanyMasterData().data.articles,mapping?.articleId)?.unitId||null,
+      unidadCodigo:item.unit||'UND',manejaSerial:serials.length>0,
       factorAUnidadBase:mapping?.factor||1,precioUnitario:item.unitPrice||0,subtotalBruto:item.grossTotal??item.lineTotal??0,descuento:item.discount||0,
       impuesto:item.tax||0,cargo:item.surcharge||0,totalNeto:item.lineTotal??Math.max((item.grossTotal||0)-(item.discount||0)+(item.surcharge||0),0),
       retencion:item.retention||0,
@@ -985,17 +1020,17 @@ function buildSupplierDocumentPayload(invoice) {
   });
   const taxTotal=invoice.taxes.reduce((sum,tax)=>sum+(tax.amount||0),0); const lineCharges=invoice.items.reduce((sum,item)=>sum+(item.surcharge||0),0);
   return { proveedorIdentificacion:invoice.supplier.identification,proveedorRazonSocial:invoice.supplier.name||'Proveedor desde XML',tipoDocumento:documentTypeForApi(invoice.documentType),numeroDocumento:invoice.number,
-    fechaDocumento:invoice.issueDate,fechaVencimiento:invoice.dueDate||null,moneda:invoice.currency||'COP',cufeCude:invoice.cufeCude||null,fuente:'XML_DIAN',
+    fechaDocumento:invoice.issueDate,fechaVencimiento:invoice.dueDate||null,condicionPago:invoice.paymentCondition||'CONTADO',diasCredito:Number(invoice.creditDays)||0,crearArticulosFaltantes:invoice.autoCreateItems!==false,moneda:invoice.currency||'COP',cufeCude:invoice.cufeCude||null,fuente:'XML_DIAN',
     subtotalBruto:invoice.totals.grossSubtotal??invoice.totals.cost??0,descuentoTotal:invoice.totals.allowances||0,impuestoTotal:taxTotal,cargoTotal:invoice.totals.charges??lineCharges,
     totalPagar:invoice.totals.payable??0,xmlOriginal:elements.xmlInput.value.trim(),documentoGuid:null,lineas };
 }
 
-async function refreshPurchaseWorkflow(documentId,receiptId=null) {
+async function refreshPurchaseWorkflow(documentId,receiptId=null,saveResult=null) {
   const companyId=state.erpSession.company.id; const workflow=await apiRequest(`/api/v1/companies/${companyId}/supplier-documents/${documentId}`);
   const effectiveReceipt=receiptId||workflow.recepcionMercanciaId; let movements=[];
   if(effectiveReceipt) movements=await apiRequest(`/api/v1/companies/${companyId}/receipts/${effectiveReceipt}/movements`);
   const accrual=workflow.causacionServicioId?await apiRequest(`/api/v1/companies/${companyId}/service-accruals/${workflow.causacionServicioId}`):null;
-  state.purchaseWorkflow={documentId,receiptId:effectiveReceipt,causacionId:workflow.causacionServicioId,workflow,movements,accrual}; renderInvoice();
+  state.purchaseWorkflow={documentId,receiptId:effectiveReceipt,causacionId:workflow.causacionServicioId,workflow,movements,accrual,lastCreatedItems:saveResult?.articulosCreados??state.purchaseWorkflow?.lastCreatedItems??0}; renderInvoice();
 }
 
 function buildPurchaseWorkflowPanel(invoice) {
@@ -1011,23 +1046,31 @@ function buildPurchaseWorkflowPanel(invoice) {
   const warehouse=document.createElement('select'); warehouse.innerHTML='<option value="">Selecciona bodega…</option>'; state.apiContext.warehouses.forEach(x=>warehouse.add(new Option(`${x.codigo} · ${x.nombre}`,x.bodegaId)));
   const period=document.createElement('select'); period.innerHTML='<option value="">Selecciona periodo…</option>'; state.apiContext.periods.forEach(x=>period.add(new Option(`${x.codigo} · ${x.estado}`,x.periodoInventarioId)));
   const date=document.createElement('input'); date.type='date'; date.value=invoice.issueDate||new Date().toISOString().slice(0,10);
-  warehouse.hidden=inventoryLines.length===0; period.hidden=inventoryLines.length===0;
-  controls.append(warehouse,period,date); panel.append(controls);
+  const payment=document.createElement('select'); payment.innerHTML='<option value="CONTADO">Contado</option><option value="CREDITO">Crédito</option>'; payment.value=invoice.paymentCondition||'CONTADO';
+  const creditDays=document.createElement('input'); creditDays.type='number'; creditDays.min='1'; creditDays.max='3650'; creditDays.value=String(invoice.creditDays||30); creditDays.title='Días de crédito';
+  const autoCreateLabel=document.createElement('label'); autoCreateLabel.className='workflow-check'; const autoCreate=document.createElement('input'); autoCreate.type='checkbox'; autoCreate.checked=invoice.autoCreateItems!==false; const autoText=document.createElement('span'); autoText.textContent='Crear artículos faltantes'; autoCreateLabel.append(autoCreate,autoText);
+  const controlField=(labelText,control)=>{const field=document.createElement('label');field.className='workflow-field';const label=document.createElement('span');label.textContent=labelText;field.append(label,control);return field;};
+  const warehouseControl=controlField('Bodega',warehouse);const periodControl=controlField('Periodo de inventario',period);const dateControl=controlField('Fecha contable',date);const paymentControl=controlField('Condición de pago',payment);const creditControl=controlField('Días de crédito',creditDays);
+  warehouseControl.hidden=inventoryLines.length===0; periodControl.hidden=inventoryLines.length===0;
+  controls.append(warehouseControl,periodControl,dateControl,paymentControl,creditControl,autoCreateLabel); panel.append(controls);
 
   const actions=document.createElement('div'); actions.className='workflow-actions';
-  const save=document.createElement('button'); save.type='button'; save.className='button primary'; save.textContent=workflow?'Documento guardado':'1. Guardar documento'; save.disabled=Boolean(workflow)||pending.length>0;
+  const save=document.createElement('button'); save.type='button'; save.className='button primary'; save.textContent=workflow?'Entrada guardada':'1. Guardar entrada'; save.disabled=Boolean(workflow);
   const prepare=document.createElement('button'); prepare.type='button'; prepare.className='button secondary'; prepare.textContent=workflow?.recepcionMercanciaId||workflow?.causacionServicioId?'Procesos preparados':'2. Preparar procesos'; prepare.disabled=!workflow||Boolean(workflow.recepcionMercanciaId||workflow.causacionServicioId)||(inventoryLines.length>0&&(!warehouse.value||!period.value));
   const post=document.createElement('button'); post.type='button'; post.className='button confirm-entry'; post.textContent=workflow?.recepcionEstado==='CONTABILIZADA'?'Entrada contabilizada':'3. Confirmar entrada'; post.disabled=!workflow?.recepcionMercanciaId||workflow?.recepcionEstado==='CONTABILIZADA';
   actions.append(save,prepare,post); panel.append(actions);
-  const readiness=document.createElement('p'); readiness.className=`workflow-readiness${pending.length?' pending':''}`; readiness.textContent=pending.length?`${pending.length} línea(s) de inventario pendientes de homologar.`:'Datos revisados: descuentos, impuestos, fletes y seriales se enviarán con el XML original.'; panel.append(readiness);
+  const readiness=document.createElement('p'); panel.append(readiness);
 
   const updatePrepareState=()=>{ prepare.disabled=!state.purchaseWorkflow?.workflow||Boolean(state.purchaseWorkflow?.workflow?.recepcionMercanciaId||state.purchaseWorkflow?.workflow?.causacionServicioId)||(inventoryLines.length>0&&(!warehouse.value||!period.value)); };
+  const updatePayment=()=>{ invoice.paymentCondition=payment.value; invoice.creditDays=payment.value==='CREDITO'?Math.max(Number(creditDays.value)||30,1):0; creditControl.hidden=payment.value!=='CREDITO'; invoice.dueDate=payment.value==='CREDITO'?datePlusDays(invoice.issueDate,invoice.creditDays):invoice.issueDate; };
+  const updateAutoCreate=()=>{ invoice.autoCreateItems=autoCreate.checked; save.disabled=Boolean(workflow)||(pending.length>0&&!autoCreate.checked); readiness.className=`workflow-readiness${pending.length&&!autoCreate.checked?' pending':''}`; readiness.textContent=pending.length?(autoCreate.checked?`${pending.length} artículo(s) se crearán con códigos internos MOT-/ART- y quedarán homologados al proveedor.`:`${pending.length} línea(s) requieren homologación manual antes de guardar.`):'Datos revisados: descuentos, impuestos, fletes y seriales se guardarán con el XML original.'; };
+  payment.addEventListener('change',updatePayment); creditDays.addEventListener('input',updatePayment); autoCreate.addEventListener('change',updateAutoCreate); updatePayment(); updateAutoCreate();
   warehouse.addEventListener('change',updatePrepareState); period.addEventListener('change',updatePrepareState);
-  save.addEventListener('click',async()=>{ try { save.disabled=true; save.textContent='Guardando…'; const result=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents`,{method:'POST',body:JSON.stringify(buildSupplierDocumentPayload(invoice))}); await refreshPurchaseWorkflow(result.documentoProveedorId); } catch(error){ showError(`No fue posible guardar el documento. ${error.message}`); save.disabled=false; save.textContent='1. Guardar documento'; } });
+  save.addEventListener('click',async()=>{ try { updatePayment(); save.disabled=true; save.textContent='Guardando…'; const result=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents`,{method:'POST',body:JSON.stringify(buildSupplierDocumentPayload(invoice))}); await loadApiCompanyContext(); await refreshPurchaseWorkflow(result.documentoProveedorId,null,result); } catch(error){ showError(`No fue posible guardar la entrada. ${error.message}`); save.disabled=false; save.textContent='1. Guardar entrada'; } });
   prepare.addEventListener('click',async()=>{ try { prepare.disabled=true; prepare.textContent='Preparando…'; const id=state.purchaseWorkflow.documentId; const result=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents/${id}/prepare`,{method:'POST',body:JSON.stringify({bodegaId:inventoryLines.length?Number(warehouse.value):null,periodoInventarioId:inventoryLines.length?Number(period.value):null,fechaContable:date.value,numeroRecepcion:inventoryLines.length?`ENT-${invoice.number}`.slice(0,50):null,numeroCausacion:serviceLines.length?`CAU-${invoice.number}`.slice(0,50):null})}); await refreshPurchaseWorkflow(id,result.recepcionMercanciaId); } catch(error){ showError(`No fue posible preparar la recepción. ${error.message}`); prepare.disabled=false; prepare.textContent='2. Preparar recepción'; } });
   post.addEventListener('click',async()=>{ if(!window.confirm(`Vas a contabilizar la recepción ${workflow.recepcionNumero}. Esta acción afectará existencias y Kardex. ¿Deseas continuar?`)) return; try { post.disabled=true; post.textContent='Contabilizando…'; await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/receipts/${workflow.recepcionMercanciaId}/post`,{method:'POST',body:JSON.stringify({correlationId:crypto.randomUUID?crypto.randomUUID():null})}); await refreshPurchaseWorkflow(state.purchaseWorkflow.documentId,workflow.recepcionMercanciaId); } catch(error){ showError(`No fue posible contabilizar la entrada. ${error.message}`); post.disabled=false; post.textContent='3. Confirmar entrada'; } });
 
-  if(workflow){ const status=document.createElement('div'); status.className='workflow-status'; status.innerHTML=`<span>Documento <strong>${workflow.estado}</strong></span><span>Recepción <strong>${workflow.recepcionEstado||'No aplica'}</strong></span><span>Causación <strong>${workflow.causacionEstado||'No aplica'}</strong></span><span>XML <strong>${workflow.xmlOriginalGuardado?'Guardado':'Sin original'}</strong></span>`; panel.append(status); }
+  if(workflow){ const status=document.createElement('div'); status.className='workflow-status'; status.innerHTML=`<span>Documento <strong>${workflow.estado}</strong></span><span>Pago <strong>${workflow.condicionPago==='CREDITO'?`Crédito · ${workflow.diasCredito} días`:'Contado'}</strong></span><span>Recepción <strong>${workflow.recepcionEstado||'No aplica'}</strong></span><span>Causación <strong>${workflow.causacionEstado||'No aplica'}</strong></span><span>Artículos nuevos <strong>${state.purchaseWorkflow?.lastCreatedItems||0}</strong></span><span>XML <strong>${workflow.xmlOriginalGuardado?'Guardado':'Sin original'}</strong></span>`; panel.append(status); }
   if(state.purchaseWorkflow?.movements?.length){ const wrap=document.createElement('div'); wrap.className='workflow-movements'; const h=document.createElement('h4'); h.textContent='Movimientos de Kardex generados'; wrap.append(h,buildDataTable(['Movimiento','Línea','Artículo','Cantidad','Costo unitario','Valor','Existencia posterior'],state.purchaseWorkflow.movements.map(x=>[x.movimientoInventarioId,x.numeroLinea,`${x.codigoArticulo} · ${x.descripcion}`,x.cantidadEntrada,formatCurrency(x.costoUnitario,invoice.currency),formatCurrency(x.valorMovimiento,invoice.currency),x.existenciaPosterior]))); panel.append(wrap); }
   if(state.purchaseWorkflow?.accrual) panel.append(buildServiceAccountingPanel(state.purchaseWorkflow.accrual,()=>refreshPurchaseWorkflow(state.purchaseWorkflow.documentId,state.purchaseWorkflow.receiptId)));
   return panel;
@@ -1327,11 +1370,11 @@ function buildManualSupplierDocumentPayload(draft) {
   const classification={inventory:'INVENTARIO',service:'SERVICIO_GASTO','acquisition-cost':'COSTO_ADQUISICION'};
   return {
     proveedorIdentificacion:draft.nit,proveedorRazonSocial:draft.supplier,tipoDocumento:draft.documentType,numeroDocumento:draft.invoiceNumber,
-    fechaDocumento:draft.issueDate,fechaVencimiento:draft.dueDate||null,moneda:'COP',cufeCude:null,fuente:'MANUAL',
+    fechaDocumento:draft.issueDate,fechaVencimiento:draft.dueDate||null,condicionPago:draft.paymentCondition,diasCredito:draft.creditDays,crearArticulosFaltantes:false,moneda:'COP',cufeCude:null,fuente:'MANUAL',
     subtotalBruto:draft.lines.reduce((s,x)=>s+x.gross,0),descuentoTotal:draft.lines.reduce((s,x)=>s+x.discount,0),
     impuestoTotal:draft.lines.reduce((s,x)=>s+x.tax,0),cargoTotal:draft.lines.reduce((s,x)=>s+x.charge,0),totalPagar:draft.total,xmlOriginal:null,documentoGuid:draft.id,
     lineas:draft.lines.map(x=>({numeroLinea:x.line,articuloId:Number(x.articleId)||null,codigoExterno:x.code||null,descripcion:x.description,clasificacion:classification[x.classification],cantidad:x.quantity,
-      unidadMedidaId:Number(x.unitId)||null,factorAUnidadBase:1,precioUnitario:x.unitPrice,subtotalBruto:x.gross,descuento:x.discount,impuesto:x.tax,cargo:x.charge,retencion:x.retention,totalNeto:x.net,
+      unidadMedidaId:Number(x.unitId)||null,unidadCodigo:findById(getCompanyMasterData().data.units,x.unitId)?.code||'UND',manejaSerial:Boolean(x.article?.serial||x.serials.length),factorAUnidadBase:1,precioUnitario:x.unitPrice,subtotalBruto:x.gross,descuento:x.discount,impuesto:x.tax,cargo:x.charge,retencion:x.retention,totalNeto:x.net,
       numeroLote:x.lot||null,fechaVencimiento:x.expiry||null,seriales:x.serials.map(s=>({numeroUnidad:s.number,serial:s.serial||null,motor:s.motor||null,chasis:s.chassis||null,vin:s.vin||null,color:s.color||null,modelo:s.model||null,informacionOriginal:s.raw||null}))}))
   };
 }
@@ -1534,7 +1577,7 @@ async function saveManualDraft(event) {
     id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
     createdAt: new Date().toISOString(),
     supplier: $('#manualSupplier').value.trim(), nit: $('#manualNit').value.trim().replace(/[^0-9]/g,''),documentType:$('#manualDocumentType').value,invoiceNumber: $('#manualInvoiceNumber').value.trim(),
-    issueDate: $('#manualIssueDate').value, dueDate: $('#manualDueDate').value, warehouse: needsWarehouse ? elements.manualWarehouse.value : '',warehouseName:needsWarehouse?elements.manualWarehouse.selectedOptions[0]?.textContent:'No aplica',period:needsWarehouse?elements.manualPeriod.value:'',
+    issueDate: $('#manualIssueDate').value, dueDate: $('#manualDueDate').value, paymentCondition:elements.manualPaymentCondition.value,creditDays:elements.manualPaymentCondition.value==='CREDITO'?Number(elements.manualCreditDays.value):0,warehouse: needsWarehouse ? elements.manualWarehouse.value : '',warehouseName:needsWarehouse?elements.manualWarehouse.selectedOptions[0]?.textContent:'No aplica',period:needsWarehouse?elements.manualPeriod.value:'',
     lines, total: lines.reduce((sum, line) => sum + line.total, 0), status: 'draft', source: 'manual',
   };
   state.manualDraft=draft;
@@ -1552,6 +1595,8 @@ async function saveManualDraft(event) {
 }
 
 $('#manualIssueDate').value = new Date().toISOString().slice(0, 10);
+function syncManualPaymentFields(){const credit=elements.manualPaymentCondition.value==='CREDITO';elements.manualCreditDaysField.hidden=!credit;if(credit){elements.manualCreditDays.value=String(Math.max(Number(elements.manualCreditDays.value)||30,1));$('#manualDueDate').value=datePlusDays($('#manualIssueDate').value,Number(elements.manualCreditDays.value));}else{$('#manualDueDate').value=$('#manualIssueDate').value;}}
+elements.manualPaymentCondition.addEventListener('change',syncManualPaymentFields);elements.manualCreditDays.addEventListener('input',syncManualPaymentFields);$('#manualIssueDate').addEventListener('change',syncManualPaymentFields);syncManualPaymentFields();
 document.querySelectorAll('[data-registration-mode]').forEach((button) => button.addEventListener('click', () => setRegistrationMode(button.dataset.registrationMode)));
 elements.inventoryNav.addEventListener('click',()=>showInventoryView(state.inventoryView));
 document.querySelectorAll('[data-inventory-view]').forEach(button=>button.addEventListener('click',()=>showInventoryView(button.dataset.inventoryView)));

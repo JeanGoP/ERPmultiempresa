@@ -32,6 +32,8 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             ["clasificacion"] = MapClassification(line.Clasificacion),
             ["cantidad"] = line.Cantidad,
             ["unidadMedidaId"] = line.UnidadMedidaId,
+            ["unidadCodigo"] = line.UnidadCodigo,
+            ["manejaSerial"] = line.ManejaSerial || (line.Seriales?.Count > 0),
             ["factorAUnidadBase"] = line.FactorAUnidadBase,
             ["precioUnitario"] = line.PrecioUnitario,
             ["subtotalBruto"] = line.SubtotalBruto,
@@ -40,8 +42,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             ["cargo"] = line.Cargo,
             ["retencion"] = line.Retencion,
             ["totalNeto"] = line.TotalNeto
-        });
-        var lineasJson = JsonSerializer.Serialize(linePayload);
+        }).ToArray();
         var serialPayload = input.Lineas.SelectMany(line => (line.Seriales ?? []).Select(serial => new Dictionary<string, object?>
         {
             ["numeroLinea"] = line.NumeroLinea,
@@ -74,17 +75,48 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
                 SELECT TOP(1) d.DocumentoProveedorId
                 FROM comp.DocumentoProveedor d
                 JOIN ter.Tercero t ON t.EmpresaId=d.EmpresaId AND t.TerceroId=d.TerceroId
-                WHERE d.EmpresaId=@EmpresaId AND t.NumeroIdentificacion=@ProveedorIdentificacion
-                  AND d.TipoDocumento=@TipoDocumento AND d.NumeroDocumento=@NumeroDocumento;
+                WHERE d.EmpresaId=@EmpresaId AND
+                (
+                    (t.NumeroIdentificacion=@ProveedorIdentificacion AND d.TipoDocumento=@TipoDocumento AND d.NumeroDocumento=@NumeroDocumento)
+                    OR (@CufeCude IS NOT NULL AND d.CufeCude=@CufeCude)
+                    OR (@HashXml IS NOT NULL AND d.HashXml=@HashXml)
+                );
                 """;
             Add(existing,"@EmpresaId",SqlDbType.BigInt,empresaId);
             Add(existing,"@ProveedorIdentificacion",SqlDbType.NVarChar,input.ProveedorIdentificacion,30);
             Add(existing,"@TipoDocumento",SqlDbType.VarChar,input.TipoDocumento,20);
             Add(existing,"@NumeroDocumento",SqlDbType.NVarChar,input.NumeroDocumento,50);
+            Add(existing,"@CufeCude",SqlDbType.NVarChar,input.CufeCude,120);
+            Add(existing,"@HashXml",SqlDbType.Char,hashXml,64);
             var existingId=await existing.ExecuteScalarAsync(cancellationToken);
-            if(existingId is not null and not DBNull) return new(Convert.ToInt64(existingId),true);
+            if(existingId is not null and not DBNull) return new(Convert.ToInt64(existingId),true,0);
         }
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var articulosCreados=0;
+        if(linePayload.Any(line=>string.Equals(Convert.ToString(line["clasificacion"]),"INVENTARIO",StringComparison.Ordinal)))
+        {
+            await using var articleCommand=connection.CreateCommand();
+            articleCommand.Transaction=transaction;
+            articleCommand.CommandType=CommandType.StoredProcedure;
+            articleCommand.CommandText="comp.usp_AsegurarArticulosDocumentoXml";
+            Add(articleCommand,"@EmpresaId",SqlDbType.BigInt,empresaId);
+            Add(articleCommand,"@ProveedorIdentificacion",SqlDbType.NVarChar,input.ProveedorIdentificacion,30);
+            Add(articleCommand,"@ProveedorRazonSocial",SqlDbType.NVarChar,input.ProveedorRazonSocial,200);
+            Add(articleCommand,"@UsuarioId",SqlDbType.BigInt,input.UsuarioId);
+            Add(articleCommand,"@CrearArticulosFaltantes",SqlDbType.Bit,input.CrearArticulosFaltantes);
+            Add(articleCommand,"@LineasJson",SqlDbType.NVarChar,JsonSerializer.Serialize(linePayload),-1);
+            await using var articleReader=await articleCommand.ExecuteReaderAsync(cancellationToken);
+            while(await articleReader.ReadAsync(cancellationToken))
+            {
+                var numeroLinea=articleReader.GetInt32(0);
+                var line=linePayload.First(x=>Convert.ToInt32(x["numeroLinea"])==numeroLinea);
+                line["articuloId"]=articleReader.GetInt64(1);
+                line["unidadMedidaId"]=articleReader.GetInt64(2);
+                line["codigoExterno"]=articleReader.IsDBNull(3)?null:articleReader.GetString(3);
+                if(articleReader.GetBoolean(5)) articulosCreados++;
+            }
+        }
+        var lineasJson = JsonSerializer.Serialize(linePayload);
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandType = CommandType.StoredProcedure;
@@ -116,6 +148,21 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             if(!await reader.ReadAsync(cancellationToken)) throw new InvalidOperationException("No se obtuvo el documento creado.");
             documentoId=reader.GetInt64(0);
             yaExistia=reader.GetBoolean(1);
+        }
+        if(!yaExistia)
+        {
+            await using var paymentCommand=connection.CreateCommand();
+            paymentCommand.Transaction=transaction;
+            paymentCommand.CommandText="""
+                UPDATE comp.DocumentoProveedor
+                SET CondicionPago=@CondicionPago,DiasCredito=@DiasCredito
+                WHERE EmpresaId=@EmpresaId AND DocumentoProveedorId=@DocumentoProveedorId;
+                """;
+            Add(paymentCommand,"@CondicionPago",SqlDbType.VarChar,input.CondicionPago.Trim().ToUpperInvariant(),10);
+            Add(paymentCommand,"@DiasCredito",SqlDbType.Int,input.DiasCredito);
+            Add(paymentCommand,"@EmpresaId",SqlDbType.BigInt,empresaId);
+            Add(paymentCommand,"@DocumentoProveedorId",SqlDbType.BigInt,documentoId);
+            await paymentCommand.ExecuteNonQueryAsync(cancellationToken);
         }
         if(serialPayload.Length>0&&!yaExistia)
         {
@@ -151,7 +198,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             await retentionCommand.ExecuteNonQueryAsync(cancellationToken);
         }
         await transaction.CommitAsync(cancellationToken);
-        return new(documentoId,yaExistia);
+        return new(documentoId,yaExistia,articulosCreados);
     }
 
     public async Task<SupplierDocumentWorkflowResponse?> GetWorkflowAsync(long empresaId,long documentoId,CancellationToken cancellationToken)
@@ -160,7 +207,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         await using var command=connection.CreateCommand();
         command.CommandText="""
             SELECT d.DocumentoProveedorId,d.Estado,d.TipoDocumento,d.NumeroDocumento,t.RazonSocial,t.NumeroIdentificacion,
-                   d.FechaDocumento,d.FechaVencimiento,d.Moneda,d.CufeCude,d.HashXml,
+                   d.FechaDocumento,d.FechaVencimiento,d.CondicionPago,d.DiasCredito,d.Moneda,d.CufeCude,d.HashXml,
                    CONVERT(bit,IIF(d.XmlOriginal IS NULL,0,1)),d.SubtotalBruto,d.DescuentoTotal,d.ImpuestoTotal,d.CargoTotal,d.TotalPagar,
                    (SELECT COUNT(*) FROM comp.DocumentoProveedorLinea l WHERE l.EmpresaId=d.EmpresaId AND l.DocumentoProveedorId=d.DocumentoProveedorId),
                    (SELECT COUNT(*) FROM comp.DocumentoProveedorLineaUnidad u JOIN comp.DocumentoProveedorLinea l ON l.EmpresaId=u.EmpresaId AND l.DocumentoProveedorLineaId=u.DocumentoProveedorLineaId WHERE l.EmpresaId=d.EmpresaId AND l.DocumentoProveedorId=d.DocumentoProveedorId),
@@ -177,11 +224,11 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         if(!await reader.ReadAsync(cancellationToken)) return null;
         return new(
             reader.GetInt64(0),reader.GetString(1),reader.GetString(2),reader.GetString(3),reader.GetString(4),reader.GetString(5),
-            DateOnly.FromDateTime(reader.GetDateTime(6)),reader.IsDBNull(7)?null:DateOnly.FromDateTime(reader.GetDateTime(7)),reader.GetString(8),
-            reader.IsDBNull(9)?null:reader.GetString(9),reader.IsDBNull(10)?null:reader.GetString(10),reader.GetBoolean(11),
-            reader.GetDecimal(12),reader.GetDecimal(13),reader.GetDecimal(14),reader.GetDecimal(15),reader.GetDecimal(16),reader.GetInt32(17),reader.GetInt32(18),
-            reader.IsDBNull(19)?null:reader.GetInt64(19),reader.IsDBNull(20)?null:reader.GetString(20),reader.IsDBNull(21)?null:reader.GetString(21),
-            reader.IsDBNull(22)?null:reader.GetInt64(22),reader.IsDBNull(23)?null:reader.GetString(23),reader.IsDBNull(24)?null:reader.GetString(24));
+            DateOnly.FromDateTime(reader.GetDateTime(6)),reader.IsDBNull(7)?null:DateOnly.FromDateTime(reader.GetDateTime(7)),reader.GetString(8),reader.GetInt32(9),reader.GetString(10),
+            reader.IsDBNull(11)?null:reader.GetString(11),reader.IsDBNull(12)?null:reader.GetString(12),reader.GetBoolean(13),
+            reader.GetDecimal(14),reader.GetDecimal(15),reader.GetDecimal(16),reader.GetDecimal(17),reader.GetDecimal(18),reader.GetInt32(19),reader.GetInt32(20),
+            reader.IsDBNull(21)?null:reader.GetInt64(21),reader.IsDBNull(22)?null:reader.GetString(22),reader.IsDBNull(23)?null:reader.GetString(23),
+            reader.IsDBNull(24)?null:reader.GetInt64(24),reader.IsDBNull(25)?null:reader.GetString(25),reader.IsDBNull(26)?null:reader.GetString(26));
     }
 
     public async Task<IReadOnlyList<ReceiptMovementResponse>> GetReceiptMovementsAsync(long empresaId,long recepcionId,CancellationToken cancellationToken)

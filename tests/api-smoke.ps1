@@ -26,6 +26,13 @@ function Assert-Status([scriptblock]$Request,[int]$Expected,[string]$Message) {
     if($status -ne $Expected){ throw "$Message Se esperaba HTTP $Expected y se obtuvo $status." }
 }
 
+function New-TestSecureString([string]$Value) {
+    $secure=[Security.SecureString]::new()
+    foreach($character in $Value.ToCharArray()){ $secure.AppendChar($character) }
+    $secure.MakeReadOnly()
+    return $secure
+}
+
 try {
     & (Join-Path $projectRoot 'database\scripts\init-localdb.ps1') -DatabaseName $databaseName -Instance $Instance
     $setupSql=@"
@@ -53,9 +60,9 @@ COMMIT;
     & sqlcmd -S $Instance -E -b -d $databaseName -Q $setupSql
     if($LASTEXITCODE -ne 0){ throw 'No fue posible preparar la empresa para la prueba API.' }
 
-    $adminSecure=ConvertTo-SecureString $adminPassword -AsPlainText -Force
-    $viewerSecure=ConvertTo-SecureString $viewerPassword -AsPlainText -Force
-    $superSecure=ConvertTo-SecureString $superPassword -AsPlainText -Force
+    $adminSecure=New-TestSecureString $adminPassword
+    $viewerSecure=New-TestSecureString $viewerPassword
+    $superSecure=New-TestSecureString $superPassword
     & (Join-Path $projectRoot 'database\scripts\set-local-user.ps1') -Correo 'admin.api@qa.local' -Password $adminSecure -NombreCompleto 'Administrador API QA' -EmpresaCodigo 'APIQA' -DatabaseName $databaseName -Instance $Instance
     & (Join-Path $projectRoot 'database\scripts\set-local-user.ps1') -Correo 'consulta.api@qa.local' -Password $viewerSecure -NombreCompleto 'Consulta API QA' -EmpresaCodigo 'APIQA' -DatabaseName $databaseName -Instance $Instance
     & (Join-Path $projectRoot 'database\scripts\set-local-user.ps1') -Correo 'super.api@qa.local' -Password $superSecure -NombreCompleto 'Superadministrador API QA' -EmpresaCodigo 'APIQA' -DatabaseName $databaseName -Instance $Instance
@@ -83,7 +90,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
         try { $health=Invoke-RestMethod -Uri "$baseUrl/api/v1/health" -Method Get; $healthy=$true; break } catch { if($apiProcess.HasExited){ break } }
     }
     if(-not $healthy){ throw "La API no inicio. $(Get-Content $errorLog -Raw -ErrorAction SilentlyContinue)" }
-    if($health.status -ne 'ok' -or $health.migrations -ne 38){ throw 'La salud de la API no reporto las 38 migraciones esperadas.' }
+    if($health.status -ne 'ok' -or $health.migrations -ne 39){ throw 'La salud de la API no reporto las 39 migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
 
@@ -91,9 +98,9 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     if(-not $superLogin.esSuperAdministrador){ throw 'La API no identifico el superadministrador global.' }
     $superHeaders=@{Authorization="Bearer $($superLogin.token)"}
     $superCompany=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies" -Headers $superHeaders -Method Post -ContentType 'application/json' -Body (@{codigo='SUPERQA';nit='900777099';digitoVerificacion='1';razonSocial='Empresa creada por superadministrador';monedaFuncional='COP';zonaHoraria='America/Bogota';marcoContable='GRUPO_2'}|ConvertTo-Json)
-    $superAudit=[int]((& sqlcmd -S $Instance -E -h -1 -W -d $databaseName -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM audit.Evento WHERE EmpresaId=$($superCompany.empresaId) AND Operacion='EMPRESA_CREADA' AND ISJSON(ValoresPosteriores)=1;") | Select-Object -First 1).Trim()
+    $superAudit=[int]((& sqlcmd -S $Instance -E -h -1 -W -d $databaseName -Q "SET NOCOUNT ON; EXEC sys.sp_set_session_context @key=N'BypassRls',@value=1; SELECT COUNT(*) FROM audit.Evento WHERE EmpresaId=$($superCompany.empresaId) AND Operacion='EMPRESA_CREADA' AND ISJSON(ValoresPosteriores)=1;") | Select-Object -First 1).Trim()
     $superAssignments=[int]((& sqlcmd -S $Instance -E -h -1 -W -d $databaseName -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usuario WHERE Correo='super.api@qa.local');") | Select-Object -First 1).Trim()
-    if($superCompany.codigo -ne 'SUPERQA' -or $superAudit -ne 1 -or $superAssignments -ne 0){ throw 'La creacion global de empresa no conservo auditoria JSON o asigno indebidamente el superadministrador.' }
+    if($superCompany.codigo -ne 'SUPERQA' -or $superAudit -ne 1 -or $superAssignments -ne 0){ throw "La creacion global de empresa no conservo auditoria JSON o asigno indebidamente el superadministrador. codigo=$($superCompany.codigo), auditoria=$superAudit, asignaciones=$superAssignments" }
 
     Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/inventory/balances" -Method Get } 401 'Una consulta anonima no fue rechazada.'
 
@@ -124,8 +131,19 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     $periods=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory-periods" -Headers $adminHeaders -Method Get
     $warehouseId=[long](@($warehouses)|Where-Object codigo -eq 'BOD-API'|Select-Object -First 1).bodegaId
     $periodId=[long](@($periods)[0].periodoInventarioId)
+    $autoBody=@{
+        proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-AUTO-ITEM-1';fechaDocumento='2026-08-20';fechaVencimiento='2026-08-20';condicionPago='CONTADO';diasCredito=0;crearArticulosFaltantes=$true;moneda='COP';
+        cufeCude='CUFE-AUTO-ITEM-1';fuente='XML_DIAN';subtotalBruto=100;descuentoTotal=0;impuestoTotal=19;cargoTotal=0;totalPagar=119;xmlOriginal='<Invoice><ID>FV-AUTO-ITEM-1</ID></Invoice>';
+        lineas=@(@{numeroLinea=1;articuloId=$null;codigoExterno='MOTO-AUTO-EXT';descripcion='Motocicleta creada desde XML';clasificacion='INVENTARIO';cantidad=1;unidadMedidaId=$null;unidadCodigo='94';manejaSerial=$true;factorAUnidadBase=1;precioUnitario=100;subtotalBruto=100;descuento=0;impuesto=19;retencion=0;cargo=0;totalNeto=100;numeroLote=$null;fechaVencimiento=$null;
+            seriales=@(@{numeroUnidad=1;serial=$null;motor='MOT-AUTO-001';chasis='CHA-AUTO-001';vin='VIN-AUTO-001';color='NEGRO';modelo='2027';informacionOriginal='MOT-AUTO-001;CHA-AUTO-001'})})
+    }
+    $autoCreated=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/supplier-documents" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body ($autoBody|ConvertTo-Json -Depth 8)
+    $autoSecond=@{}+$autoBody;$autoSecond.numeroDocumento='FV-AUTO-ITEM-2';$autoSecond.cufeCude='CUFE-AUTO-ITEM-2';$autoSecond.xmlOriginal='<Invoice><ID>FV-AUTO-ITEM-2</ID></Invoice>';$autoSecond.documentoGuid=[guid]::NewGuid()
+    $autoReused=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/supplier-documents" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body ($autoSecond|ConvertTo-Json -Depth 8)
+    $articlesAfterAuto=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/master-data/articles" -Headers $adminHeaders -Method Get
+    if($autoCreated.articulosCreados -ne 1 -or $autoReused.articulosCreados -ne 0 -or -not (@($articlesAfterAuto)|Where-Object codigo -like 'MOT-*')){ throw 'La API no creó y reutilizó correctamente el artículo automático del XML.' }
     $documentBody=@{
-        proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-POINT4';fechaDocumento='2026-08-20';fechaVencimiento='2026-09-19';moneda='COP';
+        proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-POINT4';fechaDocumento='2026-08-20';fechaVencimiento='2026-09-19';condicionPago='CREDITO';diasCredito=30;crearArticulosFaltantes=$false;moneda='COP';
         cufeCude='CUFE-POINT4-UNICO';fuente='XML_DIAN';subtotalBruto=100;descuentoTotal=10;impuestoTotal=17.1;cargoTotal=0;totalPagar=107.1;xmlOriginal='<Invoice><ID>FV-POINT4</ID></Invoice>';
         lineas=@(@{numeroLinea=1;articuloId=[long]$articleSaved.id;codigoExterno='357683';descripcion='Motocicleta prueba punto 4';clasificacion='INVENTARIO';cantidad=1;unidadMedidaId=$unitId;factorAUnidadBase=1;precioUnitario=100;subtotalBruto=100;descuento=10;impuesto=17.1;cargo=0;totalNeto=90;numeroLote=$null;fechaVencimiento=$null;
             seriales=@(@{numeroUnidad=1;serial='SER-P4-001';motor='MOT-P4-001';chasis='CHA-P4-001';vin='VIN-P4-001';color='NEGRO';modelo='2026';informacionOriginal='NEGRO;CHA-P4-001;MOT-P4-001;;2026'})})
@@ -153,7 +171,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
 
     $manualGuid=[guid]::NewGuid()
     $manualBody=@{
-        proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-MANUAL-P5';fechaDocumento='2026-08-20';fechaVencimiento='2026-09-19';moneda='COP';
+        proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-MANUAL-P5';fechaDocumento='2026-08-20';fechaVencimiento='2026-09-19';condicionPago='CREDITO';diasCredito=30;crearArticulosFaltantes=$false;moneda='COP';
         cufeCude=$null;fuente='MANUAL';subtotalBruto=100;descuentoTotal=15;impuestoTotal=17.1;cargoTotal=5;totalPagar=107.1;xmlOriginal=$null;documentoGuid=$manualGuid;
         lineas=@(@{numeroLinea=1;articuloId=[long]$articleSaved.id;codigoExterno='MOTO-MANUAL';descripcion='Motocicleta captura manual';clasificacion='INVENTARIO';cantidad=1;unidadMedidaId=$unitId;factorAUnidadBase=1;precioUnitario=100;subtotalBruto=100;descuento=15;impuesto=17.1;cargo=5;totalNeto=90;numeroLote='LOTE-P5-001';fechaVencimiento='2027-08-20';
             seriales=@(@{numeroUnidad=1;serial='SER-P5-001';motor='MOT-P5-001';chasis='CHA-P5-001';vin='VIN-P5-001';color='ROJO';modelo='2027';informacionOriginal='SER-P5-001;MOT-P5-001;CHA-P5-001;VIN-P5-001;ROJO;2027'})})
@@ -179,7 +197,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     if(@($accountingPeriods).Count -ne 1 -or @($accounts).Count -ne 4){ throw 'La API no publico los periodos y cuentas contables de la empresa.' }
     $accountingPeriodId=[long](@($accountingPeriods)[0].periodoContableId)
     $mixedBody=@{
-        proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-MIXTA-P6';fechaDocumento='2026-08-20';fechaVencimiento='2026-09-19';moneda='COP';
+        proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-MIXTA-P6';fechaDocumento='2026-08-20';fechaVencimiento='2026-09-19';condicionPago='CREDITO';diasCredito=30;crearArticulosFaltantes=$false;moneda='COP';
         cufeCude=$null;fuente='MANUAL';subtotalBruto=150;descuentoTotal=15;impuestoTotal=25.65;cargoTotal=0;totalPagar=156.65;xmlOriginal=$null;documentoGuid=[guid]::NewGuid();
         lineas=@(
             @{numeroLinea=1;articuloId=[long]$articleSaved.id;codigoExterno='MOTO-P6';descripcion='Mercancia factura mixta';clasificacion='INVENTARIO';cantidad=1;unidadMedidaId=$unitId;factorAUnidadBase=1;precioUnitario=50;subtotalBruto=50;descuento=5;impuesto=8.55;retencion=0;cargo=0;totalNeto=45;numeroLote='LOTE-P6-001';fechaVencimiento='2027-08-20';seriales=@(@{numeroUnidad=1;serial='SER-P6-001';motor='MOT-P6-001';chasis='CHA-P6-001';vin='VIN-P6-001';color='AZUL';modelo='2027';informacionOriginal='SER-P6-001'})},
@@ -255,7 +273,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     $negativeBody=@{bodegaId=$warehouseId;articuloId=[long]$negativeArticle.articuloId;periodoInventarioId=$periodId;fechaMovimiento='2026-08-23T09:00:00';fechaContable='2026-08-23';tipoDocumentoOrigen='ORDEN_SALIDA';documentoOrigenId=8001;numeroDocumento='NEG-P8';cantidadSolicitada=2;motivo='Salida excepcional autorizada por continuidad operativa';idempotencyKey=[guid]::NewGuid()}|ConvertTo-Json
     $negative=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory/negative-exceptions" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body $negativeBody
     if($negative.estado -ne 'PENDIENTE' -or $negative.cantidadValorizada -ne 0 -or $negative.cantidadPendiente -ne 2){ throw 'La salida excepcional asignó un costo ficticio o no quedó pendiente.' }
-    $negativeDocument=@{proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-NEG-P8';fechaDocumento='2026-08-23';fechaVencimiento='2026-09-22';moneda='COP';cufeCude=$null;fuente='MANUAL';subtotalBruto=100;descuentoTotal=0;impuestoTotal=19;cargoTotal=0;totalPagar=119;xmlOriginal=$null;documentoGuid=[guid]::NewGuid();lineas=@(@{numeroLinea=1;articuloId=[long]$negativeArticle.articuloId;codigoExterno='ART-API';descripcion='Articulo regularizacion';clasificacion='INVENTARIO';cantidad=2;unidadMedidaId=$unitId;factorAUnidadBase=1;precioUnitario=50;subtotalBruto=100;descuento=0;impuesto=19;retencion=0;cargo=0;totalNeto=100;numeroLote=$null;fechaVencimiento=$null;seriales=@()})}
+    $negativeDocument=@{proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-NEG-P8';fechaDocumento='2026-08-23';fechaVencimiento='2026-09-22';condicionPago='CREDITO';diasCredito=30;crearArticulosFaltantes=$false;moneda='COP';cufeCude=$null;fuente='MANUAL';subtotalBruto=100;descuentoTotal=0;impuestoTotal=19;cargoTotal=0;totalPagar=119;xmlOriginal=$null;documentoGuid=[guid]::NewGuid();lineas=@(@{numeroLinea=1;articuloId=[long]$negativeArticle.articuloId;codigoExterno='ART-API';descripcion='Articulo regularizacion';clasificacion='INVENTARIO';cantidad=2;unidadMedidaId=$unitId;factorAUnidadBase=1;precioUnitario=50;subtotalBruto=100;descuento=0;impuesto=19;retencion=0;cargo=0;totalNeto=100;numeroLote=$null;fechaVencimiento=$null;seriales=@()})}
     $negativeCreated=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/supplier-documents" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body ($negativeDocument|ConvertTo-Json -Depth 8)
     $negativePrepared=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/supplier-documents/$($negativeCreated.documentoProveedorId)/prepare" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{bodegaId=$warehouseId;periodoInventarioId=$periodId;fechaContable='2026-08-23';numeroRecepcion='ENT-NEG-P8';numeroCausacion=$null}|ConvertTo-Json)
     $null=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/receipts/$($negativePrepared.recepcionMercanciaId)/post" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{correlationId=[guid]::NewGuid()}|ConvertTo-Json)

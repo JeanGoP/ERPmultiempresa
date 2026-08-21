@@ -25,7 +25,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.08.17.4";
+const string ReleaseVersion="2026.08.20.1";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -103,7 +103,7 @@ app.MapGet("/api/v1/health", async (TenantConnectionFactory connections, Cancell
 app.MapGet("/api/v1/health/live",()=>Results.Ok(new { status="live",utc=DateTime.UtcNow }));
 app.MapGet("/api/v1/health/ready",async(ProductionOperationsRepository operations,IOptions<OutboxOptions> options,CancellationToken ct)=>
 {
-    var health=await operations.GetPlatformHealthAsync(ct);var ready=health.Migrations>=38&&health.DiscardedOutbox==0;
+    var health=await operations.GetPlatformHealthAsync(ct);var ready=health.Migrations>=39&&health.DiscardedOutbox==0;
     var productionIntegration=string.Equals(options.Value.DeliveryMode,"Webhook",StringComparison.OrdinalIgnoreCase)&&Uri.IsWellFormedUriString(options.Value.WebhookUrl,UriKind.Absolute);
     return Results.Json(new { status=ready?"ready":"degraded",database="connected",health.Migrations,health.PendingOutbox,health.DiscardedOutbox,health.OldestPendingUtc,integrationMode=options.Value.DeliveryMode,productionIntegration },statusCode:ready?200:503);
 });
@@ -278,9 +278,16 @@ app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents", async (long
 {
     if (input.Lineas.Count == 0)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["lineas"] = ["El documento debe contener al menos una línea."] });
+    var condicionPago=(input.CondicionPago??string.Empty).Trim().ToUpperInvariant();
+    if(condicionPago is not ("CONTADO" or "CREDITO"))
+        return Results.ValidationProblem(new Dictionary<string,string[]> { ["condicionPago"]=["Selecciona CONTADO o CREDITO."] });
+    if((condicionPago=="CONTADO"&&input.DiasCredito!=0)||(condicionPago=="CREDITO"&&(input.DiasCredito<1||input.DiasCredito>3650)))
+        return Results.ValidationProblem(new Dictionary<string,string[]> { ["diasCredito"]=["Contado usa 0 días; crédito requiere entre 1 y 3650 días."] });
+    if(condicionPago=="CREDITO"&&(input.FechaVencimiento is null||input.FechaVencimiento.Value!=input.FechaDocumento.AddDays(input.DiasCredito)))
+        return Results.ValidationProblem(new Dictionary<string,string[]> { ["fechaVencimiento"]=["La fecha de vencimiento debe corresponder a la fecha del documento más los días de crédito."] });
     try
     {
-        var result = await purchasing.CreateDocumentAsync(empresaId, input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) }, cancellationToken);
+        var result = await purchasing.CreateDocumentAsync(empresaId, input with { CondicionPago=condicionPago, UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) }, cancellationToken);
         return result.YaExistia ? Results.Ok(result) : Results.Created($"/api/v1/companies/{empresaId}/supplier-documents/{result.DocumentoProveedorId}", result);
     }
     catch (ArgumentException error)

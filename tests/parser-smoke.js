@@ -5,7 +5,7 @@ const assert = require('assert');
 const { DOMParser, Node } = require('@xmldom/xmldom');
 
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-for (const fragment of ['DOMParser', 'CDATA_SECTION_NODE', 'findEmbeddedBusinessDocument', 'extractInvoiceData', 'AllowanceCharge', 'ChargeIndicator', 'MultiplierFactorNumeric', 'Subtotal bruto', 'Descuento %', 'AdditionalItemProperty', 'normalizePropertyName', 'informacionmoto', 'inferColorFromDescription', 'inferModelYearFromVin', 'Modelo (año)', 'WithholdingTaxTotal', 'retentionTaxCodes', 'Retenciones', 'Seriales de motos', "'Motor', 'Chasis', 'VIN'", 'retencion:item.retention', 'vin:serial.vin', 'findDetailGroups', 'elementToJson', 'decodeXmlBuffer', 'TextDecoder', 'exportCsv', 'exportExcel', 'inferLineClassification', 'buildInvoiceClassificationTable', 'buildHomologationPanel', 'getCompanyMasterData', 'saveMasterRecord', 'purchaseFactor', 'addManualLine', 'saveManualDraft', 'nexo.purchaseDrafts', 'nexo.erpSession.v1', 'nexo.masterData.v1', 'initializeErpUi', 'selectCompany', 'runtimeMode', 'textContent']) {
+for (const fragment of ['DOMParser', 'CDATA_SECTION_NODE', 'findEmbeddedBusinessDocument', 'extractInvoiceData', 'AllowanceCharge', 'ChargeIndicator', 'MultiplierFactorNumeric', 'Subtotal bruto', 'Descuento %', 'AdditionalItemProperty', 'normalizePropertyName', 'informacionmoto', 'inferColorFromDescription', 'inferModelYearFromVin', 'Modelo (año)', 'WithholdingTaxTotal', 'retentionTaxCodes', 'Retenciones', 'Seriales de motos', "'Motor', 'Chasis', 'VIN'", 'retencion:item.retention', 'vin:serial.vin', 'paymentCondition', 'creditDays', 'externalProductCode', 'crearArticulosFaltantes', 'findDetailGroups', 'elementToJson', 'decodeXmlBuffer', 'TextDecoder', 'exportCsv', 'exportExcel', 'inferLineClassification', 'buildInvoiceClassificationTable', 'buildHomologationPanel', 'getCompanyMasterData', 'saveMasterRecord', 'purchaseFactor', 'addManualLine', 'saveManualDraft', 'nexo.purchaseDrafts', 'nexo.erpSession.v1', 'nexo.masterData.v1', 'initializeErpUi', 'selectCompany', 'runtimeMode', 'textContent']) {
   if (!appSource.includes(fragment)) throw new Error(`Falta la función requerida: ${fragment}`);
 }
 new vm.Script(appSource);
@@ -28,6 +28,7 @@ const variantsFixture = `<?xml version="1.0" encoding="UTF-8"?>
  xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
  <cbc:ID>PRUEBA-VARIANTES</cbc:ID><cbc:IssueDate>2026-08-20</cbc:IssueDate><cbc:DocumentCurrencyCode>COP</cbc:DocumentCurrencyCode>
+ <cac:PaymentMeans><cbc:ID>2</cbc:ID><cbc:PaymentDueDate>2026-09-19</cbc:PaymentDueDate></cac:PaymentMeans>
  <cac:WithholdingTaxTotal><cbc:TaxAmount currencyID="COP">125.00</cbc:TaxAmount><cac:TaxSubtotal><cbc:TaxableAmount currencyID="COP">10000.00</cbc:TaxableAmount><cbc:TaxAmount currencyID="COP">125.00</cbc:TaxAmount><cac:TaxCategory><cbc:Percent>1.25</cbc:Percent><cac:TaxScheme><cbc:ID>06</cbc:ID><cbc:Name>ReteRenta</cbc:Name></cac:TaxScheme></cac:TaxCategory></cac:TaxSubtotal></cac:WithholdingTaxTotal>
  <cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="COP">10000.00</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="COP">10000.00</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="COP">11900.00</cbc:TaxInclusiveAmount><cbc:PayableAmount currencyID="COP">11775.00</cbc:PayableAmount></cac:LegalMonetaryTotal>
  <cac:InvoiceLine><cbc:ID>1</cbc:ID><cbc:InvoicedQuantity unitCode="94">1</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="COP">3000.00</cbc:LineExtensionAmount><cac:Item><cbc:Description>Moto combinada NEGRO MATE CALCOMANIA AZUL 2027</cbc:Description><cac:AdditionalItemProperty><cbc:Name>Chasis / Motor (Chassis / Engine)</cbc:Name><cbc:Value>9FLTESTCHASIS01/MOTORTEST01</cbc:Value></cac:AdditionalItemProperty></cac:Item><cac:Price><cbc:PriceAmount currencyID="COP">3000.00</cbc:PriceAmount></cac:Price></cac:InvoiceLine>
@@ -46,6 +47,9 @@ assert.strictEqual(variants.items[1].serials[0].model, '2028');
 assert.strictEqual(variants.retentions.length, 1);
 assert.strictEqual(variants.retentions[0].amount, 125);
 assert.strictEqual(variants.items.reduce((total, item) => total + item.retention, 0), 125);
+assert.strictEqual(variants.paymentCondition, 'CREDITO');
+assert.strictEqual(variants.creditDays, 30);
+assert.strictEqual(variants.dueDate, '2026-09-19');
 
 const realSamplesDir = path.join(__dirname, '..', 'tmp', 'xml-samples');
 if (fs.existsSync(realSamplesDir)) {

@@ -455,15 +455,18 @@ footer p { margin: 0; }
 .purchase-workflow-heading h3 { margin: 5px 0; font-size: 20px; }
 .purchase-workflow-heading p { margin: 0; color: var(--muted); font-size: 11px; }
 .workflow-notice { margin: 18px 0 0; padding: 14px 16px; border-radius: 9px; background: #fff8e8; color: #755817; font-size: 11px; font-weight: 700; }
-.workflow-controls { display: grid; grid-template-columns: 1.35fr 1fr .8fr; gap: 10px; margin-top: 20px; }
+.workflow-controls { display: grid; grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); gap: 10px; margin-top: 20px; }
 .workflow-controls select,.workflow-controls input { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid #c8d9d0; border-radius: 8px; background: white; color: var(--ink); }
+.workflow-field>span { display: block; margin-bottom: 6px; color: #4b5e54; font-size: 8px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }
+.workflow-controls .workflow-check { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 8px 11px; border: 1px solid #c8d9d0; border-radius: 8px; background: white; color: var(--ink); font-size: 10px; font-weight: 800; }
+.workflow-controls .workflow-check input { width: 18px; min-height: 18px; margin: 0; padding: 0; accent-color: var(--green); }
 .workflow-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 13px; }
 .workflow-actions .button { min-height: 42px; }
 .workflow-actions button:disabled { cursor: not-allowed; opacity: .48; }
 .confirm-entry { border: 0; background: #173f30; color: white; }
 .workflow-readiness { margin: 12px 0 0; color: #2c604a; font-size: 10px; font-weight: 750; }
 .workflow-readiness.pending { color: #a05231; }
-.workflow-status { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-top: 18px; padding-top: 18px; border-top: 1px solid #c8ddd2; }
+.workflow-status { display: grid; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap: 8px; margin-top: 18px; padding-top: 18px; border-top: 1px solid #c8ddd2; }
 .workflow-status span { padding: 11px; border-radius: 8px; background: white; color: var(--muted); font-size: 9px; }
 .workflow-status strong { display: block; margin-top: 3px; color: var(--ink); font-size: 11px; }
 .workflow-movements { margin-top: 18px; overflow-x: auto; }

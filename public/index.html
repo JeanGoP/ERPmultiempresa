@@ -255,7 +255,9 @@
                 <label><span>Tipo de documento *</span><select id="manualDocumentType"><option value="FACTURA">Factura</option><option value="REMISION">Remisión</option><option value="DOCUMENTO_SOPORTE">Documento soporte</option></select></label>
                 <label><span>Número *</span><input id="manualInvoiceNumber" required placeholder="Ej. FE-1042"></label>
                 <label><span>Fecha *</span><input id="manualIssueDate" type="date" required></label>
-                <label><span>Vencimiento</span><input id="manualDueDate" type="date"></label>
+                <label><span>Vencimiento</span><input id="manualDueDate" type="date" readonly></label>
+                <label><span>Condición de pago *</span><select id="manualPaymentCondition"><option value="CONTADO">Contado</option><option value="CREDITO">Crédito</option></select></label>
+                <label id="manualCreditDaysField" hidden><span>Días de crédito *</span><input id="manualCreditDays" type="number" min="1" max="3650" value="30"></label>
                 <label id="warehouseField"><span>Bodega *</span><select id="manualWarehouse"><option value="">Seleccionar bodega</option><option>Bodega principal</option><option>Bodega Cartagena</option><option>Bodega Bogotá</option></select></label>
                 <label id="manualPeriodField" hidden><span>Periodo de inventario *</span><select id="manualPeriod"><option value="">Seleccionar periodo</option></select></label>
               </div>

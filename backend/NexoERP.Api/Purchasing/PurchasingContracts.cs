@@ -18,6 +18,8 @@ public sealed record SupplierDocumentLineRequest(
     string Clasificacion,
     decimal Cantidad,
     long? UnidadMedidaId,
+    string? UnidadCodigo,
+    bool ManejaSerial,
     decimal FactorAUnidadBase,
     decimal PrecioUnitario,
     decimal SubtotalBruto,
@@ -37,6 +39,9 @@ public sealed record CreateSupplierDocumentRequest(
     string NumeroDocumento,
     DateOnly FechaDocumento,
     DateOnly? FechaVencimiento,
+    string CondicionPago,
+    int DiasCredito,
+    bool CrearArticulosFaltantes,
     string Moneda,
     string? CufeCude,
     string Fuente,
@@ -50,11 +55,11 @@ public sealed record CreateSupplierDocumentRequest(
     Guid? DocumentoGuid,
     IReadOnlyList<SupplierDocumentLineRequest> Lineas);
 
-public sealed record SupplierDocumentResponse(long DocumentoProveedorId, bool YaExistia);
+public sealed record SupplierDocumentResponse(long DocumentoProveedorId, bool YaExistia, int ArticulosCreados);
 
 public sealed record SupplierDocumentWorkflowResponse(
     long DocumentoProveedorId,string Estado,string TipoDocumento,string NumeroDocumento,string Proveedor,
-    string ProveedorIdentificacion,DateOnly FechaDocumento,DateOnly? FechaVencimiento,string Moneda,
+    string ProveedorIdentificacion,DateOnly FechaDocumento,DateOnly? FechaVencimiento,string CondicionPago,int DiasCredito,string Moneda,
     string? CufeCude,string? HashXml,bool XmlOriginalGuardado,decimal SubtotalBruto,decimal DescuentoTotal,
     decimal ImpuestoTotal,decimal CargoTotal,decimal TotalPagar,int Lineas,int UnidadesSerializadas,
     long? RecepcionMercanciaId,string? RecepcionNumero,string? RecepcionEstado,
