@@ -11,6 +11,8 @@ La API usa el prefijo `/api/v1`. Salvo salud e inicio de sesion, todas las rutas
 | GET | `/health/ready` | Comprueba migraciones, Outbox e integración productiva. |
 | POST | `/auth/login` | Autentica y entrega la sesion. |
 | GET | `/companies` | Empresas autorizadas para el usuario. |
+| POST | `/companies` | Crea una empresa y sus datos operativos iniciales: unidad `UND`, bodega `PPL` y períodos actuales. Solo superadministrador. |
+| POST | `/companies/{empresaId}/setup/operational-defaults` | Prepara de forma idempotente los datos operativos faltantes de una empresa existente. Solo superadministrador. |
 | GET | `/companies/{empresaId}/permissions` | Devuelve los permisos efectivos. |
 | GET | `/companies/{empresaId}/operations/status` | Cola Outbox, entregas, alertas y métricas. |
 | GET | `/companies/{empresaId}/operations/alerts` | Alertas operativas activas. |

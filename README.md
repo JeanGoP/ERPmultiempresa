@@ -16,6 +16,8 @@ En modo API, tanto la entrada automática como la entrada manual crean el docume
 
 El menú **Administración → Usuarios y permisos** permite crear usuarios, activar o suspender su acceso por empresa, asignar uno o varios roles y restablecer contraseñas. El superadministrador también puede crear roles y seleccionar sus permisos operativos.
 
+Al crear una empresa, el sistema deja preparados automáticamente la unidad `UND`, la bodega principal `PPL` y los períodos contable y de inventario del mes actual. Para una empresa creada antes de esta mejora, el superadministrador puede abrir una factura con mercancía y usar **Preparar empresa ahora**; después se habilitan los selectores de bodega y período.
+
 ## Núcleo SQL Server
 
 ```powershell

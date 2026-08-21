@@ -98,9 +98,13 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     if(-not $superLogin.esSuperAdministrador){ throw 'La API no identifico el superadministrador global.' }
     $superHeaders=@{Authorization="Bearer $($superLogin.token)"}
     $superCompany=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies" -Headers $superHeaders -Method Post -ContentType 'application/json' -Body (@{codigo='SUPERQA';nit='900777099';digitoVerificacion='1';razonSocial='Empresa creada por superadministrador';monedaFuncional='COP';zonaHoraria='America/Bogota';marcoContable='GRUPO_2'}|ConvertTo-Json)
+    $superWarehouses=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$($superCompany.empresaId)/warehouses" -Headers $superHeaders -Method Get
+    $superPeriods=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$($superCompany.empresaId)/inventory-periods" -Headers $superHeaders -Method Get
     $superAudit=[int]((& sqlcmd -S $Instance -E -h -1 -W -d $databaseName -Q "SET NOCOUNT ON; EXEC sys.sp_set_session_context @key=N'BypassRls',@value=1; SELECT COUNT(*) FROM audit.Evento WHERE EmpresaId=$($superCompany.empresaId) AND Operacion='EMPRESA_CREADA' AND ISJSON(ValoresPosteriores)=1;") | Select-Object -First 1).Trim()
     $superAssignments=[int]((& sqlcmd -S $Instance -E -h -1 -W -d $databaseName -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usuario WHERE Correo='super.api@qa.local');") | Select-Object -First 1).Trim()
-    if($superCompany.codigo -ne 'SUPERQA' -or $superAudit -ne 1 -or $superAssignments -ne 0){ throw "La creacion global de empresa no conservo auditoria JSON o asigno indebidamente el superadministrador. codigo=$($superCompany.codigo), auditoria=$superAudit, asignaciones=$superAssignments" }
+    if($superCompany.codigo -ne 'SUPERQA' -or $superAudit -ne 1 -or $superAssignments -ne 0 -or @($superWarehouses).Count -ne 1 -or @($superPeriods).Count -ne 1){ throw "La creación global no dejó empresa, bodega, periodo o auditoría preparados correctamente. codigo=$($superCompany.codigo), auditoria=$superAudit, asignaciones=$superAssignments" }
+    $preparedCompany=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/setup/operational-defaults" -Headers $superHeaders -Method Post -ContentType 'application/json' -Body '{}'
+    if($preparedCompany.bodegaId -le 0 -or $preparedCompany.periodoInventarioId -le 0 -or $preparedCompany.unidadMedidaId -le 0){ throw 'La preparación idempotente de una empresa existente no devolvió sus maestros iniciales.' }
 
     Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/inventory/balances" -Method Get } 401 'Una consulta anonima no fue rechazada.'
 

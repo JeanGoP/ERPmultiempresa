@@ -389,10 +389,19 @@ function openMasterForm() {
   openErpDialog(elements.masterRecordDialog);
 }
 
-function saveMasterRecord(event) {
+async function saveMasterRecord(event) {
   event.preventDefault(); const values=Object.fromEntries(new FormData(elements.masterRecordForm)); const context=getCompanyMasterData(); const data=context.data;
   const checkbox=(name)=>elements.masterRecordForm.elements[name]?.checked||false;
   try {
+    if(context.api){
+      const base=`/api/v1/companies/${state.erpSession.company.id}/master-data`;let path;let payload;
+      if(state.masterView==='suppliers'){path='suppliers';payload={tipoIdentificacion:values.identificationType,numeroIdentificacion:values.identification.trim(),digitoVerificacion:values.verificationDigit.trim()||null,razonSocial:values.name.trim()};}
+      else if(state.masterView==='units'){path='units';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),simbolo:values.symbol.trim()};}
+      else if(state.masterView==='articles'){path='articles';payload={codigo:values.code.trim().toUpperCase(),descripcion:values.description.trim(),tipo:values.type,unidadBaseId:Number(values.unitId),manejaInventario:values.type==='SERVICIO'?false:checkbox('inventory'),manejaLote:checkbox('lot'),manejaSerial:checkbox('serial'),requiereVencimiento:checkbox('expiry'),pesoBaseKg:null,volumenBaseM3:null};}
+      else if(state.masterView==='warehouses'){path='warehouses';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),usaUbicaciones:checkbox('locations'),esTransito:checkbox('transit')};}
+      else{path='item-mappings';payload={terceroId:Number(values.supplierId),codigoExterno:values.externalCode.trim(),descripcionExterna:values.externalDescription.trim()||null,articuloId:Number(values.articleId),unidadMedidaId:values.unitId?Number(values.unitId):null,factorAUnidadBase:Number(values.factor)||1};}
+      await apiRequest(`${base}/${path}`,{method:'POST',body:JSON.stringify(payload)});await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();if(state.invoice)renderInvoice();return;
+    }
     if(state.masterView==='suppliers') { const current=data.suppliers.find(x=>x.identification===values.identification); const record={id:current?.id||masterId('sup'),identificationType:values.identificationType,identification:values.identification.trim(),verificationDigit:values.verificationDigit.trim(),name:values.name.trim(),active:true}; current?Object.assign(current,record):data.suppliers.push(record); }
     else if(state.masterView==='units') { const current=data.units.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const record={id:current?.id||masterId('unit'),code:values.code.trim().toUpperCase(),name:values.name.trim(),symbol:values.symbol.trim(),active:true}; current?Object.assign(current,record):data.units.push(record); }
     else if(state.masterView==='articles') { const current=data.articles.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const inventory=values.type==='SERVICIO'?false:checkbox('inventory'); const record={id:current?.id||masterId('art'),code:values.code.trim().toUpperCase(),description:values.description.trim(),type:values.type,unitId:values.unitId,purchaseUnitId:values.purchaseUnitId||'',purchaseFactor:Number(values.purchaseFactor)||1,inventory,serial:checkbox('serial'),lot:checkbox('lot'),expiry:checkbox('expiry'),active:true}; current?Object.assign(current,record):data.articles.push(record); }
@@ -1096,6 +1105,11 @@ function buildPurchaseWorkflowPanel(invoice) {
   if(!state.apiContext){ const notice=document.createElement('p'); notice.className='workflow-notice'; notice.textContent='Cargando bodegas, periodos y homologaciones de la empresa…'; panel.append(notice); return panel; }
 
   const inventoryLines=invoice.items.filter(x=>x.classification==='inventory'); const serviceLines=invoice.items.filter(x=>x.classification==='service');
+  if(inventoryLines.length&&(!state.apiContext.warehouses.length||!state.apiContext.periods.length)){
+    const setup=document.createElement('div');setup.className='workflow-notice';const missing=[!state.apiContext.warehouses.length?'una bodega activa':'',!state.apiContext.periods.length?'un periodo de inventario abierto':''].filter(Boolean).join(' y ');setup.append(document.createTextNode(`La empresa necesita ${missing} antes de recibir mercancía. `));
+    if(state.erpSession.superAdmin){const button=document.createElement('button');button.type='button';button.className='button primary';button.textContent='Preparar empresa ahora';button.addEventListener('click',async()=>{try{button.disabled=true;button.textContent='Preparando…';await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/setup/operational-defaults`,{method:'POST',body:'{}'});await loadApiCompanyContext();renderInvoice();}catch(error){showError(`No fue posible preparar la empresa. ${error.message}`);button.disabled=false;button.textContent='Preparar empresa ahora';}});setup.append(button);}else setup.append(document.createTextNode('Solicita al superadministrador preparar los datos iniciales.'));
+    panel.append(setup);return panel;
+  }
   const pending=inventoryLines.filter(item=>!mappedLine(invoice,item)); const workflow=state.purchaseWorkflow?.workflow;
   const controls=document.createElement('div'); controls.className='workflow-controls';
   const warehouse=document.createElement('select'); warehouse.innerHTML='<option value="">Selecciona bodega…</option>'; state.apiContext.warehouses.forEach(x=>warehouse.add(new Option(`${x.codigo} · ${x.nombre}`,x.bodegaId)));

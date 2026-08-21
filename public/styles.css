@@ -496,6 +496,7 @@ footer p { margin: 0; }
 .purchase-workflow-heading h3 { margin: 5px 0; font-size: 20px; }
 .purchase-workflow-heading p { margin: 0; color: var(--muted); font-size: 11px; }
 .workflow-notice { margin: 18px 0 0; padding: 14px 16px; border-radius: 9px; background: #fff8e8; color: #755817; font-size: 11px; font-weight: 700; }
+.workflow-notice .button { margin-left: 10px; }
 .workflow-controls { display: grid; grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); gap: 10px; margin-top: 20px; }
 .workflow-controls select,.workflow-controls input { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid #c8d9d0; border-radius: 8px; background: white; color: var(--ink); }
 .workflow-field>span { display: block; margin-bottom: 6px; color: #4b5e54; font-size: 8px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }

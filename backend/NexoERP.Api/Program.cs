@@ -26,7 +26,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.08.20.2";
+const string ReleaseVersion="2026.08.20.3";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -144,6 +144,8 @@ app.MapPost("/api/v1/companies",async(CreateCompanyRequest input,HttpContext con
         return Results.Json(new { error="SQL Server rechazó la creación de la empresa.",code=$"SQL-{error.Number}",release=ReleaseVersion },statusCode:StatusCodes.Status500InternalServerError);
     }
 }).RequireSuperAdministrator();
+app.MapPost("/api/v1/companies/{empresaId:long}/setup/operational-defaults",async(long empresaId,HttpContext context,AuthRepository auth,CancellationToken ct)=>
+    Results.Ok(await auth.EnsureOperationalDefaultsAsync(empresaId,Convert.ToInt64(context.Items["UsuarioId"]),ct))).RequireSuperAdministrator();
 app.MapGet("/api/v1/companies/{empresaId:long}/operations/status",async(long empresaId,ProductionOperationsRepository operations,OperationalMetrics metrics,CancellationToken ct)=>Results.Ok(new { company=await operations.GetCompanyStatusAsync(empresaId,ct),runtime=metrics.Snapshot() })).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
 app.MapGet("/api/v1/companies/{empresaId:long}/operations/alerts",async(long empresaId,ProductionOperationsRepository operations,CancellationToken ct)=>Results.Ok(await operations.GetAlertsAsync(empresaId,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
 app.MapPost("/api/v1/companies/{empresaId:long}/operations/outbox/{eventId:long}/retry",async(long empresaId,long eventId,ProductionOperationsRepository operations,CancellationToken ct)=>{await operations.RetryAsync(empresaId,eventId,ct);return Results.Accepted();}).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");

@@ -189,6 +189,7 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
             configuration.Parameters.Add(new SqlParameter("@EmpresaId",SqlDbType.BigInt){Value=companyId});
             await configuration.ExecuteNonQueryAsync(cancellationToken);
         }
+        await EnsureOperationalDefaultsAsync(connection,(SqlTransaction)transaction,companyId,userId,cancellationToken);
         await using(var audit=connection.CreateCommand())
         {
             audit.Transaction=(SqlTransaction)transaction;
@@ -200,6 +201,71 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
         }
         await transaction.CommitAsync(cancellationToken);
         return new(companyId,code,nit,name,currency);
+    }
+
+    public async Task<OperationalSetupResponse> EnsureOperationalDefaultsAsync(long empresaId,long userId,CancellationToken cancellationToken)
+    {
+        if(!await IsSuperAdministratorAsync(userId,cancellationToken)) throw new UnauthorizedAccessException("Se requiere un superadministrador global.");
+        await using var connection=await connections.OpenAsync(null,true,cancellationToken);
+        await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var result=await EnsureOperationalDefaultsAsync(connection,transaction,empresaId,userId,cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    private static async Task<OperationalSetupResponse> EnsureOperationalDefaultsAsync(SqlConnection connection,SqlTransaction transaction,long empresaId,long userId,CancellationToken cancellationToken)
+    {
+        var today=DateOnly.FromDateTime(DateTime.UtcNow);
+        var start=new DateOnly(today.Year,today.Month,1);
+        var end=start.AddMonths(1).AddDays(-1);
+        var period=start.ToString("yyyy-MM");
+        await using var command=connection.CreateCommand();
+        command.Transaction=transaction;
+        command.CommandText="""
+            IF NOT EXISTS(SELECT 1 FROM core.Empresa WHERE EmpresaId=@EmpresaId AND Activa=1)
+                THROW 51040,'La empresa no existe o está inactiva.',1;
+            DECLARE @UnidadId bigint=(SELECT TOP(1) UnidadMedidaId FROM inv.UnidadMedida WHERE EmpresaId=@EmpresaId AND Codigo='UND');
+            IF @UnidadId IS NULL
+            BEGIN
+                INSERT inv.UnidadMedida(EmpresaId,Codigo,Nombre,Simbolo) VALUES(@EmpresaId,'UND',N'Unidad',N'und');
+                SET @UnidadId=SCOPE_IDENTITY();
+            END;
+            ELSE UPDATE inv.UnidadMedida SET Activa=1 WHERE EmpresaId=@EmpresaId AND UnidadMedidaId=@UnidadId;
+            DECLARE @BodegaId bigint=(SELECT TOP(1) BodegaId FROM inv.Bodega WHERE EmpresaId=@EmpresaId AND Activa=1 AND EsTransito=0 ORDER BY BodegaId);
+            IF @BodegaId IS NULL
+            BEGIN
+                SET @BodegaId=(SELECT TOP(1) BodegaId FROM inv.Bodega WHERE EmpresaId=@EmpresaId AND Codigo='PPL' AND EsTransito=0 ORDER BY BodegaId);
+                IF @BodegaId IS NULL
+                BEGIN
+                    INSERT inv.Bodega(EmpresaId,Codigo,Nombre,UsaUbicaciones,EsTransito) VALUES(@EmpresaId,'PPL',N'Bodega principal',0,0);
+                    SET @BodegaId=SCOPE_IDENTITY();
+                END;
+                ELSE UPDATE inv.Bodega SET Activa=1 WHERE EmpresaId=@EmpresaId AND BodegaId=@BodegaId;
+            END;
+            DECLARE @PeriodoInventarioId bigint=(SELECT PeriodoInventarioId FROM core.PeriodoInventario WHERE EmpresaId=@EmpresaId AND Codigo=@Periodo);
+            IF @PeriodoInventarioId IS NULL
+            BEGIN
+                INSERT core.PeriodoInventario(EmpresaId,Codigo,FechaInicio,FechaFin,Estado) VALUES(@EmpresaId,@Periodo,@Inicio,@Fin,'ABIERTO');
+                SET @PeriodoInventarioId=SCOPE_IDENTITY();
+            END;
+            DECLARE @PeriodoContableId bigint=(SELECT PeriodoContableId FROM core.PeriodoContable WHERE EmpresaId=@EmpresaId AND Codigo=@Periodo);
+            IF @PeriodoContableId IS NULL
+            BEGIN
+                INSERT core.PeriodoContable(EmpresaId,Codigo,FechaInicio,FechaFin,Estado) VALUES(@EmpresaId,@Periodo,@Inicio,@Fin,'ABIERTO');
+                SET @PeriodoContableId=SCOPE_IDENTITY();
+            END;
+            INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen)
+            VALUES(@EmpresaId,@UsuarioId,'EMPRESA_PREPARADA','core.Empresa',CONVERT(nvarchar(100),@EmpresaId),CONCAT(N'{"periodo":"',@Periodo,N'","bodegaId":',@BodegaId,N'}'),'NexoERP.Api');
+            SELECT @UnidadId,@BodegaId,@PeriodoInventarioId,@PeriodoContableId;
+            """;
+        command.Parameters.Add(new SqlParameter("@EmpresaId",SqlDbType.BigInt){Value=empresaId});
+        command.Parameters.Add(new SqlParameter("@UsuarioId",SqlDbType.BigInt){Value=userId});
+        command.Parameters.Add(new SqlParameter("@Periodo",SqlDbType.Char,7){Value=period});
+        command.Parameters.Add(new SqlParameter("@Inicio",SqlDbType.Date){Value=start.ToDateTime(TimeOnly.MinValue)});
+        command.Parameters.Add(new SqlParameter("@Fin",SqlDbType.Date){Value=end.ToDateTime(TimeOnly.MinValue)});
+        await using var reader=await command.ExecuteReaderAsync(cancellationToken);
+        if(!await reader.ReadAsync(cancellationToken)) throw new InvalidOperationException("No fue posible preparar la empresa.");
+        return new(reader.GetInt64(0),reader.GetInt64(1),reader.GetInt64(2),reader.GetInt64(3),period);
     }
 
     private static string ToBase64Url(byte[] value)=>Convert.ToBase64String(value).TrimEnd('=').Replace('+','-').Replace('/','_');
