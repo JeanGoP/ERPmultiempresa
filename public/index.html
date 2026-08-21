@@ -95,7 +95,7 @@
           <summary class="nav-item parent"><span class="nav-icon">◎</span><span>Administración</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
             <button id="companiesAdminNav" class="nav-subitem" type="button">Empresas</button>
-            <span class="nav-subitem muted">Usuarios y permisos <small>Próximamente</small></span>
+            <button id="securityAdminNav" class="nav-subitem" type="button">Usuarios y permisos</button>
           </div>
         </details>
       </nav>
@@ -171,6 +171,26 @@
               <div class="advanced-primary"><div id="advancedNotice" class="inventory-notice" hidden></div><div id="advancedTable" class="table-wrap advanced-table"></div><div id="advancedAction" class="advanced-action"></div></div>
               <aside class="control-audit"><div><span>AUDITORÍA RECIENTE</span><strong>Historial inmutable</strong></div><div id="advancedAudit"></div></aside>
             </div>
+          </section>
+        </section>
+
+        <section id="securityModule" class="security-module" hidden>
+          <section class="module-heading security-heading">
+            <div><p class="eyebrow">ADMINISTRACIÓN · SEGURIDAD</p><h1>Usuarios y<br>permisos</h1><p class="lede">Controla quién puede ingresar a la empresa y qué operaciones puede ejecutar mediante roles auditables.</p></div>
+            <div class="module-state ready"><span></span><div><small>EMPRESA ACTIVA</small><strong id="securityStatus">Seguridad disponible</strong></div></div>
+          </section>
+          <div id="securityStats" class="inventory-stats security-stats"></div>
+          <section class="security-workspace">
+            <div class="security-tabs" role="tablist">
+              <button class="security-tab active" type="button" data-security-view="users">Usuarios</button>
+              <button class="security-tab" type="button" data-security-view="roles">Roles y permisos</button>
+            </div>
+            <div class="security-toolbar">
+              <div><span id="securityViewKicker">ACCESO POR EMPRESA</span><h2 id="securityViewTitle">Usuarios autorizados</h2><p id="securityViewSubtitle">Cada usuario debe tener al menos un rol dentro de esta empresa.</p></div>
+              <button id="addSecurityRecord" class="button primary" type="button">＋ Nuevo usuario</button>
+            </div>
+            <div id="securityNotice" class="inventory-notice" hidden></div>
+            <div id="securityTable" class="table-wrap security-table"></div>
           </section>
         </section>
 
@@ -351,6 +371,42 @@
       <p id="masterFormError" class="login-error" hidden></p>
       <button class="button primary dialog-submit" type="submit">Guardar en la empresa</button>
     </form>
+  </dialog>
+
+  <dialog id="securityUserDialog" class="erp-dialog security-dialog" aria-labelledby="securityUserDialogTitle">
+    <div class="dialog-heading">
+      <div><span class="dialog-kicker">ACCESO A LA EMPRESA</span><h2 id="securityUserDialogTitle">Nuevo usuario</h2><p id="securityUserDialogSubtitle">Crea sus credenciales y asigna los roles autorizados.</p></div>
+      <button class="dialog-close" type="button" data-close-dialog="securityUserDialog" aria-label="Cerrar">×</button>
+    </div>
+    <form id="securityUserForm" class="security-form">
+      <div id="securityUserIdentity" class="security-form-grid">
+        <label><span>Nombre completo</span><input name="nombreCompleto" required maxlength="150" autocomplete="name"></label>
+        <label><span>Correo</span><input name="correo" type="email" required maxlength="254" autocomplete="email"></label>
+        <label class="wide"><span>Contraseña temporal</span><input name="password" type="password" required minlength="10" autocomplete="new-password"><small>Mínimo 10 caracteres. Si el correo ya existe, se conserva su contraseña actual.</small></label>
+      </div>
+      <label class="security-access-toggle"><input name="accesoActivo" type="checkbox" checked><span><strong>Acceso activo</strong><small>Permite ingresar y usar los roles seleccionados en esta empresa.</small></span></label>
+      <fieldset><legend>Roles del usuario</legend><div id="securityUserRoles" class="security-check-grid"></div></fieldset>
+      <p id="securityUserError" class="login-error" hidden></p>
+      <button class="button primary dialog-submit" type="submit">Guardar usuario</button>
+    </form>
+  </dialog>
+
+  <dialog id="securityRoleDialog" class="erp-dialog security-dialog role-dialog" aria-labelledby="securityRoleDialogTitle">
+    <div class="dialog-heading">
+      <div><span class="dialog-kicker">ROL REUTILIZABLE</span><h2 id="securityRoleDialogTitle">Nuevo rol</h2><p>Selecciona las acciones permitidas. Los cambios aplican a los usuarios que tengan este rol.</p></div>
+      <button class="dialog-close" type="button" data-close-dialog="securityRoleDialog" aria-label="Cerrar">×</button>
+    </div>
+    <form id="securityRoleForm" class="security-form">
+      <div class="security-form-grid"><label><span>Código</span><input name="codigo" required maxlength="50" placeholder="OPERADOR_COMPRAS"></label><label><span>Nombre</span><input name="nombre" required maxlength="100" placeholder="Operador de compras"></label></div>
+      <fieldset><legend>Permisos incluidos</legend><div id="securityRolePermissions" class="permission-groups"></div></fieldset>
+      <p id="securityRoleError" class="login-error" hidden></p>
+      <button class="button primary dialog-submit" type="submit">Guardar rol y permisos</button>
+    </form>
+  </dialog>
+
+  <dialog id="securityPasswordDialog" class="erp-dialog compact-dialog" aria-labelledby="securityPasswordDialogTitle">
+    <div class="dialog-heading"><div><span class="dialog-kicker">CREDENCIALES</span><h2 id="securityPasswordDialogTitle">Restablecer contraseña</h2><p>Las sesiones abiertas del usuario se cerrarán inmediatamente.</p></div><button class="dialog-close" type="button" data-close-dialog="securityPasswordDialog" aria-label="Cerrar">×</button></div>
+    <form id="securityPasswordForm" class="security-form"><label><span>Nueva contraseña</span><input name="password" type="password" required minlength="10" autocomplete="new-password"></label><p id="securityPasswordError" class="login-error" hidden></p><button class="button primary dialog-submit" type="submit">Cambiar contraseña</button></form>
   </dialog>
 
   <script src="app.js"></script>

@@ -19,6 +19,9 @@ La API usa el prefijo `/api/v1`. Salvo salud e inicio de sesion, todas las rutas
 | GET | `/companies/{empresaId}/inventory-periods` | Periodos abiertos o reabiertos. |
 | GET | `/companies/{empresaId}/accounting-periods` | Periodos contables abiertos o reabiertos. |
 | GET | `/companies/{empresaId}/accounting-accounts` | Cuentas activas que admiten movimientos. |
+| GET | `/companies/{empresaId}/security/users` | Usuarios vinculados y roles asignados en la empresa. |
+| GET | `/companies/{empresaId}/security/roles` | Catálogo global de roles y permisos incluidos. |
+| GET | `/companies/{empresaId}/security/permissions` | Catálogo de permisos disponibles. |
 | GET | `/companies/{empresaId}/supplier-documents/{id}` | Estado, XML, totales, recepción y causación. |
 | GET | `/companies/{empresaId}/receipts/{id}/movements` | Movimientos de Kardex creados por la recepción. |
 | GET | `/companies/{empresaId}/service-accruals/{id}` | Líneas, dimensiones, totales y comprobante de la causación. |
@@ -62,6 +65,18 @@ La API usa el prefijo `/api/v1`. Salvo salud e inicio de sesion, todas las rutas
 | GET/POST | `/companies/{empresaId}/master-data/item-mappings` | `COMPRAS.HOMOLOGACION.ADMINISTRAR` |
 
 Las consultas requieren sesion y acceso a la empresa. Los permisos indicados se aplican a las escrituras.
+
+## Usuarios, roles y permisos
+
+| Metodo | Ruta | Autorización |
+| --- | --- | --- |
+| POST | `/companies/{empresaId}/security/users` | `SEGURIDAD.PERMISOS.ADMINISTRAR` |
+| PUT | `/companies/{empresaId}/security/users/{usuarioId}` | `SEGURIDAD.PERMISOS.ADMINISTRAR` |
+| PUT | `/companies/{empresaId}/security/users/{usuarioId}/password` | `SEGURIDAD.PERMISOS.ADMINISTRAR` |
+| POST | `/companies/{empresaId}/security/roles` | Superadministrador global |
+| PUT | `/companies/{empresaId}/security/roles/{rolId}` | Superadministrador global |
+
+Crear un usuario genera credenciales PBKDF2 y lo vincula a la empresa mediante uno o varios roles. Si el correo ya existe en otra empresa, se conserva su contraseña y solo se agrega la nueva vinculación. Restablecer la contraseña revoca todas sus sesiones. Los administradores de seguridad asignan roles dentro de su empresa; únicamente el superadministrador puede modificar el catálogo global de roles y sus permisos.
 
 ## Entrada automatica y manual
 

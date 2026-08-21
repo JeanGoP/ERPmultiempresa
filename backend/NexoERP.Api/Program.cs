@@ -17,6 +17,7 @@ builder.Services.AddScoped<AdvancedControlsRepository>();
 builder.Services.AddScoped<MasterDataRepository>();
 builder.Services.AddScoped<PurchasingRepository>();
 builder.Services.AddScoped<AuthRepository>();
+builder.Services.AddScoped<SecurityAdminRepository>();
 builder.Services.Configure<OutboxOptions>(builder.Configuration.GetSection("Outbox"));
 builder.Services.AddHttpClient(nameof(OutboxDispatcherService),client=>client.Timeout=TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<ProductionOperationsRepository>();
@@ -25,7 +26,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.08.20.1";
+const string ReleaseVersion="2026.08.20.2";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -146,6 +147,40 @@ app.MapPost("/api/v1/companies",async(CreateCompanyRequest input,HttpContext con
 app.MapGet("/api/v1/companies/{empresaId:long}/operations/status",async(long empresaId,ProductionOperationsRepository operations,OperationalMetrics metrics,CancellationToken ct)=>Results.Ok(new { company=await operations.GetCompanyStatusAsync(empresaId,ct),runtime=metrics.Snapshot() })).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
 app.MapGet("/api/v1/companies/{empresaId:long}/operations/alerts",async(long empresaId,ProductionOperationsRepository operations,CancellationToken ct)=>Results.Ok(await operations.GetAlertsAsync(empresaId,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
 app.MapPost("/api/v1/companies/{empresaId:long}/operations/outbox/{eventId:long}/retry",async(long empresaId,long eventId,ProductionOperationsRepository operations,CancellationToken ct)=>{await operations.RetryAsync(empresaId,eventId,ct);return Results.Accepted();}).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+
+app.MapGet("/api/v1/companies/{empresaId:long}/security/users",async(long empresaId,SecurityAdminRepository security,CancellationToken ct)=>Results.Ok(await security.GetUsersAsync(empresaId,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+app.MapGet("/api/v1/companies/{empresaId:long}/security/roles",async(long empresaId,SecurityAdminRepository security,CancellationToken ct)=>Results.Ok(await security.GetRolesAsync(ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+app.MapGet("/api/v1/companies/{empresaId:long}/security/permissions",async(long empresaId,SecurityAdminRepository security,CancellationToken ct)=>Results.Ok(await security.GetPermissionsCatalogAsync(ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+app.MapPost("/api/v1/companies/{empresaId:long}/security/users",async(long empresaId,CreateSecurityUserRequest input,HttpContext context,SecurityAdminRepository security,CancellationToken ct)=>
+{
+    if(string.IsNullOrWhiteSpace(input.Correo)||!input.Correo.Contains('@')||string.IsNullOrWhiteSpace(input.NombreCompleto)||string.IsNullOrEmpty(input.Password)||input.Password.Length<10||input.RolIds is null||input.RolIds.Count==0)
+        return Results.ValidationProblem(new Dictionary<string,string[]> { ["usuario"]=["Correo, nombre, contraseña de mínimo 10 caracteres y al menos un rol son obligatorios."] });
+    try { var result=await security.CreateUserAsync(empresaId,Convert.ToInt64(context.Items["UsuarioId"]),input,ct);return Results.Created($"/api/v1/companies/{empresaId}/security/users/{result.User.UsuarioId}",new { user=result.User,usuarioExistente=result.UsuarioExistente }); }
+    catch(InvalidOperationException error){return Results.Conflict(new { error=error.Message });}
+    catch(SqlException error) when(error.Number is 2601 or 2627){return Results.Conflict(new { error="Ya existe un usuario o asignación con esos datos." });}
+}).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+app.MapPut("/api/v1/companies/{empresaId:long}/security/users/{userId:long}",async(long empresaId,long userId,UpdateSecurityUserRequest input,HttpContext context,SecurityAdminRepository security,CancellationToken ct)=>
+{
+    if(input.RolIds is null||input.RolIds.Count==0)return Results.ValidationProblem(new Dictionary<string,string[]> { ["roles"]=["Selecciona al menos un rol."] });
+    try{return Results.Ok(await security.UpdateUserAsync(empresaId,userId,Convert.ToInt64(context.Items["UsuarioId"]),input,ct));}
+    catch(InvalidOperationException error){return Results.Conflict(new { error=error.Message });}
+}).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+app.MapPut("/api/v1/companies/{empresaId:long}/security/users/{userId:long}/password",async(long empresaId,long userId,ResetSecurityPasswordRequest input,HttpContext context,SecurityAdminRepository security,CancellationToken ct)=>
+{
+    if(string.IsNullOrEmpty(input.Password)||input.Password.Length<10)return Results.ValidationProblem(new Dictionary<string,string[]> { ["password"]=["La nueva contraseña debe tener mínimo 10 caracteres."] });
+    try{await security.ResetPasswordAsync(empresaId,userId,Convert.ToInt64(context.Items["UsuarioId"]),context.Items["EsSuperAdministrador"] is true,input.Password,ct);return Results.NoContent();}
+    catch(InvalidOperationException error){return Results.Conflict(new { error=error.Message });}
+}).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+app.MapPost("/api/v1/companies/{empresaId:long}/security/roles",async(long empresaId,SaveSecurityRoleRequest input,HttpContext context,SecurityAdminRepository security,CancellationToken ct)=>
+{
+    if(string.IsNullOrWhiteSpace(input.Codigo)||string.IsNullOrWhiteSpace(input.Nombre)||input.Codigo.Trim().Length>50||input.Nombre.Trim().Length>100)return Results.ValidationProblem(new Dictionary<string,string[]> { ["rol"]=["Código y nombre de rol son obligatorios."] });
+    try{return Results.Ok(await security.SaveRoleAsync(empresaId,null,Convert.ToInt64(context.Items["UsuarioId"]),input,ct));}catch(InvalidOperationException error){return Results.Conflict(new { error=error.Message });}
+}).RequireSuperAdministrator();
+app.MapPut("/api/v1/companies/{empresaId:long}/security/roles/{roleId:long}",async(long empresaId,long roleId,SaveSecurityRoleRequest input,HttpContext context,SecurityAdminRepository security,CancellationToken ct)=>
+{
+    if(string.IsNullOrWhiteSpace(input.Codigo)||string.IsNullOrWhiteSpace(input.Nombre))return Results.ValidationProblem(new Dictionary<string,string[]> { ["rol"]=["Código y nombre de rol son obligatorios."] });
+    try{return Results.Ok(await security.SaveRoleAsync(empresaId,roleId,Convert.ToInt64(context.Items["UsuarioId"]),input,ct));}catch(InvalidOperationException error){return Results.Conflict(new { error=error.Message });}
+}).RequireSuperAdministrator();
 
 app.MapGet("/api/v1/companies/{empresaId:long}/warehouses", async (long empresaId, InventoryRepository inventory, CancellationToken cancellationToken) =>
     Results.Ok(await inventory.GetWarehousesAsync(empresaId, cancellationToken)));

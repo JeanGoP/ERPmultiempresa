@@ -110,6 +110,32 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     if(@($companies).Count -ne 1 -or @($companies)[0].empresaId -ne $companyId){ throw 'La API no devolvio la empresa autorizada.' }
     $permissions=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/permissions" -Headers $adminHeaders -Method Get
     if(@($permissions).Count -lt 23 -or 'INVENTARIO.AJUSTE.REVERSAR' -notin $permissions.codigo -or 'COMPRAS.HOMOLOGACION.ADMINISTRAR' -notin $permissions.codigo){ throw 'El administrador no recibio sus permisos granulares.' }
+    $securityPermissions=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/security/permissions" -Headers $adminHeaders -Method Get
+    $securityRoles=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/security/roles" -Headers $adminHeaders -Method Get
+    $purchaseCreatePermission=[long](@($securityPermissions)|Where-Object codigo -eq 'COMPRAS.DOCUMENTO.CREAR'|Select-Object -First 1).permisoId
+    $receiptPermission=[long](@($securityPermissions)|Where-Object codigo -eq 'COMPRAS.RECEPCION.CONTABILIZAR'|Select-Object -First 1).permisoId
+    if($purchaseCreatePermission -le 0 -or @($securityRoles).Count -lt 1){ throw 'La API de seguridad no publico roles y permisos.' }
+    $operatorRole=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/security/roles" -Headers $superHeaders -Method Post -ContentType 'application/json' -Body (@{codigo='OPERADOR_QA';nombre='Operador de compras QA';permisoIds=@($purchaseCreatePermission)}|ConvertTo-Json)
+    $securityPassword='ApiQa-Operador-2026!'
+    $createdSecurityUser=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/security/users" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{correo='operador.api@qa.local';nombreCompleto='Operador API QA';password=$securityPassword;accesoActivo=$true;rolIds=@([long]$operatorRole.rolId)}|ConvertTo-Json)
+    if($createdSecurityUser.usuarioExistente -or $createdSecurityUser.user.roles[0].codigo -ne 'OPERADOR_QA'){ throw 'La creación del usuario no asignó el rol solicitado.' }
+    $operatorLogin=Invoke-RestMethod -Uri "$baseUrl/api/v1/auth/login" -Method Post -ContentType 'application/json' -Body (@{correo='operador.api@qa.local';password=$securityPassword}|ConvertTo-Json)
+    $operatorHeaders=@{Authorization="Bearer $($operatorLogin.token)"}
+    $operatorPermissions=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/permissions" -Headers $operatorHeaders -Method Get
+    if(@($operatorPermissions).Count -ne 1 -or @($operatorPermissions)[0].codigo -ne 'COMPRAS.DOCUMENTO.CREAR'){ throw 'El rol personalizado no limitó los permisos del usuario.' }
+    $operatorRole=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/security/roles/$($operatorRole.rolId)" -Headers $superHeaders -Method Put -ContentType 'application/json' -Body (@{codigo='OPERADOR_QA';nombre='Operador de compras QA';permisoIds=@($purchaseCreatePermission,$receiptPermission)}|ConvertTo-Json)
+    $operatorPermissions=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/permissions" -Headers $operatorHeaders -Method Get
+    if('COMPRAS.RECEPCION.CONTABILIZAR' -notin $operatorPermissions.codigo){ throw 'La edición del rol no actualizó los permisos efectivos.' }
+    $newSecurityPassword='ApiQa-Operador-Nueva-2026!'
+    Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/security/users/$($createdSecurityUser.user.usuarioId)/password" -Headers $adminHeaders -Method Put -ContentType 'application/json' -Body (@{password=$newSecurityPassword}|ConvertTo-Json)|Out-Null
+    Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/permissions" -Headers $operatorHeaders -Method Get } 401 'El cambio de contraseña no revocó las sesiones anteriores.'
+    $operatorLogin=Invoke-RestMethod -Uri "$baseUrl/api/v1/auth/login" -Method Post -ContentType 'application/json' -Body (@{correo='operador.api@qa.local';password=$newSecurityPassword}|ConvertTo-Json)
+    $operatorHeaders=@{Authorization="Bearer $($operatorLogin.token)"}
+    $null=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/security/users/$($createdSecurityUser.user.usuarioId)" -Headers $adminHeaders -Method Put -ContentType 'application/json' -Body (@{accesoActivo=$false;rolIds=@([long]$operatorRole.rolId)}|ConvertTo-Json)
+    $securityUsers=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/security/users" -Headers $adminHeaders -Method Get
+    $disabledUser=@($securityUsers)|Where-Object usuarioId -eq $createdSecurityUser.user.usuarioId|Select-Object -First 1
+    if($disabledUser.accesoActivo -or $disabledUser.roles[0].rolId -ne $operatorRole.rolId){ throw 'La desactivación no conservó la asignación de rol.' }
+    $null=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/security/users/$($createdSecurityUser.user.usuarioId)" -Headers $adminHeaders -Method Put -ContentType 'application/json' -Body (@{accesoActivo=$true;rolIds=@([long]$operatorRole.rolId)}|ConvertTo-Json)
     $operations=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/operations/status" -Headers $adminHeaders -Method Get
     if($null -eq $operations.company -or $null -eq $operations.runtime){ throw 'La API no publico el estado operativo y las metricas.' }
     $units=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/master-data/units" -Headers $adminHeaders -Method Get
@@ -299,6 +325,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     $viewerLogin=Invoke-RestMethod -Uri "$baseUrl/api/v1/auth/login" -Method Post -ContentType 'application/json' -Body (@{correo='consulta.api@qa.local';password=$viewerPassword}|ConvertTo-Json)
     $viewerHeaders=@{Authorization="Bearer $($viewerLogin.token)"}
     $null=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory/balances" -Headers $viewerHeaders -Method Get
+    Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/security/users" -Headers $viewerHeaders -Method Get } 403 'La administración de seguridad no bloqueó al usuario restringido.'
     Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/master-data/suppliers" -Headers $viewerHeaders -Method Post -ContentType 'application/json' -Body (@{tipoIdentificacion='NIT';numeroIdentificacion='1';razonSocial='Sin permiso'}|ConvertTo-Json) } 403 'El permiso de maestros no bloqueo al usuario restringido.'
     $entryBody=@{
         bodegaId=0;ubicacionId=$null;articuloId=0;loteId=$null;periodoInventarioId=0;fechaMovimiento='2026-08-20T10:00:00';fechaContable='2026-08-20';
