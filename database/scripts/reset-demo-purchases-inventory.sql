@@ -76,6 +76,10 @@ BEGIN
     RETURN;
 END;
 
+-- Permite repetir el script en la misma ventana/sesion de SSMS.
+DROP TABLE IF EXISTS #Comprobantes;
+DROP TABLE IF EXISTS #Causaciones;
+
 CREATE TABLE #Causaciones(CausacionServicioId bigint NOT NULL PRIMARY KEY);
 INSERT #Causaciones(CausacionServicioId)
 SELECT CausacionServicioId FROM comp.CausacionServicio WHERE EmpresaId=@EmpresaId;
@@ -197,6 +201,8 @@ BEGIN TRY
         (SELECT COUNT(*) FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId) AS MovimientosKardex,
         (SELECT COALESCE(SUM(Existencia),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS ExistenciaTotal,
         (SELECT COALESCE(SUM(ValorTotal),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS ValorInventario;
+    DROP TABLE IF EXISTS #Comprobantes;
+    DROP TABLE IF EXISTS #Causaciones;
     EXEC sys.sp_set_session_context @key=N'BypassRls',@value=NULL;
 END TRY
 BEGIN CATCH
@@ -211,6 +217,8 @@ BEGIN CATCH
     IF OBJECTPROPERTY(OBJECT_ID(N'cont.TR_ComprobanteContableLinea_Inmutable'),N'ExecIsTriggerDisabled')=1
         ENABLE TRIGGER cont.TR_ComprobanteContableLinea_Inmutable ON cont.ComprobanteContableLinea;
 
+    DROP TABLE IF EXISTS #Comprobantes;
+    DROP TABLE IF EXISTS #Causaciones;
     EXEC sys.sp_set_session_context @key=N'BypassRls',@value=NULL;
     THROW;
 END CATCH;
