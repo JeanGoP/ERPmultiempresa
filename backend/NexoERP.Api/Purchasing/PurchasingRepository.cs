@@ -388,7 +388,49 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         return result;
     }
 
-    public async Task<WarehouseReceiptDetailResponse?> GetWarehouseReceiptDetailAsync(long empresaId,long recepcionId,CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<WarehouseReceiptListItemResponse>> GetWarehouseReceiptHistoryAsync(long empresaId,long? bodegaId,string? query,DateOnly? desde,DateOnly? hasta,CancellationToken cancellationToken)
+    {
+        var normalizedQuery=string.IsNullOrWhiteSpace(query)?null:query.Trim();
+        await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
+        await using var command=connection.CreateCommand();
+        command.CommandText="""
+            SELECT TOP(500) r.RecepcionMercanciaId,r.Numero,r.Estado,d.DocumentoProveedorId,d.TipoDocumento,d.NumeroDocumento,
+                   t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre,
+                   COUNT(DISTINCT l.RecepcionMercanciaLineaId) Lineas,
+                   COUNT(u.RecepcionMercanciaUnidadId) Unidades,
+                   COUNT(rv.RecepcionMercanciaRevisionUnidadId) Revisadas,
+                   SUM(CASE WHEN rv.EstadoFisico='RECIBIDA_CONFORME' THEN 1 ELSE 0 END) Conforme,
+                   SUM(CASE WHEN rv.EstadoFisico='RECIBIDA_NOVEDAD' THEN 1 ELSE 0 END) Novedad,
+                   SUM(CASE WHEN rv.EstadoFisico='NO_RECIBIDA' THEN 1 ELSE 0 END) NoRecibida
+            FROM inv.RecepcionMercancia r
+            JOIN comp.DocumentoProveedor d ON d.EmpresaId=r.EmpresaId AND d.DocumentoProveedorId=r.DocumentoProveedorId
+            JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
+            JOIN inv.Bodega b ON b.EmpresaId=r.EmpresaId AND b.BodegaId=r.BodegaId
+            JOIN inv.RecepcionMercanciaLinea l ON l.EmpresaId=r.EmpresaId AND l.RecepcionMercanciaId=r.RecepcionMercanciaId
+            LEFT JOIN inv.RecepcionMercanciaUnidad u ON u.EmpresaId=l.EmpresaId AND u.RecepcionMercanciaLineaId=l.RecepcionMercanciaLineaId
+            LEFT JOIN inv.RecepcionMercanciaRevisionUnidad rv ON rv.EmpresaId=u.EmpresaId AND rv.RecepcionMercanciaUnidadId=u.RecepcionMercanciaUnidadId
+            WHERE r.EmpresaId=@EmpresaId AND (@BodegaId IS NULL OR r.BodegaId=@BodegaId)
+              AND (@Desde IS NULL OR r.FechaContable>=@Desde) AND (@Hasta IS NULL OR r.FechaContable<=@Hasta)
+              AND (@Query IS NULL OR r.Numero LIKE '%'+@Query+'%' OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial LIKE '%'+@Query+'%'
+                   OR EXISTS(SELECT 1 FROM inv.RecepcionMercanciaUnidad xu JOIN inv.RecepcionMercanciaLinea xl ON xl.EmpresaId=xu.EmpresaId AND xl.RecepcionMercanciaLineaId=xu.RecepcionMercanciaLineaId WHERE xl.EmpresaId=r.EmpresaId AND xl.RecepcionMercanciaId=r.RecepcionMercanciaId AND (xu.Serial LIKE '%'+@Query+'%' OR xu.Motor LIKE '%'+@Query+'%' OR xu.Chasis LIKE '%'+@Query+'%' OR xu.Vin LIKE '%'+@Query+'%')))
+            GROUP BY r.RecepcionMercanciaId,r.Numero,r.Estado,d.DocumentoProveedorId,d.TipoDocumento,d.NumeroDocumento,t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre
+            ORDER BY r.FechaContable DESC,r.RecepcionMercanciaId DESC;
+            """;
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
+        Add(command,"@BodegaId",SqlDbType.BigInt,bodegaId);
+        Add(command,"@Query",SqlDbType.NVarChar,normalizedQuery,120);
+        Add(command,"@Desde",SqlDbType.Date,desde?.ToDateTime(TimeOnly.MinValue));
+        Add(command,"@Hasta",SqlDbType.Date,hasta?.ToDateTime(TimeOnly.MinValue));
+        await using var reader=await command.ExecuteReaderAsync(cancellationToken);
+        var result=new List<WarehouseReceiptListItemResponse>();
+        while(await reader.ReadAsync(cancellationToken))
+            result.Add(new(reader.GetInt64(0),reader.GetString(1),reader.GetString(2),reader.GetInt64(3),reader.GetString(4),reader.GetString(5),reader.GetString(6),
+                DateOnly.FromDateTime(reader.GetDateTime(7)),DateOnly.FromDateTime(reader.GetDateTime(8)),reader.GetString(9),reader.GetInt32(10),reader.GetInt32(11),
+                reader.GetInt32(12),reader.GetInt32(13),reader.GetInt32(14),reader.GetInt32(15)));
+        return result;
+    }
+
+    public async Task<WarehouseReceiptDetailResponse?> GetWarehouseReceiptDetailAsync(long empresaId,long recepcionId,CancellationToken cancellationToken,bool includePosted=false)
     {
         await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
         WarehouseReceiptListItemResponse? header;
@@ -410,10 +452,11 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
                 JOIN inv.RecepcionMercanciaLinea l ON l.EmpresaId=r.EmpresaId AND l.RecepcionMercanciaId=r.RecepcionMercanciaId
                 LEFT JOIN inv.RecepcionMercanciaUnidad u ON u.EmpresaId=l.EmpresaId AND u.RecepcionMercanciaLineaId=l.RecepcionMercanciaLineaId
                 LEFT JOIN inv.RecepcionMercanciaRevisionUnidad rv ON rv.EmpresaId=u.EmpresaId AND rv.RecepcionMercanciaUnidadId=u.RecepcionMercanciaUnidadId
-                WHERE r.EmpresaId=@EmpresaId AND r.RecepcionMercanciaId=@RecepcionMercanciaId AND r.Estado<>'CONTABILIZADA'
+                WHERE r.EmpresaId=@EmpresaId AND r.RecepcionMercanciaId=@RecepcionMercanciaId AND (@IncludePosted=1 OR r.Estado<>'CONTABILIZADA')
                 GROUP BY r.RecepcionMercanciaId,r.Numero,r.Estado,d.DocumentoProveedorId,d.TipoDocumento,d.NumeroDocumento,t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre;
                 """;
             Add(headerCommand,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(headerCommand,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
+            Add(headerCommand,"@IncludePosted",SqlDbType.Bit,includePosted);
             await using var headerReader=await headerCommand.ExecuteReaderAsync(cancellationToken);
             header=await headerReader.ReadAsync(cancellationToken)
                 ? new(headerReader.GetInt64(0),headerReader.GetString(1),headerReader.GetString(2),headerReader.GetInt64(3),headerReader.GetString(4),headerReader.GetString(5),headerReader.GetString(6),

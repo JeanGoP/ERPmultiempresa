@@ -459,6 +459,15 @@ app.MapGet("/api/v1/companies/{empresaId:long}/warehouse-receipts/{recepcionId:l
     return result is null?Results.NotFound():Results.Ok(result);
 }).RequireErpPermission("COMPRAS.RECEPCION.REVISAR");
 
+app.MapGet("/api/v1/companies/{empresaId:long}/warehouse-receipts-history", async (long empresaId,long? bodegaId,string? q,DateOnly? desde,DateOnly? hasta,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
+    Results.Ok(await purchasing.GetWarehouseReceiptHistoryAsync(empresaId,bodegaId,q,desde,hasta,cancellationToken))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+
+app.MapGet("/api/v1/companies/{empresaId:long}/warehouse-receipts-history/{recepcionId:long}", async (long empresaId,long recepcionId,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
+{
+    var result=await purchasing.GetWarehouseReceiptDetailAsync(empresaId,recepcionId,cancellationToken,true);
+    return result is null?Results.NotFound():Results.Ok(result);
+}).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+
 app.MapPut("/api/v1/companies/{empresaId:long}/warehouse-receipts/{recepcionId:long}/checks", async (long empresaId,long recepcionId,SaveWarehouseReceiptChecksRequest input,HttpContext context,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
 {
     if(input.Revisiones.Count==0) return Results.ValidationProblem(new Dictionary<string,string[]> { ["revisiones"]=["Envía al menos una unidad revisada."] });
