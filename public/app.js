@@ -1,5 +1,5 @@
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
-const state = { document: null, containerDocument: null, invoice: null, json: null, fields: [], headers: [], details: [], fileName: '', registrationMode: 'xml', manualLineSequence: 0, erpSession: null, pendingEmail: '', pendingName: '', pendingSuperAdmin: false, runtimeMode: 'api', masterView: 'suppliers', masterEditingArticleId: null, inventoryView: 'stock', inventoryData: [], warehouseReceipts: [], warehouseReceiptDetail: null, advancedView: 'landed', advancedData: [], securityView: 'users', securityData: null, securityEditingUserId: null, securityEditingRoleId: null, securityPasswordUserId: null, apiContext: null, purchaseWorkflow: null, manualWorkflow: null, manualDraft: null, savedPurchaseDocuments: [], savedPurchaseDetail: null };
+const state = { document: null, containerDocument: null, invoice: null, json: null, fields: [], headers: [], details: [], fileName: '', registrationMode: 'xml', manualLineSequence: 0, erpSession: null, pendingEmail: '', pendingName: '', pendingSuperAdmin: false, runtimeMode: 'api', masterView: 'suppliers', masterEditingArticleId: null, inventoryView: 'stock', inventoryData: [], warehouseReceipts: [], warehouseReceiptDetail: null, advancedView: 'landed', advancedData: [], securityView: 'users', securityData: null, securityEditingUserId: null, securityEditingRoleId: null, securityPasswordUserId: null, apiContext: null, accessInitialized: false, purchaseWorkflow: null, manualWorkflow: null, manualDraft: null, savedPurchaseDocuments: [], savedPurchaseDetail: null };
 const $ = (selector) => document.querySelector(selector);
 const elements = {
   fileInput: $('#fileInput'), dropZone: $('#dropZone'), browseButton: $('#browseButton'),
@@ -28,7 +28,18 @@ const elements = {
   masterStats: $('#masterStats'), masterViewTitle: $('#masterViewTitle'), masterViewSubtitle: $('#masterViewSubtitle'),
   masterTable: $('#masterTable'), masterSearch: $('#masterSearch'), masterCount: $('#masterCount'), masterNotice: $('#masterNotice'), addMasterRecord: $('#addMasterRecord'),
   masterRecordDialog: $('#masterRecordDialog'), masterRecordForm: $('#masterRecordForm'), masterFormFields: $('#masterFormFields'), masterFormError: $('#masterFormError'), masterDialogTitle: $('#masterDialogTitle'), masterDialogSubtitle: $('#masterDialogSubtitle'),
-  superAdminCompanyPanel:$('#superAdminCompanyPanel'),companyCreateForm:$('#companyCreateForm'),companyCreateError:$('#companyCreateError')
+  superAdminCompanyPanel:$('#superAdminCompanyPanel'),companyCreateForm:$('#companyCreateForm'),companyCreateError:$('#companyCreateError'),companiesAdminNav:$('#companiesAdminNav')
+};
+
+const ACCESS = {
+  purchases: ['COMPRAS.DOCUMENTO.CREAR'],
+  services: ['COMPRAS.SERVICIO.CAUSAR'],
+  receiving: ['COMPRAS.RECEPCION.REVISAR', 'COMPRAS.RECEPCION.CONTABILIZAR'],
+  inventoryOps: ['INVENTARIO.TRASLADO.DESPACHAR', 'INVENTARIO.TRASLADO.RECIBIR', 'COMPRAS.DEVOLUCION.CONTABILIZAR', 'INVENTARIO.CONTEO.INICIAR', 'INVENTARIO.CONTEO.CAPTURAR', 'INVENTARIO.CONTEO.APROBAR', 'INVENTARIO.CONTEO.APLICAR'],
+  inventoryAdmin: ['INVENTARIO.PERIODO.CERRAR', 'INVENTARIO.PERIODO.REABRIR', 'INVENTARIO.NEGATIVO.AUTORIZAR', 'INVENTARIO.AJUSTE.REVERSAR'],
+  costs: ['COSTOS.DISTRIBUCION.APROBAR', 'COSTOS.DISTRIBUCION.APLICAR', 'COSTOS.DETERIORO.REGISTRAR', 'INVENTARIO.PERIODO.CERRAR', 'INVENTARIO.PERIODO.REABRIR', 'INVENTARIO.NEGATIVO.AUTORIZAR', 'INVENTARIO.AJUSTE.REVERSAR'],
+  masters: ['MAESTROS.PROVEEDOR.ADMINISTRAR', 'MAESTROS.ARTICULO.ADMINISTRAR', 'MAESTROS.INVENTARIO.ADMINISTRAR', 'COMPRAS.HOMOLOGACION.ADMINISTRAR'],
+  security: ['SEGURIDAD.PERMISOS.ADMINISTRAR']
 };
 
 const uiStorage = { session: 'nexo.erpSession.v1', runtimeMode: 'nexo.runtimeMode', masterData: 'nexo.masterData.v1', apiToken: 'nexo.apiToken.v1' };
@@ -124,14 +135,124 @@ function renderErpSession() {
   document.querySelectorAll('.company-option').forEach((option) => option.classList.toggle('active', option.dataset.companyId === String(session.company.id)));
 }
 
+function permissionCode(permission) { return String(permission?.codigo || permission?.Codigo || permission || '').toUpperCase(); }
+function permissionCodes() { return state.apiContext?.permissionCodes || new Set((state.apiContext?.permissions || []).map(permissionCode)); }
+function hasPermission(code) {
+  if (state.runtimeMode !== 'api' || !state.erpSession?.api) return true;
+  if (state.erpSession?.superAdmin) return true;
+  if (!state.apiContext) return false;
+  return permissionCodes().has(String(code).toUpperCase());
+}
+function hasAnyPermission(codes) { return codes.some(hasPermission); }
+function canPurchaseMode(mode) {
+  if (mode === 'services') return hasPermission('COMPRAS.DOCUMENTO.CREAR') && hasPermission('COMPRAS.SERVICIO.CAUSAR');
+  return hasPermission('COMPRAS.DOCUMENTO.CREAR');
+}
+function canUseReceiving() { return hasAnyPermission(ACCESS.receiving); }
+function canUseInventoryReports() { return hasAnyPermission([...ACCESS.purchases, ...ACCESS.inventoryOps, ...ACCESS.inventoryAdmin, ...ACCESS.costs, ...ACCESS.masters]); }
+function canUseInventoryOperations() { return hasAnyPermission(ACCESS.inventoryOps); }
+function canUseSavedPurchases() { return hasPermission('COMPRAS.DOCUMENTO.CREAR'); }
+function isMasterViewAllowed(view) {
+  const required = { suppliers: 'MAESTROS.PROVEEDOR.ADMINISTRAR', articles: 'MAESTROS.ARTICULO.ADMINISTRAR', units: 'MAESTROS.INVENTARIO.ADMINISTRAR', warehouses: 'MAESTROS.INVENTARIO.ADMINISTRAR', mappings: 'COMPRAS.HOMOLOGACION.ADMINISTRAR' }[view];
+  return Boolean(required && hasPermission(required));
+}
+function isInventoryViewAllowed(view) {
+  if (view === 'receiving') return canUseReceiving();
+  if (view === 'operations') return canUseInventoryOperations();
+  return canUseInventoryReports();
+}
+function firstAllowedInventoryView() {
+  return ['receiving', 'stock', 'kardex', 'serials', 'expiry', 'operations'].find(isInventoryViewAllowed) || null;
+}
+function hideWorkspaces() {
+  elements.purchaseModule.hidden = true;
+  elements.masterDataModule.hidden = true;
+  elements.savedPurchasesModule.hidden = true;
+  elements.inventoryModule.hidden = true;
+  elements.advancedControlsModule.hidden = true;
+  elements.securityModule.hidden = true;
+}
+function showNoAccess() {
+  hideWorkspaces();
+  document.querySelector('.breadcrumb span').textContent = 'Acceso';
+  elements.breadcrumbCurrent.textContent = 'Sin módulos asignados';
+  elements.purchaseModule.hidden = false;
+  elements.moduleHeadingTitle.textContent = 'Sin permisos asignados';
+  elements.xmlWorkspace.hidden = true;
+  elements.manualWorkspace.hidden = true;
+  elements.results.hidden = true;
+  elements.manualResult.hidden = true;
+}
+function isCurrentWorkspaceAllowed() {
+  if (!elements.purchaseModule.hidden) return canPurchaseMode(state.registrationMode);
+  if (!elements.savedPurchasesModule.hidden) return canUseSavedPurchases();
+  if (!elements.inventoryModule.hidden) return isInventoryViewAllowed(state.inventoryView);
+  if (!elements.masterDataModule.hidden) return isMasterViewAllowed(state.masterView);
+  if (!elements.advancedControlsModule.hidden) return hasAnyPermission(ACCESS.costs);
+  if (!elements.securityModule.hidden) return hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR');
+  return false;
+}
+function routeToDefaultWorkspace(force = false) {
+  if (!force && state.accessInitialized && isCurrentWorkspaceAllowed()) return;
+  if (canPurchaseMode('xml')) setRegistrationMode('xml');
+  else if (canUseReceiving()) showInventoryView('receiving');
+  else {
+    const inventoryView = firstAllowedInventoryView();
+    const masterView = Object.keys(masterViewConfig).find(isMasterViewAllowed);
+    if (inventoryView) showInventoryView(inventoryView);
+    else if (hasAnyPermission(ACCESS.costs) && typeof showAdvancedView === 'function') showAdvancedView(state.advancedView);
+    else if (masterView) showMasterView(masterView);
+    else if (hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')) showSecurityView('users');
+    else showNoAccess();
+  }
+  state.accessInitialized = true;
+}
+function applyAccessControls() {
+  const canPurchases = hasPermission('COMPRAS.DOCUMENTO.CREAR');
+  const canServices = hasPermission('COMPRAS.SERVICIO.CAUSAR');
+  const canReceiving = canUseReceiving();
+  const canInventory = canReceiving || canUseInventoryReports() || canUseInventoryOperations();
+  const canCosts = hasAnyPermission(ACCESS.costs);
+  const canMasters = hasAnyPermission(ACCESS.masters);
+  const canSecurity = hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR');
+  const setVisible = (selectorOrElement, visible) => {
+    const element = typeof selectorOrElement === 'string' ? document.querySelector(selectorOrElement) : selectorOrElement;
+    if (element) element.hidden = !visible;
+  };
+
+  setVisible('[data-nav-group="purchases"]', canPurchases || canServices);
+  setVisible('[data-nav-group="inventory"]', canInventory);
+  setVisible('[data-nav-group="costs"]', canCosts);
+  setVisible('[data-nav-group="masters"]', canMasters);
+  setVisible('[data-nav-group="administration"]', canSecurity || Boolean(state.erpSession?.superAdmin));
+  setVisible(elements.companiesAdminNav, Boolean(state.erpSession?.superAdmin));
+  setVisible(elements.securityAdminNav, canSecurity);
+  setVisible(elements.savedPurchasesNav, canUseSavedPurchases());
+  setVisible(elements.inventoryNav, canInventory);
+  if (elements.inventoryNav) elements.inventoryNav.textContent = canReceiving && !canUseInventoryReports() && !canUseInventoryOperations() ? 'Recepción física' : 'Operación diaria';
+
+  document.querySelectorAll('[data-registration-mode]').forEach((button) => {
+    button.hidden = !canPurchaseMode(button.dataset.registrationMode);
+  });
+  document.querySelectorAll('[data-master-view]').forEach((button) => {
+    button.hidden = !isMasterViewAllowed(button.dataset.masterView);
+  });
+  document.querySelectorAll('[data-inventory-view]').forEach((button) => {
+    button.hidden = !isInventoryViewAllowed(button.dataset.inventoryView);
+  });
+}
+
 function enterErp(session) {
   state.erpSession = session;
+  state.accessInitialized = false;
   localStorage.setItem(uiStorage.session, JSON.stringify(session));
   renderErpSession();
   elements.loginView.hidden = true;
   elements.erpShell.hidden = false;
-  setRegistrationMode('xml');
+  hideWorkspaces();
+  applyAccessControls();
   if(session.api&&apiToken()) void loadApiCompanyContext();
+  else routeToDefaultWorkspace(true);
 }
 
 function leaveErp() {
@@ -219,19 +340,21 @@ async function loadApiCompanyContext() {
   if(state.runtimeMode!=='api'||!state.erpSession?.company?.id||!apiToken()) return;
   const companyId=state.erpSession.company.id; const base=`/api/v1/companies/${companyId}`;
   try {
-    const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies]=await Promise.all([
+    const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies,permissions]=await Promise.all([
       apiRequest(`${base}/master-data/suppliers`),apiRequest(`${base}/master-data/units`),apiRequest(`${base}/master-data/articles`),
       apiRequest(`${base}/master-data/item-mappings`),apiRequest(`${base}/warehouses`),apiRequest(`${base}/inventory-periods`),
-      apiRequest(`${base}/accounting-periods`),apiRequest(`${base}/accounting-accounts`),apiRequest('/api/v1/companies'),
+      apiRequest(`${base}/accounting-periods`),apiRequest(`${base}/accounting-accounts`),apiRequest('/api/v1/companies'),apiRequest(`${base}/permissions`),
     ]);
     renderCompanyOptions(companies,true);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);
-    state.apiContext={ warehouses,periods,accountingPeriods,accounts,masterData:{
+    state.apiContext={ warehouses,periods,accountingPeriods,accounts,permissions,permissionCodes:new Set(permissions.map(permissionCode)),masterData:{
       suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,active:x.activo})),
       units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
       articles:articles.map(x=>({id:x.articuloId,code:x.codigo,description:x.descripcion,type:x.tipo,unitId:x.unidadBaseId,inventory:x.manejaInventario,lot:x.manejaLote,serial:x.manejaSerial,expiry:x.requiereVencimiento,active:x.activo})),
       warehouses:warehouses.map(x=>({id:x.bodegaId,code:x.codigo,name:x.nombre,locations:x.usaUbicaciones,transit:x.esTransito,active:true})),
       mappings:mappings.map(x=>({id:x.homologacionArticuloProveedorId,supplierId:x.terceroId,externalCode:x.codigoExterno,externalDescription:x.descripcionExterna||'',articleId:x.articuloId,unitId:null,factor:x.factorAUnidadBase,active:x.activa})),
     }};
+    applyAccessControls();
+    routeToDefaultWorkspace(false);
     renderManualReferenceOptions();
     elements.manualLines.querySelectorAll('[data-manual-line]').forEach(row=>{const classification=row.querySelector('[data-field="classification"]')?.value;const select=row.querySelector('[data-field="articleId"]');if(select)populateManualArticleOptions(select,classification,select.value);});
     if(!elements.masterDataModule.hidden) renderMasterView();
@@ -321,6 +444,7 @@ function renderMasterView() {
 }
 
 function showMasterView(view) {
+  if (!isMasterViewAllowed(view)) { routeToDefaultWorkspace(true); return; }
   state.masterView=view; state.masterEditingArticleId=null; showMasterNotice(''); elements.purchaseModule.hidden=true; elements.masterDataModule.hidden=false;elements.savedPurchasesModule.hidden=true;elements.inventoryModule.hidden=true;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.savedPurchasesNav.classList.remove('active');elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');
   document.querySelector('.breadcrumb span').textContent='Maestros'; elements.breadcrumbCurrent.textContent=masterViewConfig[view][0];
   document.querySelectorAll('[data-registration-mode]').forEach(x=>x.classList.remove('active'));
@@ -359,6 +483,7 @@ function renderSecurityView(){
 }
 async function refreshSecurity(){const stateCard=elements.securityStatus.closest('.module-state');elements.securityStatus.textContent='Cargando seguridad…';elements.securityNotice.hidden=true;try{await loadSecurityData();stateCard?.classList.add('ready');renderSecurityView();}catch(error){stateCard?.classList.remove('ready');elements.securityTable.replaceChildren();elements.securityStatus.textContent='Acceso no disponible';elements.securityNotice.textContent=error.message;elements.securityNotice.hidden=false;}}
 function showSecurityView(view='users'){
+  if (!hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')) { routeToDefaultWorkspace(true); return; }
   state.securityView=view;elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.savedPurchasesModule.hidden=true;elements.inventoryModule.hidden=true;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=false;elements.savedPurchasesNav.classList.remove('active');elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.add('active');document.querySelector('.breadcrumb span').textContent='Administración';elements.breadcrumbCurrent.textContent='Usuarios y permisos';document.querySelectorAll('[data-registration-mode],[data-master-view]').forEach(x=>x.classList.remove('active'));if(state.securityData)renderSecurityView();else void refreshSecurity();window.scrollTo({top:0,behavior:'smooth'});
 }
 function fillSecurityRoles(selected=[]){const chosen=new Set(selected.map(String));elements.securityUserRoles.replaceChildren();state.securityData.roles.forEach(role=>elements.securityUserRoles.append(securityCheckbox(role.rolId,role.nombre,role.codigo,chosen.has(String(role.rolId)))));}
@@ -420,6 +545,7 @@ function renderSavedPurchaseDetail(){
   if(serviceLines.length){const note=document.createElement('p');note.className='workflow-notice';note.textContent='Las líneas de servicios se conservan en su causación y deben completar la asignación contable correspondiente.';panel.append(note);}
 }
 function showSavedPurchases(){
+  if (!canUseSavedPurchases()) { routeToDefaultWorkspace(true); return; }
   elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.savedPurchasesModule.hidden=false;elements.inventoryModule.hidden=true;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');document.querySelector('.breadcrumb span').textContent='Compras';elements.breadcrumbCurrent.textContent='Entradas guardadas';document.querySelectorAll('[data-registration-mode],[data-master-view]').forEach(x=>x.classList.remove('active'));elements.savedPurchasesNav.classList.add('active');elements.savedPurchaseDetail.hidden=true;if(!state.apiContext&&state.runtimeMode==='api'&&state.erpSession?.api)void loadApiCompanyContext();void refreshSavedPurchases();window.scrollTo({top:0,behavior:'smooth'});
 }
 
@@ -434,13 +560,13 @@ function renderInventoryStats(rows){const apiActive=state.runtimeMode==='api'&&s
 function populateInventoryWarehouses(){const current=elements.inventoryWarehouse.value;elements.inventoryWarehouse.replaceChildren(new Option('Todas las bodegas',''));const warehouses=state.apiContext?.warehouses||getCompanyMasterData().data.warehouses.map(x=>({bodegaId:x.id,codigo:x.code,nombre:x.name}));warehouses.forEach(x=>elements.inventoryWarehouse.add(new Option(`${x.codigo} · ${x.nombre}`,x.bodegaId)));elements.inventoryWarehouse.value=[...elements.inventoryWarehouse.options].some(x=>x.value===current)?current:'';}
 function renderWarehouseReceiptStats(rows){const totals=rows.reduce((all,x)=>({units:all.units+x.unidadesSerializadas,reviewed:all.reviewed+x.revisadas,ok:all.ok+x.recibidasConforme,issues:all.issues+x.recibidasConNovedad+x.noRecibidas}),{units:0,reviewed:0,ok:0,issues:0});const cards=[['Recepciones pendientes',rows.length],['Motos en revisión',totals.units],['Checks guardados',totals.reviewed],['Con novedad / no recibidas',totals.issues]];elements.inventoryStats.replaceChildren();cards.forEach(([label,value])=>{const card=document.createElement('article');const strong=document.createElement('strong');strong.textContent=value;const span=document.createElement('span');span.textContent=label;card.append(strong,span);elements.inventoryStats.append(card);});}
 function renderWarehouseReceipts(rows){const table=document.createElement('table');const head=document.createElement('thead');head.innerHTML='<tr><th>Recepción</th><th>Documento</th><th>Proveedor</th><th>Bodega</th><th>Fecha</th><th>Motos</th><th>Revisión</th><th></th></tr>';const body=document.createElement('tbody');rows.forEach(entry=>{const row=document.createElement('tr');const receipt=document.createElement('td');receipt.className='saved-document-identity';const strong=document.createElement('strong');strong.textContent=entry.numero;const small=document.createElement('small');small.textContent=entry.estado;receipt.append(strong,small);const documentCell=document.createElement('td');documentCell.textContent=`${entry.tipoDocumento} ${entry.numeroDocumento}`;const supplier=document.createElement('td');supplier.textContent=entry.proveedor;const warehouse=document.createElement('td');warehouse.textContent=entry.bodega;const date=document.createElement('td');date.textContent=entry.fechaContable;const units=document.createElement('td');units.textContent=entry.unidadesSerializadas;const review=document.createElement('td');review.textContent=`${entry.revisadas}/${entry.unidadesSerializadas} · ${entry.recibidasConNovedad+entry.noRecibidas} novedad`;const action=document.createElement('td');const open=document.createElement('button');open.type='button';open.className='button secondary';open.dataset.warehouseReceiptId=entry.recepcionMercanciaId;open.textContent='Revisar';action.append(open);row.append(receipt,documentCell,supplier,warehouse,date,units,review,action);body.append(row);});if(!rows.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=8;cell.className='empty';cell.textContent='No hay recepciones pendientes para estos filtros.';row.append(cell);body.append(row);}table.append(head,body);elements.inventoryTable.replaceChildren(table);renderWarehouseReceiptStats(rows);elements.inventoryStatus.textContent=`${rows.length} recepción(es) pendiente(s)`;}
-async function refreshWarehouseReceiving(){elements.inventoryStatus.textContent='Consultando recepciones…';elements.inventoryNotice.hidden=true;try{if(state.runtimeMode!=='api'||!state.erpSession?.api)throw new Error('La recepción física requiere el modo API ERP.');const params=new URLSearchParams();if(elements.inventoryWarehouse.value)params.set('bodegaId',elements.inventoryWarehouse.value);if(elements.inventorySearch.value.trim())params.set('q',elements.inventorySearch.value.trim());state.warehouseReceipts=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/warehouse-receipts?${params}`);renderWarehouseReceipts(state.warehouseReceipts);if(!state.warehouseReceiptDetail)elements.inventoryOperationPanel.replaceChildren(emptyMessage('Selecciona una recepción para revisar el historial físico de cada moto.'));}catch(error){state.warehouseReceipts=[];state.warehouseReceiptDetail=null;elements.inventoryTable.replaceChildren(emptyMessage(error.message));elements.inventoryOperationPanel.replaceChildren();elements.inventoryStatus.textContent='No fue posible consultar';renderWarehouseReceiptStats([]);}}
+async function refreshWarehouseReceiving(){elements.inventoryStatus.textContent='Consultando recepciones…';elements.inventoryNotice.hidden=true;try{if(!canUseReceiving())throw new Error('Tu usuario no tiene permiso para revisar recepciones físicas.');if(state.runtimeMode!=='api'||!state.erpSession?.api)throw new Error('La recepción física requiere el modo API ERP.');const params=new URLSearchParams();if(elements.inventoryWarehouse.value)params.set('bodegaId',elements.inventoryWarehouse.value);if(elements.inventorySearch.value.trim())params.set('q',elements.inventorySearch.value.trim());state.warehouseReceipts=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/warehouse-receipts?${params}`);renderWarehouseReceipts(state.warehouseReceipts);if(!state.warehouseReceiptDetail)elements.inventoryOperationPanel.replaceChildren(emptyMessage('Selecciona una recepción para revisar el historial físico de cada moto.'));}catch(error){state.warehouseReceipts=[];state.warehouseReceiptDetail=null;elements.inventoryTable.replaceChildren(emptyMessage(error.message));elements.inventoryOperationPanel.replaceChildren();elements.inventoryStatus.textContent='No fue posible consultar';renderWarehouseReceiptStats([]);}}
 async function openWarehouseReceipt(receiptId){elements.inventoryOperationPanel.hidden=false;elements.inventoryOperationPanel.replaceChildren(emptyMessage('Cargando motos y revisiones…'));try{state.warehouseReceiptDetail=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/warehouse-receipts/${receiptId}`);renderWarehouseReceiptDetail();elements.inventoryOperationPanel.scrollIntoView({behavior:'smooth',block:'start'});}catch(error){elements.inventoryOperationPanel.replaceChildren(emptyMessage(error.message));}}
 function warehouseReceiptCheckRows(){return [...elements.inventoryOperationPanel.querySelectorAll('[data-receipt-unit-id]')].map(row=>({recepcionMercanciaUnidadId:Number(row.dataset.receiptUnitId),estadoFisico:row.querySelector('select').value,observacion:row.querySelector('input').value.trim()||null})).filter(x=>x.estadoFisico);}
 async function saveWarehouseReceiptChecks(silent=false){const detail=state.warehouseReceiptDetail;if(!detail)return null;const checks=warehouseReceiptCheckRows();if(!checks.length){if(!silent)throw new Error('Marca al menos una moto antes de guardar la revisión.');return null;}const summary=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/warehouse-receipts/${detail.recepcion.recepcionMercanciaId}/checks`,{method:'PUT',body:JSON.stringify({revisiones:checks})});state.warehouseReceiptDetail=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/warehouse-receipts/${detail.recepcion.recepcionMercanciaId}`);return summary;}
-function renderWarehouseReceiptDetail(){const detail=state.warehouseReceiptDetail;if(!detail)return;const receipt=detail.recepcion;const panel=elements.inventoryOperationPanel;panel.replaceChildren();const heading=document.createElement('div');heading.className='operation-heading';heading.innerHTML=`<span>RECEPCIÓN FÍSICA</span><h2>${receipt.numero}</h2><p>${receipt.tipoDocumento} ${receipt.numeroDocumento} · ${receipt.proveedor} · ${receipt.bodega}</p>`;panel.append(heading);const status=document.createElement('div');status.className='workflow-status';status.innerHTML=`<span>Estado<strong>${receipt.estado}</strong></span><span>Motos<strong>${receipt.unidadesSerializadas}</strong></span><span>Conforme<strong>${receipt.recibidasConforme}</strong></span><span>Novedad<strong>${receipt.recibidasConNovedad}</strong></span><span>No recibida<strong>${receipt.noRecibidas}</strong></span>`;panel.append(status);const form=document.createElement('form');form.className='receiving-check-form';const table=document.createElement('table');const head=document.createElement('thead');head.innerHTML='<tr><th>Moto</th><th>Identificadores</th><th>Color / modelo</th><th>Estado físico</th><th>Observación</th></tr>';const body=document.createElement('tbody');detail.unidades.forEach(unit=>{const row=document.createElement('tr');row.dataset.receiptUnitId=unit.recepcionMercanciaUnidadId;const moto=document.createElement('td');moto.innerHTML=`<strong>${unit.codigoArticulo}</strong><small>Línea ${unit.numeroLinea} · Moto ${unit.numeroUnidad}</small>`;const ids=document.createElement('td');ids.textContent=[unit.serial&&`Serial ${unit.serial}`,unit.motor&&`Motor ${unit.motor}`,unit.chasis&&`Chasis ${unit.chasis}`,unit.vin&&`VIN ${unit.vin}`].filter(Boolean).join(' · ')||'Sin identificadores';const color=document.createElement('td');color.textContent=[unit.color,unit.modelo].filter(Boolean).join(' · ')||'—';const stateCell=document.createElement('td');const select=document.createElement('select');select.append(new Option('Sin revisar',''),new Option('Recibida conforme','RECIBIDA_CONFORME'),new Option('Recibida con novedad','RECIBIDA_NOVEDAD'),new Option('No recibida','NO_RECIBIDA'));select.value=unit.estadoFisico||'';stateCell.append(select);const note=document.createElement('td');const input=document.createElement('input');input.maxLength=500;input.placeholder='Observación opcional';input.value=unit.observacion||'';note.append(input);row.append(moto,ids,color,stateCell,note);body.append(row);});if(!detail.unidades.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=5;cell.className='empty';cell.textContent='Esta recepción no tiene motos serializadas para chulear. Puedes contabilizarla igualmente.';row.append(cell);body.append(row);}table.append(head,body);form.append(table);const actions=document.createElement('div');actions.className='saved-detail-actions';const save=document.createElement('button');save.type='button';save.className='button secondary';save.textContent='Guardar revisión física';save.addEventListener('click',async()=>{try{save.disabled=true;save.textContent='Guardando…';await saveWarehouseReceiptChecks(false);renderWarehouseReceiptDetail();await refreshWarehouseReceiving();showSuccess('Revisión física guardada.');}catch(error){showError(error.message);}finally{save.disabled=false;save.textContent='Guardar revisión física';}});const post=document.createElement('button');post.type='button';post.className='button primary large';post.textContent='Contabilizar e ingresar a bodega';post.addEventListener('click',async()=>{if(!window.confirm(`Se contabilizará la recepción ${receipt.numero} y las motos ingresarán a ${receipt.bodega}. El check físico queda como historial, aunque existan novedades. ¿Deseas continuar?`))return;try{post.disabled=true;post.textContent='Contabilizando…';await saveWarehouseReceiptChecks(true);await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/receipts/${receipt.recepcionMercanciaId}/post`,{method:'POST',body:JSON.stringify({correlationId:crypto.randomUUID?crypto.randomUUID():null})});state.warehouseReceiptDetail=null;elements.inventoryOperationPanel.replaceChildren(emptyMessage('Recepción contabilizada. Las motos ya ingresaron a la bodega.'));await Promise.all([refreshWarehouseReceiving(),loadApiCompanyContext()]);showSuccess('Recepción contabilizada e ingresada a bodega.');}catch(error){showError(`No fue posible contabilizar. ${error.message}`);post.disabled=false;post.textContent='Contabilizar e ingresar a bodega';}});actions.append(save,post);form.append(actions);panel.append(form);}
+function renderWarehouseReceiptDetail(){const detail=state.warehouseReceiptDetail;if(!detail)return;const receipt=detail.recepcion;const panel=elements.inventoryOperationPanel;panel.replaceChildren();const heading=document.createElement('div');heading.className='operation-heading';heading.innerHTML=`<span>RECEPCIÓN FÍSICA</span><h2>${receipt.numero}</h2><p>${receipt.tipoDocumento} ${receipt.numeroDocumento} · ${receipt.proveedor} · ${receipt.bodega}</p>`;panel.append(heading);const status=document.createElement('div');status.className='workflow-status';status.innerHTML=`<span>Estado<strong>${receipt.estado}</strong></span><span>Motos<strong>${receipt.unidadesSerializadas}</strong></span><span>Conforme<strong>${receipt.recibidasConforme}</strong></span><span>Novedad<strong>${receipt.recibidasConNovedad}</strong></span><span>No recibida<strong>${receipt.noRecibidas}</strong></span>`;panel.append(status);const form=document.createElement('form');form.className='receiving-check-form';const table=document.createElement('table');const head=document.createElement('thead');head.innerHTML='<tr><th>Moto</th><th>Identificadores</th><th>Color / modelo</th><th>Estado físico</th><th>Observación</th></tr>';const body=document.createElement('tbody');detail.unidades.forEach(unit=>{const row=document.createElement('tr');row.dataset.receiptUnitId=unit.recepcionMercanciaUnidadId;const moto=document.createElement('td');moto.innerHTML=`<strong>${unit.codigoArticulo}</strong><small>Línea ${unit.numeroLinea} · Moto ${unit.numeroUnidad}</small>`;const ids=document.createElement('td');ids.textContent=[unit.serial&&`Serial ${unit.serial}`,unit.motor&&`Motor ${unit.motor}`,unit.chasis&&`Chasis ${unit.chasis}`,unit.vin&&`VIN ${unit.vin}`].filter(Boolean).join(' · ')||'Sin identificadores';const color=document.createElement('td');color.textContent=[unit.color,unit.modelo].filter(Boolean).join(' · ')||'—';const stateCell=document.createElement('td');const select=document.createElement('select');select.append(new Option('Sin revisar',''),new Option('Recibida conforme','RECIBIDA_CONFORME'),new Option('Recibida con novedad','RECIBIDA_NOVEDAD'),new Option('No recibida','NO_RECIBIDA'));select.value=unit.estadoFisico||'';stateCell.append(select);const note=document.createElement('td');const input=document.createElement('input');input.maxLength=500;input.placeholder='Observación opcional';input.value=unit.observacion||'';note.append(input);row.append(moto,ids,color,stateCell,note);body.append(row);});if(!detail.unidades.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=5;cell.className='empty';cell.textContent='Esta recepción no tiene motos serializadas para chulear. Puedes contabilizarla igualmente.';row.append(cell);body.append(row);}table.append(head,body);form.append(table);const actions=document.createElement('div');actions.className='saved-detail-actions';if(hasPermission('COMPRAS.RECEPCION.REVISAR')){const save=document.createElement('button');save.type='button';save.className='button secondary';save.textContent='Guardar revisión física';save.addEventListener('click',async()=>{try{save.disabled=true;save.textContent='Guardando…';await saveWarehouseReceiptChecks(false);renderWarehouseReceiptDetail();await refreshWarehouseReceiving();showSuccess('Revisión física guardada.');}catch(error){showError(error.message);}finally{save.disabled=false;save.textContent='Guardar revisión física';}});actions.append(save);}if(hasPermission('COMPRAS.RECEPCION.CONTABILIZAR')){const post=document.createElement('button');post.type='button';post.className='button primary large';post.textContent='Contabilizar e ingresar a bodega';post.addEventListener('click',async()=>{if(!window.confirm(`Se contabilizará la recepción ${receipt.numero} y las motos ingresarán a ${receipt.bodega}. El check físico queda como historial, aunque existan novedades. ¿Deseas continuar?`))return;try{post.disabled=true;post.textContent='Contabilizando…';await saveWarehouseReceiptChecks(true);await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/receipts/${receipt.recepcionMercanciaId}/post`,{method:'POST',body:JSON.stringify({correlationId:crypto.randomUUID?crypto.randomUUID():null})});state.warehouseReceiptDetail=null;elements.inventoryOperationPanel.replaceChildren(emptyMessage('Recepción contabilizada. Las motos ya ingresaron a la bodega.'));await Promise.all([refreshWarehouseReceiving(),loadApiCompanyContext()]);showSuccess('Recepción contabilizada e ingresada a bodega.');}catch(error){showError(`No fue posible contabilizar. ${error.message}`);post.disabled=false;post.textContent='Contabilizar e ingresar a bodega';}});actions.append(post);}if(!actions.children.length)actions.append(emptyMessage('Tu usuario puede consultar esta recepción, pero no tiene acciones asignadas.'));form.append(actions);panel.append(form);}
 async function refreshInventory(){const view=state.inventoryView;if(view==='operations'){renderInventoryOperationPanel();return;}if(view==='receiving'){await refreshWarehouseReceiving();return;}elements.inventoryStatus.textContent='Actualizando…';elements.inventoryNotice.hidden=true;try{let rows;if(state.runtimeMode==='api'&&state.erpSession?.api){const base=`/api/v1/companies/${state.erpSession.company.id}`;const params=new URLSearchParams();if(elements.inventoryWarehouse.value)params.set('bodegaId',elements.inventoryWarehouse.value);if(elements.inventorySearch.value.trim())params.set('q',elements.inventorySearch.value.trim());if(view==='kardex'){if(elements.inventoryDateFrom.value)params.set('desde',elements.inventoryDateFrom.value);if(elements.inventoryDateTo.value)params.set('hasta',elements.inventoryDateTo.value);}if(view==='expiry')params.set('dias','365');const endpoint={stock:'inventory/stock',kardex:'inventory/kardex',serials:'inventory/serialized-units',expiry:'inventory/expiry-alerts'}[view];rows=await apiRequest(`${base}/${endpoint}?${params}`);}else{const query=elements.inventorySearch.value.trim().toLocaleLowerCase('es-CO');rows=inventoryDemo[view].filter(x=>!query||Object.values(x).join(' ').toLocaleLowerCase('es-CO').includes(query));elements.inventoryNotice.textContent='Vista demostrativa local. Cambia el origen de datos a API ERP para consultar y registrar movimientos reales en SQL Server.';elements.inventoryNotice.hidden=false;}state.inventoryData=rows;const table=inventoryRows(view,rows);elements.inventoryTable.replaceChildren(buildDataTable(table.headers,table.rows));renderInventoryStats(rows);elements.inventoryStatus.textContent=`${rows.length} registros consultados`;}catch(error){elements.inventoryTable.replaceChildren(emptyMessage(error.message));elements.inventoryStatus.textContent='No fue posible consultar';}}
-function showInventoryView(view='stock'){state.inventoryView=view;elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.savedPurchasesModule.hidden=true;elements.inventoryModule.hidden=false;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.savedPurchasesNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');document.querySelector('.breadcrumb span').textContent=view==='receiving'?'Bodega':'Inventario';elements.breadcrumbCurrent.textContent={stock:'Existencias',receiving:'Recepción física',kardex:'Kardex',serials:'Seriales',expiry:'Vencimientos',operations:'Movimientos'}[view];document.querySelectorAll('[data-registration-mode],[data-master-view]').forEach(x=>x.classList.remove('active'));elements.inventoryNav.classList.add('active');document.querySelectorAll('[data-inventory-view]').forEach(x=>x.classList.toggle('active',x.dataset.inventoryView===view));const isKardex=view==='kardex';const isOperations=view==='operations';const isReceiving=view==='receiving';elements.inventoryDateFromField.hidden=!isKardex;elements.inventoryDateToField.hidden=!isKardex;elements.inventoryTable.hidden=isOperations;elements.inventoryOperationPanel.hidden=!(isOperations||isReceiving);elements.inventorySearch.closest('label').hidden=isOperations;elements.inventoryWarehouse.closest('label').hidden=isOperations;$('#refreshInventory').hidden=isOperations;populateInventoryWarehouses();if(isReceiving)state.warehouseReceiptDetail=null;void refreshInventory();window.scrollTo({top:0,behavior:'smooth'});}
+function showInventoryView(view='stock'){if(!isInventoryViewAllowed(view)){const fallback=firstAllowedInventoryView();if(fallback&&fallback!==view){showInventoryView(fallback);return;}routeToDefaultWorkspace(true);return;}state.inventoryView=view;elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.savedPurchasesModule.hidden=true;elements.inventoryModule.hidden=false;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.savedPurchasesNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');document.querySelector('.breadcrumb span').textContent=view==='receiving'?'Bodega':'Inventario';elements.breadcrumbCurrent.textContent={stock:'Existencias',receiving:'Recepción física',kardex:'Kardex',serials:'Seriales',expiry:'Vencimientos',operations:'Movimientos'}[view];document.querySelectorAll('[data-registration-mode],[data-master-view]').forEach(x=>x.classList.remove('active'));elements.inventoryNav.classList.add('active');document.querySelectorAll('[data-inventory-view]').forEach(x=>x.classList.toggle('active',x.dataset.inventoryView===view));const isKardex=view==='kardex';const isOperations=view==='operations';const isReceiving=view==='receiving';elements.inventoryDateFromField.hidden=!isKardex;elements.inventoryDateToField.hidden=!isKardex;elements.inventoryTable.hidden=isOperations;elements.inventoryOperationPanel.hidden=!(isOperations||isReceiving);elements.inventorySearch.closest('label').hidden=isOperations;elements.inventoryWarehouse.closest('label').hidden=isOperations;$('#refreshInventory').hidden=isOperations;populateInventoryWarehouses();if(isReceiving)state.warehouseReceiptDetail=null;void refreshInventory();window.scrollTo({top:0,behavior:'smooth'});}
 function fillOperationSelect(select,rows,valueKey,label){select.replaceChildren(new Option('Seleccionar…',''));rows.forEach(x=>select.add(new Option(label(x),x[valueKey])));}
 function renderInventoryOperationPanel(){
   const panel=elements.inventoryOperationPanel;panel.replaceChildren();const heading=document.createElement('div');heading.className='operation-heading';heading.innerHTML='<span>OPERACIÓN DE INVENTARIO</span><h2>Traslados y devoluciones</h2><p>Cada documento conserva el costo y el origen; las unidades serializadas mantienen bodega, estado e historial.</p>';
@@ -1629,6 +1755,7 @@ function renderManualDraft(draft) {
 }
 
 function setRegistrationMode(mode) {
+  if (!canPurchaseMode(mode)) { routeToDefaultWorkspace(true); return; }
   state.registrationMode = mode;
   elements.purchaseModule.hidden = false;
   elements.masterDataModule.hidden = true;
@@ -1796,7 +1923,7 @@ elements.refreshSavedPurchases.addEventListener('click',()=>void refreshSavedPur
 elements.savedPurchasesSearch.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();void refreshSavedPurchases();}});
 elements.savedPurchasesState.addEventListener('change',()=>void refreshSavedPurchases());
 elements.savedPurchasesTable.addEventListener('click',event=>{const button=event.target.closest('[data-saved-purchase-id]');if(button)void openSavedPurchase(Number(button.dataset.savedPurchaseId));});
-elements.inventoryNav.addEventListener('click',()=>showInventoryView(state.inventoryView));
+elements.inventoryNav.addEventListener('click',()=>showInventoryView(isInventoryViewAllowed(state.inventoryView)?state.inventoryView:firstAllowedInventoryView()||'receiving'));
 document.querySelectorAll('[data-inventory-view]').forEach(button=>button.addEventListener('click',()=>showInventoryView(button.dataset.inventoryView)));
 $('#refreshInventory').addEventListener('click',()=>void refreshInventory());
 elements.inventorySearch.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();void refreshInventory();}});
