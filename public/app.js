@@ -1297,7 +1297,7 @@ function buildInvoiceClassificationTable(invoice) {
 function mappedLine(invoice,item) { return mappingForLine(getCompanyMasterData().data,invoice,item); }
 function documentTypeForApi(value) { return ({Invoice:'FACTURA',CreditNote:'NOTA_CREDITO',DebitNote:'NOTA_DEBITO'})[value]||'FACTURA'; }
 
-function buildSupplierDocumentPayload(invoice) {
+function buildSupplierDocumentPayload(invoice,preparation=null) {
   const classification={inventory:'INVENTARIO',service:'SERVICIO_GASTO','acquisition-cost':'COSTO_ADQUISICION'};
   const lineas=invoice.items.map((item,index)=>{
     const mapping=mappedLine(invoice,item); const serials=item.serials.length?item.serials:(item.motor||item.chassis?[{number:1,motor:item.motor,chassis:item.chassis,raw:item.description}]:[]);
@@ -1313,10 +1313,12 @@ function buildSupplierDocumentPayload(invoice) {
     };
   });
   const taxTotal=invoice.taxes.reduce((sum,tax)=>sum+(tax.amount||0),0); const lineCharges=invoice.items.reduce((sum,item)=>sum+(item.surcharge||0),0);
-  return { proveedorIdentificacion:invoice.supplier.identification,proveedorRazonSocial:invoice.supplier.name||'Proveedor desde XML',tipoDocumento:documentTypeForApi(invoice.documentType),numeroDocumento:invoice.number,
+  const payload={ proveedorIdentificacion:invoice.supplier.identification,proveedorRazonSocial:invoice.supplier.name||'Proveedor desde XML',tipoDocumento:documentTypeForApi(invoice.documentType),numeroDocumento:invoice.number,
     fechaDocumento:invoice.issueDate,fechaVencimiento:invoice.dueDate||null,condicionPago:invoice.paymentCondition||'CONTADO',diasCredito:Number(invoice.creditDays)||0,crearArticulosFaltantes:invoice.autoCreateItems!==false,moneda:invoice.currency||'COP',cufeCude:invoice.cufeCude||null,fuente:'XML_DIAN',
     subtotalBruto:invoice.totals.grossSubtotal??invoice.totals.cost??0,descuentoTotal:invoice.totals.allowances||0,impuestoTotal:taxTotal,cargoTotal:invoice.totals.charges??lineCharges,
     totalPagar:invoice.totals.payable??0,xmlOriginal:elements.xmlInput.value.trim(),documentoGuid:null,lineas };
+  if(preparation) Object.assign(payload,preparation);
+  return payload;
 }
 
 async function refreshPurchaseWorkflow(documentId,receiptId=null,saveResult=null) {
@@ -1327,17 +1329,21 @@ async function refreshPurchaseWorkflow(documentId,receiptId=null,saveResult=null
   state.purchaseWorkflow={documentId,receiptId:effectiveReceipt,causacionId:workflow.causacionServicioId,workflow,movements,accrual,lastCreatedItems:saveResult?.articulosCreados??state.purchaseWorkflow?.lastCreatedItems??0}; renderInvoice();
 }
 
-async function prepareSupplierDocumentForReceipt(documentId,{hasInventory,hasServices,bodegaId,periodoInventarioId,fechaContable,numeroDocumento}) {
-  if(!hasInventory&&!hasServices) return { recepcionMercanciaId:null, causacionServicioId:null };
-  return apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents/${documentId}/prepare`,{
-    method:'POST',
-    body:JSON.stringify({
+function supplierDocumentPreparationPayload({hasInventory,hasServices,bodegaId,periodoInventarioId,fechaContable,numeroDocumento}) {
+  return {
+      prepararProcesos:hasInventory||hasServices,
       bodegaId:hasInventory?Number(bodegaId):null,
       periodoInventarioId:hasInventory?Number(periodoInventarioId):null,
       fechaContable,
       numeroRecepcion:hasInventory?`ENT-${numeroDocumento}`.slice(0,50):null,
       numeroCausacion:hasServices?`CAU-${numeroDocumento}`.slice(0,50):null
-    })
+    };
+}
+async function prepareSupplierDocumentForReceipt(documentId,options) {
+  if(!options.hasInventory&&!options.hasServices) return { recepcionMercanciaId:null, causacionServicioId:null };
+  return apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents/${documentId}/prepare`,{
+    method:'POST',
+    body:JSON.stringify(supplierDocumentPreparationPayload(options))
   });
 }
 
@@ -1380,8 +1386,8 @@ function buildPurchaseWorkflowPanel(invoice) {
   const updateAutoCreate=()=>{ invoice.autoCreateItems=autoCreate.checked; save.disabled=Boolean(workflow)||(pending.length>0&&!autoCreate.checked); readiness.className=`workflow-readiness${pending.length&&!autoCreate.checked?' pending':''}`; readiness.textContent=pending.length?(autoCreate.checked?`${pending.length} artículo(s) se crearán usando primero el código del proveedor y quedarán homologados automáticamente.`:`${pending.length} línea(s) requieren homologación manual antes de guardar.`):'Datos revisados: descuentos, impuestos, fletes y seriales se guardarán con el XML original.'; updateCompleteState(); };
   payment.addEventListener('change',updatePayment); creditDays.addEventListener('input',updatePayment); autoCreate.addEventListener('change',updateAutoCreate); updatePayment(); updateAutoCreate();
   warehouse.addEventListener('change',updateCompleteState); period.addEventListener('change',updateCompleteState);
-  save.addEventListener('click',async()=>{ try { updatePayment(); save.disabled=true; save.textContent='Guardando para recepción…'; const result=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents`,{method:'POST',body:JSON.stringify(buildSupplierDocumentPayload(invoice))}); let receiptId=null;if(inventoryLines.length||serviceLines.length){const prepared=await prepareSupplierDocumentForReceipt(result.documentoProveedorId,{hasInventory:inventoryLines.length>0,hasServices:serviceLines.length>0,bodegaId:warehouse.value,periodoInventarioId:period.value,fechaContable:date.value,numeroDocumento:invoice.number});receiptId=prepared.recepcionMercanciaId;} await loadApiCompanyContext(); await refreshPurchaseWorkflow(result.documentoProveedorId,receiptId,result); showSuccess(receiptId?'Borrador preparado para recepción física. El auxiliar ya puede verlo.':'Borrador guardado. Puedes recuperarlo desde Entradas guardadas.'); } catch(error){ showError(`No fue posible guardar la entrada. ${error.message}`); save.disabled=false; save.textContent=inventoryLines.length?'Guardar borrador para recepción':'Guardar solo como borrador'; } });
-  complete.addEventListener('click',async()=>{if(inventoryLines.length&&!window.confirm(`Se guardará y contabilizará la factura ${invoice.number}. Esto afectará existencias y Kardex. ¿Deseas continuar?`))return;try{updatePayment();complete.disabled=true;complete.textContent='Guardando y contabilizando…';let documentId=workflow?.documentoProveedorId;let current=workflow;let saveResult=null;if(!documentId){saveResult=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents`,{method:'POST',body:JSON.stringify(buildSupplierDocumentPayload(invoice))});documentId=saveResult.documentoProveedorId;current=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents/${documentId}`);}let receiptId=current.recepcionMercanciaId;if(!receiptId&&!current.causacionServicioId){const prepared=await prepareSupplierDocumentForReceipt(documentId,{hasInventory:inventoryLines.length>0,hasServices:serviceLines.length>0,bodegaId:warehouse.value,periodoInventarioId:period.value,fechaContable:date.value,numeroDocumento:invoice.number});receiptId=prepared.recepcionMercanciaId;}if(receiptId&&current.recepcionEstado!=='CONTABILIZADA')await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/receipts/${receiptId}/post`,{method:'POST',body:JSON.stringify({correlationId:crypto.randomUUID?crypto.randomUUID():null})});await loadApiCompanyContext();await refreshPurchaseWorkflow(documentId,receiptId,saveResult);showSuccess(receiptId?'Entrada guardada y contabilizada. Los seriales ya están disponibles en inventario.':'Documento guardado y procesos preparados.');}catch(error){showError(`No fue posible completar la entrada. El borrador queda recuperable en Entradas guardadas. ${error.message}`);complete.disabled=false;complete.textContent=inventoryLines.length?'Guardar y contabilizar entrada':'Guardar y preparar causación';}});
+  save.addEventListener('click',async()=>{ try { updatePayment(); save.disabled=true; save.textContent='Guardando para recepción…'; const preparation={hasInventory:inventoryLines.length>0,hasServices:serviceLines.length>0,bodegaId:warehouse.value,periodoInventarioId:period.value,fechaContable:date.value,numeroDocumento:invoice.number}; const result=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents`,{method:'POST',body:JSON.stringify(buildSupplierDocumentPayload(invoice,supplierDocumentPreparationPayload(preparation)))}); let receiptId=result.recepcionMercanciaId;if((inventoryLines.length||serviceLines.length)&&!receiptId){const prepared=await prepareSupplierDocumentForReceipt(result.documentoProveedorId,preparation);receiptId=prepared.recepcionMercanciaId;} await loadApiCompanyContext(); await refreshPurchaseWorkflow(result.documentoProveedorId,receiptId,result); showSuccess(receiptId?'Borrador preparado para recepción física. El auxiliar ya puede verlo.':'Borrador guardado. Puedes recuperarlo desde Entradas guardadas.'); } catch(error){ showError(`No fue posible guardar la entrada. ${error.message}`); save.disabled=false; save.textContent=inventoryLines.length?'Guardar borrador para recepción':'Guardar solo como borrador'; } });
+  complete.addEventListener('click',async()=>{if(inventoryLines.length&&!window.confirm(`Se guardará y contabilizará la factura ${invoice.number}. Esto afectará existencias y Kardex. ¿Deseas continuar?`))return;try{updatePayment();complete.disabled=true;complete.textContent='Guardando y contabilizando…';let documentId=workflow?.documentoProveedorId;let current=workflow;let saveResult=null;const preparation={hasInventory:inventoryLines.length>0,hasServices:serviceLines.length>0,bodegaId:warehouse.value,periodoInventarioId:period.value,fechaContable:date.value,numeroDocumento:invoice.number};if(!documentId){saveResult=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents`,{method:'POST',body:JSON.stringify(buildSupplierDocumentPayload(invoice,supplierDocumentPreparationPayload(preparation)))});documentId=saveResult.documentoProveedorId;current=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents/${documentId}`);}let receiptId=current.recepcionMercanciaId||saveResult?.recepcionMercanciaId;if(!receiptId&&!current.causacionServicioId){const prepared=await prepareSupplierDocumentForReceipt(documentId,preparation);receiptId=prepared.recepcionMercanciaId;}if(receiptId&&current.recepcionEstado!=='CONTABILIZADA')await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/receipts/${receiptId}/post`,{method:'POST',body:JSON.stringify({correlationId:crypto.randomUUID?crypto.randomUUID():null})});await loadApiCompanyContext();await refreshPurchaseWorkflow(documentId,receiptId,saveResult);showSuccess(receiptId?'Entrada guardada y contabilizada. Los seriales ya están disponibles en inventario.':'Documento guardado y procesos preparados.');}catch(error){showError(`No fue posible completar la entrada. El borrador queda recuperable en Entradas guardadas. ${error.message}`);complete.disabled=false;complete.textContent=inventoryLines.length?'Guardar y contabilizar entrada':'Guardar y preparar causación';}});
 
   if(workflow){ const status=document.createElement('div'); status.className='workflow-status'; status.innerHTML=`<span>Documento <strong>${workflow.estado}</strong></span><span>Pago <strong>${workflow.condicionPago==='CREDITO'?`Crédito · ${workflow.diasCredito} días`:'Contado'}</strong></span><span>Recepción <strong>${workflow.recepcionEstado||'No aplica'}</strong></span><span>Causación <strong>${workflow.causacionEstado||'No aplica'}</strong></span><span>Artículos nuevos <strong>${state.purchaseWorkflow?.lastCreatedItems||0}</strong></span><span>XML <strong>${workflow.xmlOriginalGuardado?'Guardado':'Sin original'}</strong></span>`; panel.append(status); }
   if(state.purchaseWorkflow?.movements?.length){ const wrap=document.createElement('div'); wrap.className='workflow-movements'; const h=document.createElement('h4'); h.textContent='Movimientos de Kardex generados'; wrap.append(h,buildDataTable(['Movimiento','Línea','Artículo','Cantidad','Costo unitario','Valor','Existencia posterior'],state.purchaseWorkflow.movements.map(x=>[x.movimientoInventarioId,x.numeroLinea,`${x.codigoArticulo} · ${x.descripcion}`,x.cantidadEntrada,formatCurrency(x.costoUnitario,invoice.currency),formatCurrency(x.valorMovimiento,invoice.currency),x.existenciaPosterior]))); panel.append(wrap); }
@@ -1695,9 +1701,9 @@ function appendSummaryValue(parent, label, value) {
   box.append(span, strong); parent.append(box);
 }
 
-function buildManualSupplierDocumentPayload(draft) {
+function buildManualSupplierDocumentPayload(draft,preparation=null) {
   const classification={inventory:'INVENTARIO',service:'SERVICIO_GASTO','acquisition-cost':'COSTO_ADQUISICION'};
-  return {
+  const payload={
     proveedorIdentificacion:draft.nit,proveedorRazonSocial:draft.supplier,tipoDocumento:draft.documentType,numeroDocumento:draft.invoiceNumber,
     fechaDocumento:draft.issueDate,fechaVencimiento:draft.dueDate||null,condicionPago:draft.paymentCondition,diasCredito:draft.creditDays,crearArticulosFaltantes:false,moneda:'COP',cufeCude:null,fuente:'MANUAL',
     subtotalBruto:draft.lines.reduce((s,x)=>s+x.gross,0),descuentoTotal:draft.lines.reduce((s,x)=>s+x.discount,0),
@@ -1706,6 +1712,8 @@ function buildManualSupplierDocumentPayload(draft) {
       unidadMedidaId:Number(x.unitId)||null,unidadCodigo:findById(getCompanyMasterData().data.units,x.unitId)?.code||'UND',manejaSerial:Boolean(x.article?.serial||x.serials.length),factorAUnidadBase:1,precioUnitario:x.unitPrice,subtotalBruto:x.gross,descuento:x.discount,impuesto:x.tax,cargo:x.charge,retencion:x.retention,totalNeto:x.net,
       numeroLote:x.lot||null,fechaVencimiento:x.expiry||null,seriales:x.serials.map(s=>({numeroUnidad:s.number,serial:s.serial||null,motor:s.motor||null,chasis:s.chassis||null,vin:s.vin||null,color:s.color||null,modelo:s.model||null,informacionOriginal:s.raw||null}))}))
   };
+  if(preparation) Object.assign(payload,preparation);
+  return payload;
 }
 
 async function refreshManualWorkflow(documentId,receiptId=null) {
@@ -1919,11 +1927,12 @@ async function saveManualDraft(event) {
   if(isApiManual){
     const submit=event.submitter;elements.manualDraftButton.disabled=true;elements.manualPostButton.disabled=true;const originalText=submit.textContent;submit.textContent=intent==='post'?'Guardando y procesando…':'Guardando borrador…';
     try{
-      const result=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents`,{method:'POST',body:JSON.stringify(buildManualSupplierDocumentPayload(draft))});
+      const preparation={hasInventory:needsWarehouse,hasServices:lines.some(x=>x.classification==='service'),bodegaId:draft.warehouse,periodoInventarioId:draft.period,fechaContable:draft.issueDate,numeroDocumento:draft.invoiceNumber};
+      const result=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents`,{method:'POST',body:JSON.stringify(buildManualSupplierDocumentPayload(draft,supplierDocumentPreparationPayload(preparation)))});
       const current=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/supplier-documents/${result.documentoProveedorId}`);
-      let receiptId=current.recepcionMercanciaId;
+      let receiptId=current.recepcionMercanciaId||result.recepcionMercanciaId;
       if(!receiptId&&!current.causacionServicioId){
-        const prepared=await prepareSupplierDocumentForReceipt(result.documentoProveedorId,{hasInventory:needsWarehouse,hasServices:lines.some(x=>x.classification==='service'),bodegaId:draft.warehouse,periodoInventarioId:draft.period,fechaContable:draft.issueDate,numeroDocumento:draft.invoiceNumber});
+        const prepared=await prepareSupplierDocumentForReceipt(result.documentoProveedorId,preparation);
         receiptId=prepared.recepcionMercanciaId;
       }
       if(intent==='post'&&receiptId&&current.recepcionEstado!=='CONTABILIZADA'){

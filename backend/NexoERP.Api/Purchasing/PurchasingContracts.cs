@@ -53,9 +53,20 @@ public sealed record CreateSupplierDocumentRequest(
     string? XmlOriginal,
     long? UsuarioId,
     Guid? DocumentoGuid,
-    IReadOnlyList<SupplierDocumentLineRequest> Lineas);
+    IReadOnlyList<SupplierDocumentLineRequest> Lineas,
+    bool PrepararProcesos = false,
+    long? BodegaId = null,
+    long? PeriodoInventarioId = null,
+    DateOnly? FechaContable = null,
+    string? NumeroRecepcion = null,
+    string? NumeroCausacion = null);
 
-public sealed record SupplierDocumentResponse(long DocumentoProveedorId, bool YaExistia, int ArticulosCreados);
+public sealed record SupplierDocumentResponse(
+    long DocumentoProveedorId,
+    bool YaExistia,
+    int ArticulosCreados,
+    long? RecepcionMercanciaId = null,
+    long? CausacionServicioId = null);
 
 public sealed record SupplierDocumentListItemResponse(
     long DocumentoProveedorId,string Estado,string TipoDocumento,string NumeroDocumento,string Proveedor,

@@ -337,16 +337,40 @@ app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents", async (long
         return Results.ValidationProblem(new Dictionary<string,string[]> { ["diasCredito"]=["Contado usa 0 días; crédito requiere entre 1 y 3650 días."] });
     if(condicionPago=="CREDITO"&&(input.FechaVencimiento is null||input.FechaVencimiento.Value!=input.FechaDocumento.AddDays(input.DiasCredito)))
         return Results.ValidationProblem(new Dictionary<string,string[]> { ["fechaVencimiento"]=["La fecha de vencimiento debe corresponder a la fecha del documento más los días de crédito."] });
+    var hasInventoryLines=input.Lineas.Any(line=>string.Equals(line.Clasificacion,"INVENTARIO",StringComparison.OrdinalIgnoreCase)||string.Equals(line.Clasificacion,"inventory",StringComparison.OrdinalIgnoreCase));
+    var hasServiceLines=input.Lineas.Any(line=>string.Equals(line.Clasificacion,"SERVICIO_GASTO",StringComparison.OrdinalIgnoreCase)||string.Equals(line.Clasificacion,"service",StringComparison.OrdinalIgnoreCase));
+    var shouldPrepare=input.PrepararProcesos||input.BodegaId is not null||input.PeriodoInventarioId is not null||!string.IsNullOrWhiteSpace(input.NumeroRecepcion)||!string.IsNullOrWhiteSpace(input.NumeroCausacion);
+    if(shouldPrepare)
+    {
+        if(input.FechaContable is null)
+            return Results.ValidationProblem(new Dictionary<string,string[]> { ["fechaContable"]=["La fecha contable es obligatoria para preparar la recepción."] });
+        if(hasInventoryLines&&(input.BodegaId is null||input.PeriodoInventarioId is null||string.IsNullOrWhiteSpace(input.NumeroRecepcion)))
+            return Results.ValidationProblem(new Dictionary<string,string[]> { ["bodegaId"]=["Bodega, periodo y número de recepción son obligatorios para preparar mercancía."] });
+        if(hasServiceLines&&string.IsNullOrWhiteSpace(input.NumeroCausacion))
+            return Results.ValidationProblem(new Dictionary<string,string[]> { ["numeroCausacion"]=["El número de causación es obligatorio para preparar servicios."] });
+    }
     try
     {
-        var result = await purchasing.CreateDocumentAsync(empresaId, input with { CondicionPago=condicionPago, UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) }, cancellationToken);
+        var userId=Convert.ToInt64(context.Items["UsuarioId"]);
+        var result = await purchasing.CreateDocumentAsync(empresaId, input with { CondicionPago=condicionPago, UsuarioId=userId }, cancellationToken);
+        if(shouldPrepare)
+        {
+            var prepared=await purchasing.PrepareAsync(empresaId,result.DocumentoProveedorId,new PrepareSupplierDocumentRequest(
+                hasInventoryLines?input.BodegaId:null,
+                hasInventoryLines?input.PeriodoInventarioId:null,
+                input.FechaContable!.Value,
+                hasInventoryLines?input.NumeroRecepcion:null,
+                hasServiceLines?input.NumeroCausacion:null,
+                userId),cancellationToken);
+            result=result with { RecepcionMercanciaId=prepared.RecepcionMercanciaId, CausacionServicioId=prepared.CausacionServicioId };
+        }
         return result.YaExistia ? Results.Ok(result) : Results.Created($"/api/v1/companies/{empresaId}/supplier-documents/{result.DocumentoProveedorId}", result);
     }
     catch (ArgumentException error)
     {
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["clasificacion"] = [error.Message] });
     }
-    catch (SqlException error) when (error.Number is >= 51300 and <= 51319)
+    catch (SqlException error) when (error.Number is >= 51300 and <= 51339)
     {
         return Results.Conflict(new { error = error.Message, code = error.Number });
     }
