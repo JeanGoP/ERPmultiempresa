@@ -355,14 +355,40 @@ app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents", async (long
         var result = await purchasing.CreateDocumentAsync(empresaId, input with { CondicionPago=condicionPago, UsuarioId=userId }, cancellationToken);
         if(shouldPrepare)
         {
-            var prepared=await purchasing.PrepareAsync(empresaId,result.DocumentoProveedorId,new PrepareSupplierDocumentRequest(
+            var prepareRequest=new PrepareSupplierDocumentRequest(
                 hasInventoryLines?input.BodegaId:null,
                 hasInventoryLines?input.PeriodoInventarioId:null,
                 input.FechaContable!.Value,
                 hasInventoryLines?input.NumeroRecepcion:null,
                 hasServiceLines?input.NumeroCausacion:null,
-                userId),cancellationToken);
-            result=result with { RecepcionMercanciaId=prepared.RecepcionMercanciaId, CausacionServicioId=prepared.CausacionServicioId };
+                userId);
+            if(result.YaExistia)
+            {
+                var workflow=await purchasing.GetWorkflowAsync(empresaId,result.DocumentoProveedorId,cancellationToken);
+                if(workflow is null)
+                    return Results.Conflict(new { error="El documento ya existe, pero no fue posible leer su estado para prepararlo.", code=51321, documentoProveedorId=result.DocumentoProveedorId });
+                if(hasInventoryLines&&workflow.RecepcionMercanciaId is not null&&string.Equals(workflow.RecepcionEstado,"CONTABILIZADA",StringComparison.OrdinalIgnoreCase))
+                    return Results.Conflict(new { error=$"El documento {workflow.TipoDocumento} {workflow.NumeroDocumento} ya tiene una recepción contabilizada y no puede volver a quedar pendiente para bodega. Usa un número de documento diferente si corresponde a otra entrada.", code=51321, documentoProveedorId=workflow.DocumentoProveedorId, estado=workflow.Estado, recepcionEstado=workflow.RecepcionEstado });
+                if(hasServiceLines&&workflow.CausacionServicioId is not null&&string.Equals(workflow.CausacionEstado,"CONTABILIZADA",StringComparison.OrdinalIgnoreCase))
+                    return Results.Conflict(new { error=$"El documento {workflow.TipoDocumento} {workflow.NumeroDocumento} ya tiene una causación contabilizada y no puede volver a prepararse.", code=51321, documentoProveedorId=workflow.DocumentoProveedorId, estado=workflow.Estado, causacionEstado=workflow.CausacionEstado });
+                if(workflow.Estado is not ("BORRADOR" or "VALIDADO"))
+                    return Results.Conflict(new { error=$"El documento {workflow.TipoDocumento} {workflow.NumeroDocumento} ya existe en estado {workflow.Estado} y no puede prepararse como recepción pendiente. Consulta Entradas guardadas o registra un número de documento diferente.", code=51321, documentoProveedorId=workflow.DocumentoProveedorId, estado=workflow.Estado });
+                var requiredProcessesAlreadyExist=(!hasInventoryLines||workflow.RecepcionMercanciaId is not null)&&(!hasServiceLines||workflow.CausacionServicioId is not null);
+                if(requiredProcessesAlreadyExist)
+                {
+                    result=result with { RecepcionMercanciaId=workflow.RecepcionMercanciaId, CausacionServicioId=workflow.CausacionServicioId };
+                }
+                else
+                {
+                    var prepared=await purchasing.PrepareAsync(empresaId,result.DocumentoProveedorId,prepareRequest,cancellationToken);
+                    result=result with { RecepcionMercanciaId=prepared.RecepcionMercanciaId, CausacionServicioId=prepared.CausacionServicioId };
+                }
+            }
+            else
+            {
+                var prepared=await purchasing.PrepareAsync(empresaId,result.DocumentoProveedorId,prepareRequest,cancellationToken);
+                result=result with { RecepcionMercanciaId=prepared.RecepcionMercanciaId, CausacionServicioId=prepared.CausacionServicioId };
+            }
         }
         return result.YaExistia ? Results.Ok(result) : Results.Created($"/api/v1/companies/{empresaId}/supplier-documents/{result.DocumentoProveedorId}", result);
     }
