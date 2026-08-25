@@ -51,24 +51,26 @@
       </button>
 
       <nav class="erp-nav">
-        <p class="nav-label">GENERAL</p>
-        <button class="nav-item muted" type="button" disabled><span class="nav-icon">⌂</span>Inicio</button>
-        <p class="nav-label">OPERACIÓN</p>
+        <p class="nav-label">TRABAJO DIARIO</p>
         <details class="nav-group" data-nav-group="purchases" open>
-          <summary class="nav-item parent"><span class="nav-icon">▤</span><span>Compras</span><span class="nav-count">4</span><span class="chevron">⌄</span></summary>
+          <summary class="nav-item parent"><span class="nav-icon">▤</span><span>Entradas de compra</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
-            <button class="nav-subitem active" type="button" data-registration-mode="xml">Entrada automática</button>
-            <button class="nav-subitem" type="button" data-registration-mode="goods">Entrada manual</button>
-            <button class="nav-subitem" type="button" data-registration-mode="services">Causar servicios</button>
+            <button class="nav-subitem active" type="button" data-registration-mode="xml">Registrar desde XML</button>
+            <button class="nav-subitem" type="button" data-registration-mode="goods">Registrar manual</button>
             <button id="savedPurchasesNav" class="nav-subitem" type="button">Entradas guardadas</button>
-            <span class="nav-subitem muted">Órdenes de compra <small>Próximamente</small></span>
+            <button class="nav-subitem" type="button" data-registration-mode="services">Causar servicios</button>
           </div>
         </details>
         <details class="nav-group" data-nav-group="inventory">
-          <summary class="nav-item parent"><span class="nav-icon">◇</span><span>Inventario</span><span class="chevron">⌄</span></summary>
+          <summary class="nav-item parent"><span class="nav-icon">◇</span><span>Bodega e inventario</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
-            <button id="inventoryNav" class="nav-subitem" type="button">Operación diaria</button>
-            <span class="nav-subitem muted">Planeación <small>Próximamente</small></span>
+            <button class="nav-subitem" type="button" data-inventory-view="receiving">Recepción física</button>
+            <button class="nav-subitem" type="button" data-inventory-view="receipt-history">Historial recepciones</button>
+            <button id="inventoryNav" class="nav-subitem" type="button" data-inventory-view="stock">Existencias</button>
+            <button class="nav-subitem" type="button" data-inventory-view="serials">Seriales</button>
+            <button class="nav-subitem" type="button" data-inventory-view="kardex">Kardex</button>
+            <button class="nav-subitem" type="button" data-inventory-view="expiry">Vencimientos</button>
+            <button class="nav-subitem" type="button" data-inventory-view="operations">Movimientos entre bodegas</button>
           </div>
         </details>
         <details class="nav-group" data-nav-group="costs">
@@ -77,12 +79,9 @@
             <button id="controlsNav" class="nav-subitem" type="button">Controles avanzados</button>
           </div>
         </details>
-        <details class="nav-group nav-group-disabled">
-          <summary class="nav-item parent muted"><span class="nav-icon">↗</span><span>Ventas</span><span class="nav-soon">Próximamente</span></summary>
-        </details>
-        <p class="nav-label">MAESTROS</p>
+        <p class="nav-label">CONFIGURACIÓN</p>
         <details class="nav-group master-nav" data-nav-group="masters">
-          <summary class="nav-item parent"><span class="nav-icon">▦</span><span>Datos maestros</span><span class="nav-count">5</span><span class="chevron">⌄</span></summary>
+          <summary class="nav-item parent"><span class="nav-icon">▦</span><span>Datos maestros</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
             <button class="nav-subitem master-link" type="button" data-master-view="suppliers">Proveedores</button>
             <button class="nav-subitem master-link" type="button" data-master-view="articles">Artículos y servicios</button>
@@ -91,9 +90,8 @@
             <button class="nav-subitem master-link" type="button" data-master-view="mappings">Homologación XML</button>
           </div>
         </details>
-        <p class="nav-label">ADMINISTRACIÓN</p>
         <details class="nav-group" data-nav-group="administration">
-          <summary class="nav-item parent"><span class="nav-icon">◎</span><span>Administración</span><span class="chevron">⌄</span></summary>
+          <summary class="nav-item parent"><span class="nav-icon">◎</span><span>Usuarios y empresas</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
             <button id="companiesAdminNav" class="nav-subitem" type="button">Empresas</button>
             <button id="securityAdminNav" class="nav-subitem" type="button">Usuarios y permisos</button>
