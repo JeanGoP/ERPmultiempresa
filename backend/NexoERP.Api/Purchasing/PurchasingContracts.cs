@@ -107,6 +107,23 @@ public sealed record ReceiptMovementResponse(
     decimal CantidadEntrada,decimal CostoUnitario,decimal ValorMovimiento,decimal ExistenciaPosterior,
     decimal CostoPromedioPosterior,string Bodega,string? NumeroLote,DateOnly? FechaVencimiento,DateOnly FechaContable);
 
+public sealed record WarehouseReceiptListItemResponse(
+    long RecepcionMercanciaId,string Numero,string Estado,long DocumentoProveedorId,string TipoDocumento,string NumeroDocumento,
+    string Proveedor,DateOnly FechaDocumento,DateOnly FechaContable,string Bodega,int Lineas,int UnidadesSerializadas,
+    int Revisadas,int RecibidasConforme,int RecibidasConNovedad,int NoRecibidas);
+
+public sealed record WarehouseReceiptUnitResponse(
+    long RecepcionMercanciaUnidadId,int NumeroLinea,string CodigoArticulo,string Descripcion,int NumeroUnidad,
+    string? Serial,string? Motor,string? Chasis,string? Vin,string? Color,string? Modelo,
+    string? EstadoFisico,string? Observacion,string? RevisadoPor,DateTime? RevisadoEnUtc);
+
+public sealed record WarehouseReceiptDetailResponse(
+    WarehouseReceiptListItemResponse Recepcion,IReadOnlyList<WarehouseReceiptUnitResponse> Unidades);
+
+public sealed record WarehouseReceiptCheckRequest(long RecepcionMercanciaUnidadId,string EstadoFisico,string? Observacion);
+public sealed record SaveWarehouseReceiptChecksRequest(IReadOnlyList<WarehouseReceiptCheckRequest> Revisiones,long? UsuarioId);
+public sealed record WarehouseReceiptCheckSummaryResponse(long RecepcionMercanciaId,int Revisadas,int RecibidasConforme,int RecibidasConNovedad,int NoRecibidas);
+
 public sealed record PostServiceAccrualRequest(
     long PeriodoContableId,
     string? CuentaImpuestoCodigo,

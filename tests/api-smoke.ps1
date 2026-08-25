@@ -90,7 +90,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
         try { $health=Invoke-RestMethod -Uri "$baseUrl/api/v1/health" -Method Get; $healthy=$true; break } catch { if($apiProcess.HasExited){ break } }
     }
     if(-not $healthy){ throw "La API no inicio. $(Get-Content $errorLog -Raw -ErrorAction SilentlyContinue)" }
-    if($health.status -ne 'ok' -or $health.migrations -ne 39){ throw 'La salud de la API no reporto las 39 migraciones esperadas.' }
+    if($health.status -ne 'ok' -or $health.migrations -ne 40){ throw 'La salud de la API no reporto las 40 migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
 

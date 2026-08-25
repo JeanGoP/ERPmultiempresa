@@ -27,6 +27,8 @@ La API usa el prefijo `/api/v1`. Salvo salud e inicio de sesion, todas las rutas
 | GET | `/companies/{empresaId}/supplier-documents/{id}` | Estado, XML, totales, recepción y causación. |
 | GET | `/companies/{empresaId}/supplier-documents?q=&estado=` | Bandeja de documentos guardados; admite búsqueda por factura, proveedor, motor, chasis, serial o VIN. |
 | GET | `/companies/{empresaId}/supplier-documents/{id}/detail` | Documento, líneas y unidades serializadas, incluidos color y modelo. |
+| GET | `/companies/{empresaId}/warehouse-receipts?q=&bodegaId=` | Recepciones de mercancía pendientes para revisión física de bodega. |
+| GET | `/companies/{empresaId}/warehouse-receipts/{id}` | Detalle de motos y marcas físicas de una recepción pendiente. |
 | GET | `/companies/{empresaId}/receipts/{id}/movements` | Movimientos de Kardex creados por la recepción. |
 | GET | `/companies/{empresaId}/service-accruals/{id}` | Líneas, dimensiones, totales y comprobante de la causación. |
 | GET | `/companies/{empresaId}/inventory/balances` | Existencias y valores actuales. |
@@ -41,6 +43,7 @@ La API usa el prefijo `/api/v1`. Salvo salud e inicio de sesion, todas las rutas
 | POST | `/companies/{empresaId}/supplier-documents` | `COMPRAS.DOCUMENTO.CREAR` |
 | POST | `/companies/{empresaId}/supplier-documents/{id}/reject` | `COMPRAS.DOCUMENTO.CREAR`; solo borradores sin recepción ni causación preparada. |
 | POST | `/companies/{empresaId}/supplier-documents/{id}/prepare` | `COMPRAS.DOCUMENTO.CREAR` |
+| PUT | `/companies/{empresaId}/warehouse-receipts/{id}/checks` | `COMPRAS.RECEPCION.REVISAR` |
 | POST | `/companies/{empresaId}/receipts/{id}/post` | `COMPRAS.RECEPCION.CONTABILIZAR` |
 | PUT | `/companies/{empresaId}/service-accruals/{id}/accounts` | `COMPRAS.SERVICIO.CAUSAR` |
 | POST | `/companies/{empresaId}/service-accruals/{id}/post` | `COMPRAS.SERVICIO.CAUSAR` |
@@ -86,6 +89,10 @@ Crear un usuario genera credenciales PBKDF2 y lo vincula a la empresa mediante u
 ## Entrada automatica y manual
 
 Los dos origenes reutilizan las mismas rutas de documento de proveedor, preparacion y contabilizacion. En captura manual, cada linea puede incluir descuento, impuesto, cargo, lote, fecha de vencimiento y unidades serializadas con serial, motor, chasis, VIN, color y modelo. La consulta de movimientos de la recepcion devuelve tambien lote y vencimiento.
+
+## Recepcion fisica de bodega
+
+El rol `AUXILIAR_BODEGA` incluye `COMPRAS.RECEPCION.REVISAR` y `COMPRAS.RECEPCION.CONTABILIZAR`. El panel de bodega consulta recepciones preparadas pendientes de Kardex, permite marcar cada moto como `RECIBIDA_CONFORME`, `RECIBIDA_NOVEDAD` o `NO_RECIBIDA`, guarda observaciones auditadas y luego contabiliza la recepcion completa. Las marcas fisicas no bloquean el ingreso a inventario.
 
 ## Causacion de servicios
 

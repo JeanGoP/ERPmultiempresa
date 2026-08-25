@@ -52,6 +52,7 @@ El modo local del lector y sus borradores se conservan. La escritura en SQL Serv
 - Causación visual de servicios conectada a periodos y cuentas contables reales de la empresa.
 - Retenciones por línea, cuenta de gasto, centro de costo, proyecto, impuestos y cuenta por pagar.
 - Comprobante contable balanceado visible, separado de la recepción y sin movimientos de Kardex para servicios.
+- Rol de auxiliar de bodega con panel de recepción física para chulear motos recibidas, con novedad o no recibidas antes de contabilizar el ingreso a bodega.
 
 ## Pruebas automatizadas actuales
 
@@ -65,7 +66,7 @@ El modo local del lector y sus borradores se conservan. La escritura en SQL Serv
 - Motor, chasis y VIN vinculados a unidades serializadas.
 - Eventos Outbox y deterioros.
 - Compilación .NET sin advertencias.
-- Prueba HTTP aislada sobre una base temporal con las 38 migraciones.
+- Prueba HTTP aislada sobre una base temporal con las 40 migraciones.
 - Salud, login, permisos, rechazo anónimo `401`, denegación `403` y aislamiento entre empresas.
 - Consultas HTTP de saldos, inventario histórico y unidades serializadas.
 - Validaciones HTTP y traducción uniforme de errores de negocio.

@@ -18,6 +18,8 @@ La interfaz ofrece **Guardar solo como borrador** y **Guardar y contabilizar ent
 
 El menú **Administración → Usuarios y permisos** permite crear usuarios, activar o suspender su acceso por empresa, asignar uno o varios roles y restablecer contraseñas. El superadministrador también puede crear roles y seleccionar sus permisos operativos.
 
+El rol **Auxiliar de bodega** permite trabajar en **Inventario → Recepción física**. Allí el usuario ve las recepciones de mercancía preparadas y pendientes de Kardex, marca cada moto como recibida conforme, recibida con novedad o no recibida, conserva observaciones por unidad y puede contabilizar la recepción para ingresar la mercancía a la bodega. Las marcas físicas son historial operativo; no bloquean la contabilización.
+
 Al crear una empresa, el sistema deja preparados automáticamente la unidad `UND`, la bodega principal `PPL` y los períodos contable y de inventario del mes actual. Para una empresa creada antes de esta mejora, el superadministrador puede abrir una factura con mercancía y usar **Preparar empresa ahora**; después se habilitan los selectores de bodega y período.
 
 ## Núcleo SQL Server
@@ -27,7 +29,7 @@ npm run db:init
 npm run db:check
 ```
 
-Los comandos crean `NexoErpDev` en SQL Server LocalDB, aplican 39 migraciones idempotentes y prueban costos, inventario, compras, causaciones, maestros, homologación, seguridad, auditoría y operación productiva.
+Los comandos crean `NexoErpDev` en SQL Server LocalDB, aplican 40 migraciones idempotentes y prueban costos, inventario, compras, causaciones, maestros, homologación, seguridad, auditoría y operación productiva.
 
 La estrategia de códigos `MOT-`/`ART-`, equivalencias por proveedor y seriales está documentada en [docs/codificacion-articulos.md](docs/codificacion-articulos.md).
 
@@ -43,7 +45,7 @@ La API exige autenticación salvo en `/api/v1/health` y `/api/v1/auth/login`. Pa
 powershell -File database/scripts/set-local-user.ps1 -Correo admin@empresa.com -Password (Read-Host -AsSecureString) -NombreCompleto "Administrador" -EmpresaCodigo EMPRESA
 ```
 
-La prueba HTTP aislada crea una base temporal, aplica las 39 migraciones y valida autenticación, empresa, permisos, maestros, homologación, recepción, causación y salud operativa sin modificar `NexoErpDev`:
+La prueba HTTP aislada crea una base temporal, aplica las 40 migraciones y valida autenticación, empresa, permisos, maestros, homologación, recepción, causación y salud operativa sin modificar `NexoErpDev`:
 
 ```powershell
 npm run api:smoke
@@ -67,6 +69,6 @@ El repositorio incluye `netlify.toml`, por lo que Netlify puede desplegarlo sin 
 
 La configuración ejecuta las validaciones JavaScript, publica `public/`, conserva las rutas de la SPA y envía `/erp-api/*` al backend alojado en `http://stecno.dyndns.org/ERP`.
 
-Después del despliegue, comprueba `https://TU-SITIO.netlify.app/erp-api/api/v1/health`. Debe responder con `status: ok`, `database: connected` y `migrations: 39`.
+Después del despliegue, comprueba `https://TU-SITIO.netlify.app/erp-api/api/v1/health`. Debe responder con `status: ok`, `database: connected` y `migrations: 40`.
 
 > Seguridad pendiente: habilitar HTTPS en el backend y actualizar el destino del proxy en `netlify.toml`. La exportación a Excel no forma parte de esta configuración de Netlify.

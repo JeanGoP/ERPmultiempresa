@@ -5,6 +5,7 @@ Aplicar mínimo privilegio y separar solicitud, aprobación y contabilización. 
 | Permiso | Perfil sugerido | Crítico | Control |
 |---|---|---:|---|
 | `COMPRAS.DOCUMENTO.CREAR` | Auxiliar de compras | No | Crea borradores |
+| `COMPRAS.RECEPCION.REVISAR` | Auxiliar de bodega | No | Marca recepción física por moto |
 | `COMPRAS.RECEPCION.CONTABILIZAR` | Responsable de recibo | Sí | Confirma entrada y Kardex |
 | `COMPRAS.SERVICIO.CAUSAR` | Contabilidad proveedores | Sí | Genera comprobante y cuenta por pagar |
 | `COMPRAS.DEVOLUCION.CONTABILIZAR` | Jefe de compras | Sí | Devuelve contra recepción original |

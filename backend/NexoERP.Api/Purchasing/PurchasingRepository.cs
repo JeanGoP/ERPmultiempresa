@@ -349,6 +349,162 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         return result;
     }
 
+    public async Task<IReadOnlyList<WarehouseReceiptListItemResponse>> GetWarehouseReceiptsAsync(long empresaId,long? bodegaId,string? query,CancellationToken cancellationToken)
+    {
+        var normalizedQuery=string.IsNullOrWhiteSpace(query)?null:query.Trim();
+        await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
+        await using var command=connection.CreateCommand();
+        command.CommandText="""
+            SELECT TOP(200) r.RecepcionMercanciaId,r.Numero,r.Estado,d.DocumentoProveedorId,d.TipoDocumento,d.NumeroDocumento,
+                   t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre,
+                   COUNT(DISTINCT l.RecepcionMercanciaLineaId) Lineas,
+                   COUNT(u.RecepcionMercanciaUnidadId) Unidades,
+                   COUNT(rv.RecepcionMercanciaRevisionUnidadId) Revisadas,
+                   SUM(CASE WHEN rv.EstadoFisico='RECIBIDA_CONFORME' THEN 1 ELSE 0 END) Conforme,
+                   SUM(CASE WHEN rv.EstadoFisico='RECIBIDA_NOVEDAD' THEN 1 ELSE 0 END) Novedad,
+                   SUM(CASE WHEN rv.EstadoFisico='NO_RECIBIDA' THEN 1 ELSE 0 END) NoRecibida
+            FROM inv.RecepcionMercancia r
+            JOIN comp.DocumentoProveedor d ON d.EmpresaId=r.EmpresaId AND d.DocumentoProveedorId=r.DocumentoProveedorId
+            JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
+            JOIN inv.Bodega b ON b.EmpresaId=r.EmpresaId AND b.BodegaId=r.BodegaId
+            JOIN inv.RecepcionMercanciaLinea l ON l.EmpresaId=r.EmpresaId AND l.RecepcionMercanciaId=r.RecepcionMercanciaId
+            LEFT JOIN inv.RecepcionMercanciaUnidad u ON u.EmpresaId=l.EmpresaId AND u.RecepcionMercanciaLineaId=l.RecepcionMercanciaLineaId
+            LEFT JOIN inv.RecepcionMercanciaRevisionUnidad rv ON rv.EmpresaId=u.EmpresaId AND rv.RecepcionMercanciaUnidadId=u.RecepcionMercanciaUnidadId
+            WHERE r.EmpresaId=@EmpresaId AND r.Estado<>'CONTABILIZADA' AND (@BodegaId IS NULL OR r.BodegaId=@BodegaId)
+              AND (@Query IS NULL OR r.Numero LIKE '%'+@Query+'%' OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial LIKE '%'+@Query+'%'
+                   OR EXISTS(SELECT 1 FROM inv.RecepcionMercanciaUnidad xu JOIN inv.RecepcionMercanciaLinea xl ON xl.EmpresaId=xu.EmpresaId AND xl.RecepcionMercanciaLineaId=xu.RecepcionMercanciaLineaId WHERE xl.EmpresaId=r.EmpresaId AND xl.RecepcionMercanciaId=r.RecepcionMercanciaId AND (xu.Serial LIKE '%'+@Query+'%' OR xu.Motor LIKE '%'+@Query+'%' OR xu.Chasis LIKE '%'+@Query+'%' OR xu.Vin LIKE '%'+@Query+'%')))
+            GROUP BY r.RecepcionMercanciaId,r.Numero,r.Estado,d.DocumentoProveedorId,d.TipoDocumento,d.NumeroDocumento,t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre
+            ORDER BY r.FechaContable DESC,r.RecepcionMercanciaId DESC;
+            """;
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
+        Add(command,"@BodegaId",SqlDbType.BigInt,bodegaId);
+        Add(command,"@Query",SqlDbType.NVarChar,normalizedQuery,120);
+        await using var reader=await command.ExecuteReaderAsync(cancellationToken);
+        var result=new List<WarehouseReceiptListItemResponse>();
+        while(await reader.ReadAsync(cancellationToken))
+            result.Add(new(reader.GetInt64(0),reader.GetString(1),reader.GetString(2),reader.GetInt64(3),reader.GetString(4),reader.GetString(5),reader.GetString(6),
+                DateOnly.FromDateTime(reader.GetDateTime(7)),DateOnly.FromDateTime(reader.GetDateTime(8)),reader.GetString(9),reader.GetInt32(10),reader.GetInt32(11),
+                reader.GetInt32(12),reader.GetInt32(13),reader.GetInt32(14),reader.GetInt32(15)));
+        return result;
+    }
+
+    public async Task<WarehouseReceiptDetailResponse?> GetWarehouseReceiptDetailAsync(long empresaId,long recepcionId,CancellationToken cancellationToken)
+    {
+        await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
+        WarehouseReceiptListItemResponse? header;
+        await using(var headerCommand=connection.CreateCommand())
+        {
+            headerCommand.CommandText="""
+                SELECT r.RecepcionMercanciaId,r.Numero,r.Estado,d.DocumentoProveedorId,d.TipoDocumento,d.NumeroDocumento,
+                       t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre,
+                       COUNT(DISTINCT l.RecepcionMercanciaLineaId) Lineas,
+                       COUNT(u.RecepcionMercanciaUnidadId) Unidades,
+                       COUNT(rv.RecepcionMercanciaRevisionUnidadId) Revisadas,
+                       SUM(CASE WHEN rv.EstadoFisico='RECIBIDA_CONFORME' THEN 1 ELSE 0 END) Conforme,
+                       SUM(CASE WHEN rv.EstadoFisico='RECIBIDA_NOVEDAD' THEN 1 ELSE 0 END) Novedad,
+                       SUM(CASE WHEN rv.EstadoFisico='NO_RECIBIDA' THEN 1 ELSE 0 END) NoRecibida
+                FROM inv.RecepcionMercancia r
+                JOIN comp.DocumentoProveedor d ON d.EmpresaId=r.EmpresaId AND d.DocumentoProveedorId=r.DocumentoProveedorId
+                JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
+                JOIN inv.Bodega b ON b.EmpresaId=r.EmpresaId AND b.BodegaId=r.BodegaId
+                JOIN inv.RecepcionMercanciaLinea l ON l.EmpresaId=r.EmpresaId AND l.RecepcionMercanciaId=r.RecepcionMercanciaId
+                LEFT JOIN inv.RecepcionMercanciaUnidad u ON u.EmpresaId=l.EmpresaId AND u.RecepcionMercanciaLineaId=l.RecepcionMercanciaLineaId
+                LEFT JOIN inv.RecepcionMercanciaRevisionUnidad rv ON rv.EmpresaId=u.EmpresaId AND rv.RecepcionMercanciaUnidadId=u.RecepcionMercanciaUnidadId
+                WHERE r.EmpresaId=@EmpresaId AND r.RecepcionMercanciaId=@RecepcionMercanciaId AND r.Estado<>'CONTABILIZADA'
+                GROUP BY r.RecepcionMercanciaId,r.Numero,r.Estado,d.DocumentoProveedorId,d.TipoDocumento,d.NumeroDocumento,t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre;
+                """;
+            Add(headerCommand,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(headerCommand,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
+            await using var headerReader=await headerCommand.ExecuteReaderAsync(cancellationToken);
+            header=await headerReader.ReadAsync(cancellationToken)
+                ? new(headerReader.GetInt64(0),headerReader.GetString(1),headerReader.GetString(2),headerReader.GetInt64(3),headerReader.GetString(4),headerReader.GetString(5),headerReader.GetString(6),
+                    DateOnly.FromDateTime(headerReader.GetDateTime(7)),DateOnly.FromDateTime(headerReader.GetDateTime(8)),headerReader.GetString(9),headerReader.GetInt32(10),headerReader.GetInt32(11),
+                    headerReader.GetInt32(12),headerReader.GetInt32(13),headerReader.GetInt32(14),headerReader.GetInt32(15))
+                : null;
+        }
+        if(header is null) return null;
+        await using var command=connection.CreateCommand();
+        command.CommandText="""
+            SELECT u.RecepcionMercanciaUnidadId,l.NumeroLinea,a.Codigo,a.Descripcion,u.NumeroUnidad,
+                   u.Serial,u.Motor,u.Chasis,u.Vin,u.Color,u.Modelo,
+                   rv.EstadoFisico,rv.Observacion,s.NombreCompleto,rv.RevisadoEnUtc
+            FROM inv.RecepcionMercanciaUnidad u
+            JOIN inv.RecepcionMercanciaLinea l ON l.EmpresaId=u.EmpresaId AND l.RecepcionMercanciaLineaId=u.RecepcionMercanciaLineaId
+            JOIN inv.Articulo a ON a.EmpresaId=l.EmpresaId AND a.ArticuloId=l.ArticuloId
+            LEFT JOIN inv.RecepcionMercanciaRevisionUnidad rv ON rv.EmpresaId=u.EmpresaId AND rv.RecepcionMercanciaUnidadId=u.RecepcionMercanciaUnidadId
+            LEFT JOIN seg.Usuario s ON s.UsuarioId=rv.RevisadoPorUsuarioId
+            WHERE l.EmpresaId=@EmpresaId AND l.RecepcionMercanciaId=@RecepcionMercanciaId
+            ORDER BY l.NumeroLinea,u.NumeroUnidad;
+            """;
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
+        await using var reader=await command.ExecuteReaderAsync(cancellationToken);
+        var units=new List<WarehouseReceiptUnitResponse>();
+        while(await reader.ReadAsync(cancellationToken))
+            units.Add(new(reader.GetInt64(0),reader.GetInt32(1),reader.GetString(2),reader.GetString(3),reader.GetInt32(4),
+                reader.IsDBNull(5)?null:reader.GetString(5),reader.IsDBNull(6)?null:reader.GetString(6),reader.IsDBNull(7)?null:reader.GetString(7),
+                reader.IsDBNull(8)?null:reader.GetString(8),reader.IsDBNull(9)?null:reader.GetString(9),reader.IsDBNull(10)?null:reader.GetString(10),
+                reader.IsDBNull(11)?null:reader.GetString(11),reader.IsDBNull(12)?null:reader.GetString(12),reader.IsDBNull(13)?null:reader.GetString(13),
+                reader.IsDBNull(14)?null:reader.GetDateTime(14)));
+        return header is null ? null : new(header,units);
+    }
+
+    public async Task<WarehouseReceiptCheckSummaryResponse> SaveWarehouseReceiptChecksAsync(long empresaId,long recepcionId,SaveWarehouseReceiptChecksRequest input,CancellationToken cancellationToken)
+    {
+        if(input.Revisiones.Count==0) throw new ArgumentException("Envía al menos una revisión física.",nameof(input));
+        await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
+        await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using(var receipt=connection.CreateCommand())
+        {
+            receipt.Transaction=transaction;
+            receipt.CommandText="SELECT Estado FROM inv.RecepcionMercancia WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@EmpresaId AND RecepcionMercanciaId=@RecepcionMercanciaId;";
+            Add(receipt,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(receipt,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
+            var state=Convert.ToString(await receipt.ExecuteScalarAsync(cancellationToken));
+            if(string.IsNullOrWhiteSpace(state)) throw new InvalidOperationException("La recepción no existe.");
+            if(state=="CONTABILIZADA") throw new InvalidOperationException("La recepción ya fue contabilizada. La revisión física quedó cerrada.");
+        }
+        foreach(var review in input.Revisiones)
+        {
+            var status=review.EstadoFisico.Trim().ToUpperInvariant();
+            if(status is not ("RECIBIDA_CONFORME" or "RECIBIDA_NOVEDAD" or "NO_RECIBIDA"))
+                throw new ArgumentException("Estado físico no válido.",nameof(input));
+            await using var command=connection.CreateCommand();
+            command.Transaction=transaction;
+            command.CommandText="""
+                IF NOT EXISTS
+                (
+                    SELECT 1
+                    FROM inv.RecepcionMercanciaUnidad u
+                    JOIN inv.RecepcionMercanciaLinea l ON l.EmpresaId=u.EmpresaId AND l.RecepcionMercanciaLineaId=u.RecepcionMercanciaLineaId
+                    WHERE u.EmpresaId=@EmpresaId AND u.RecepcionMercanciaUnidadId=@UnidadId AND l.RecepcionMercanciaId=@RecepcionMercanciaId
+                ) THROW 51580,'La unidad no pertenece a esta recepción.',1;
+
+                MERGE inv.RecepcionMercanciaRevisionUnidad AS target
+                USING(SELECT @EmpresaId EmpresaId,@UnidadId RecepcionMercanciaUnidadId) AS source
+                ON target.EmpresaId=source.EmpresaId AND target.RecepcionMercanciaUnidadId=source.RecepcionMercanciaUnidadId
+                WHEN MATCHED THEN UPDATE SET EstadoFisico=@EstadoFisico,Observacion=@Observacion,RevisadoPorUsuarioId=@UsuarioId,ActualizadoEnUtc=SYSUTCDATETIME()
+                WHEN NOT MATCHED THEN INSERT(EmpresaId,RecepcionMercanciaUnidadId,EstadoFisico,Observacion,RevisadoPorUsuarioId)
+                    VALUES(@EmpresaId,@UnidadId,@EstadoFisico,@Observacion,@UsuarioId);
+                """;
+            Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
+            Add(command,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
+            Add(command,"@UnidadId",SqlDbType.BigInt,review.RecepcionMercanciaUnidadId);
+            Add(command,"@EstadoFisico",SqlDbType.VarChar,status,20);
+            Add(command,"@Observacion",SqlDbType.NVarChar,string.IsNullOrWhiteSpace(review.Observacion)?null:review.Observacion.Trim(),500);
+            Add(command,"@UsuarioId",SqlDbType.BigInt,input.UsuarioId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using(var audit=connection.CreateCommand())
+        {
+            audit.Transaction=transaction;
+            audit.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@EmpresaId,@UsuarioId,'RECEPCION_FISICA_REVISADA','inv.RecepcionMercancia',CONVERT(nvarchar(100),@RecepcionMercanciaId),@Valores,'BODEGA');";
+            Add(audit,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(audit,"@UsuarioId",SqlDbType.BigInt,input.UsuarioId);Add(audit,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
+            Add(audit,"@Valores",SqlDbType.NVarChar,JsonSerializer.Serialize(new { revisiones=input.Revisiones.Count }),-1);
+            await audit.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await transaction.CommitAsync(cancellationToken);
+        var detail=await GetWarehouseReceiptDetailAsync(empresaId,recepcionId,cancellationToken) ?? throw new InvalidOperationException("No fue posible leer la recepción revisada.");
+        return new(recepcionId,detail.Recepcion.Revisadas,detail.Recepcion.RecibidasConforme,detail.Recepcion.RecibidasConNovedad,detail.Recepcion.NoRecibidas);
+    }
+
     public async Task<PreparedSupplierDocumentResponse> PrepareAsync(long empresaId,long documentoId,PrepareSupplierDocumentRequest input,CancellationToken cancellationToken)
     {
         await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);

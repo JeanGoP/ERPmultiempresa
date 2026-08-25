@@ -10,7 +10,7 @@ Este manual cubre despliegue, disponibilidad, integración, respaldo, recuperaci
 2. Entregar `ConnectionStrings__NexoErp` mediante un almacén de secretos; nunca escribir credenciales en `appsettings.json`.
 3. Configurar `Outbox__DeliveryMode=Webhook` y `Outbox__WebhookUrl` con HTTPS hacia la integración contable. El receptor debe respetar `Idempotency-Key`.
 4. Terminar TLS en un proxy confiable, restringir `AllowedHosts` y conservar `X-Correlation-ID` en todos los componentes.
-5. Ejecutar las 38 migraciones sobre un respaldo reciente y validar `/api/v1/health/ready` antes de habilitar tráfico.
+5. Ejecutar las 40 migraciones sobre un respaldo reciente y validar `/api/v1/health/ready` antes de habilitar tráfico.
 
 `DeliveryMode=Ledger` es útil para desarrollo y ensayos, pero `/health/ready` informa `productionIntegration=false`; no satisface por sí solo la integración productiva.
 
@@ -53,7 +53,7 @@ Ensayar mensualmente una restauración aislada:
 powershell -File database/scripts/verify-restore.ps1 -BackupPath "D:\Respaldos\NexoErp.bak"
 ```
 
-La prueba restaura con otro nombre, ejecuta `DBCC CHECKDB`, valida al menos 38 migraciones y elimina solamente la base temporal. Registrar duración como RTO observado.
+La prueba restaura con otro nombre, ejecuta `DBCC CHECKDB`, valida al menos 40 migraciones y elimina solamente la base temporal. Registrar duración como RTO observado.
 
 ## Archivo y crecimiento
 

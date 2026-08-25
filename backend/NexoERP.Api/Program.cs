@@ -104,7 +104,7 @@ app.MapGet("/api/v1/health", async (TenantConnectionFactory connections, Cancell
 app.MapGet("/api/v1/health/live",()=>Results.Ok(new { status="live",utc=DateTime.UtcNow }));
 app.MapGet("/api/v1/health/ready",async(ProductionOperationsRepository operations,IOptions<OutboxOptions> options,CancellationToken ct)=>
 {
-    var health=await operations.GetPlatformHealthAsync(ct);var ready=health.Migrations>=39&&health.DiscardedOutbox==0;
+    var health=await operations.GetPlatformHealthAsync(ct);var ready=health.Migrations>=40&&health.DiscardedOutbox==0;
     var productionIntegration=string.Equals(options.Value.DeliveryMode,"Webhook",StringComparison.OrdinalIgnoreCase)&&Uri.IsWellFormedUriString(options.Value.WebhookUrl,UriKind.Absolute);
     return Results.Json(new { status=ready?"ready":"degraded",database="connected",health.Migrations,health.PendingOutbox,health.DiscardedOutbox,health.OldestPendingUtc,integrationMode=options.Value.DeliveryMode,productionIntegration },statusCode:ready?200:503);
 });
@@ -399,6 +399,24 @@ app.MapPost("/api/v1/companies/{empresaId:long}/receipts/{recepcionId:long}/post
 
 app.MapGet("/api/v1/companies/{empresaId:long}/receipts/{recepcionId:long}/movements", async (long empresaId,long recepcionId,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
     Results.Ok(await purchasing.GetReceiptMovementsAsync(empresaId,recepcionId,cancellationToken)));
+
+app.MapGet("/api/v1/companies/{empresaId:long}/warehouse-receipts", async (long empresaId,long? bodegaId,string? q,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
+    Results.Ok(await purchasing.GetWarehouseReceiptsAsync(empresaId,bodegaId,q,cancellationToken))).RequireErpPermission("COMPRAS.RECEPCION.REVISAR");
+
+app.MapGet("/api/v1/companies/{empresaId:long}/warehouse-receipts/{recepcionId:long}", async (long empresaId,long recepcionId,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
+{
+    var result=await purchasing.GetWarehouseReceiptDetailAsync(empresaId,recepcionId,cancellationToken);
+    return result is null?Results.NotFound():Results.Ok(result);
+}).RequireErpPermission("COMPRAS.RECEPCION.REVISAR");
+
+app.MapPut("/api/v1/companies/{empresaId:long}/warehouse-receipts/{recepcionId:long}/checks", async (long empresaId,long recepcionId,SaveWarehouseReceiptChecksRequest input,HttpContext context,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
+{
+    if(input.Revisiones.Count==0) return Results.ValidationProblem(new Dictionary<string,string[]> { ["revisiones"]=["Envía al menos una unidad revisada."] });
+    try { return Results.Ok(await purchasing.SaveWarehouseReceiptChecksAsync(empresaId,recepcionId,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },cancellationToken)); }
+    catch(ArgumentException error) { return Results.ValidationProblem(new Dictionary<string,string[]> { ["revisiones"]=[error.Message] }); }
+    catch(InvalidOperationException error) { return Results.Conflict(new { error=error.Message }); }
+    catch(SqlException error) when(error.Number is >= 51580 and <= 51589) { return Results.Conflict(new { error=error.Message,code=error.Number }); }
+}).RequireErpPermission("COMPRAS.RECEPCION.REVISAR");
 
 app.MapPost("/api/v1/companies/{empresaId:long}/service-accruals/{causacionId:long}/post", async (long empresaId, long causacionId, PostServiceAccrualRequest input, HttpContext context, PurchasingRepository purchasing, CancellationToken cancellationToken) =>
 {

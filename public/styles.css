@@ -659,6 +659,12 @@ footer p { margin: 0; }
 .master-row-action:hover { border-color: var(--green); background: var(--green-soft); }
 .master-row-action.danger { border-color: #efc8bf; color: #9b4338; background: #fff5f2; }
 .master-row-action.danger:hover { border-color: #b95143; background: #fce8e3; }
+.receiving-check-form { overflow: auto; }
+.receiving-check-form table { min-width: 980px; }
+.receiving-check-form td strong,.receiving-check-form td small { display: block; }
+.receiving-check-form td small { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.receiving-check-form select,.receiving-check-form input { width: 100%; min-width: 180px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); font: inherit; font-size: 12px; }
+.receiving-check-form input { min-width: 230px; }
 
 @media (max-width: 700px) {
   .login-view { display: block; background: #f5f7f4; }
