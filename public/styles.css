@@ -561,7 +561,10 @@ footer p { margin: 0; }
 .inventory-table { min-height: 320px; max-height: 610px; overflow: auto; }
 .inventory-table table { min-width: 1180px; }
 .inventory-table th { position: sticky; top: 0; z-index: 1; }
+.inventory-table td { vertical-align: middle; }
 .inventory-table td:nth-child(n+7) { white-space: nowrap; }
+.inventory-table td:last-child { text-align: right; }
+.inventory-table td:last-child .button { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; }
 .inventory-notice { margin: 15px 20px 0; padding: 12px 14px; border: 1px solid #ead8ac; border-radius: 8px; color: #745918; background: #fff9e9; font-size: 10px; }
 .inventory-operation-panel { padding: 25px; }
 .operation-heading { margin-bottom: 20px; }
