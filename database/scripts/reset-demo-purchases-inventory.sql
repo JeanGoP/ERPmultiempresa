@@ -62,6 +62,7 @@ SELECT
     (SELECT COUNT(*) FROM comp.DocumentoProveedor WHERE EmpresaId=@EmpresaId) AS EntradasGuardadas,
     (SELECT COUNT(*) FROM inv.RecepcionMercancia WHERE EmpresaId=@EmpresaId) AS Recepciones,
     (SELECT COUNT(*) FROM inv.RecepcionMercancia WHERE EmpresaId=@EmpresaId AND Estado='CONTABILIZADA') AS RecepcionesContabilizadas,
+    (SELECT COUNT(*) FROM inv.RecepcionMercanciaRevisionUnidad WHERE EmpresaId=@EmpresaId) AS RevisionesFisicas,
     (SELECT COUNT(*) FROM comp.DocumentoProveedorLineaUnidad WHERE EmpresaId=@EmpresaId) AS SerialesEnDocumentos,
     (SELECT COUNT(*) FROM inv.UnidadSerializada WHERE EmpresaId=@EmpresaId) AS UnidadesSerializadasInventario,
     (SELECT COUNT(*) FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId) AS MovimientosKardex,
@@ -156,7 +157,8 @@ BEGIN TRY
     DELETE FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId;
     DELETE FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId;
 
-    -- Seriales materializados y copias de recepcion.
+    -- Seriales materializados, revision fisica y copias de recepcion.
+    DELETE FROM inv.RecepcionMercanciaRevisionUnidad WHERE EmpresaId=@EmpresaId;
     DELETE FROM inv.RecepcionMercanciaUnidad WHERE EmpresaId=@EmpresaId;
     DELETE FROM inv.UnidadIdentificador WHERE EmpresaId=@EmpresaId;
     DELETE FROM inv.UnidadSerializada WHERE EmpresaId=@EmpresaId;
@@ -197,6 +199,7 @@ BEGIN TRY
     SELECT
         (SELECT COUNT(*) FROM comp.DocumentoProveedor WHERE EmpresaId=@EmpresaId) AS EntradasGuardadas,
         (SELECT COUNT(*) FROM inv.RecepcionMercancia WHERE EmpresaId=@EmpresaId) AS Recepciones,
+        (SELECT COUNT(*) FROM inv.RecepcionMercanciaRevisionUnidad WHERE EmpresaId=@EmpresaId) AS RevisionesFisicas,
         (SELECT COUNT(*) FROM inv.UnidadSerializada WHERE EmpresaId=@EmpresaId) AS UnidadesSerializadasInventario,
         (SELECT COUNT(*) FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId) AS MovimientosKardex,
         (SELECT COALESCE(SUM(Existencia),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS ExistenciaTotal,
