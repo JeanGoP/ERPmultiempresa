@@ -171,6 +171,7 @@ textarea:focus, input:focus { border-color: var(--green); outline: 2px solid rgb
 .button.primary span { margin-left: 10px; }
 .button.secondary { color: var(--ink); background: white; }
 .button.secondary:hover { background: #f2f5f2; }
+.button:disabled,.button:disabled:hover { cursor: not-allowed; opacity: .45; color: #607069; border-color: var(--line); background: #e8eeeb; }
 
 .results { padding: 54px 0 20px; }
 .results-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
