@@ -51,48 +51,104 @@
       </button>
 
       <nav class="erp-nav">
-        <p class="nav-label">TRABAJO DIARIO</p>
-        <details class="nav-group" data-nav-group="purchases" open>
-          <summary class="nav-item parent"><span class="nav-icon">▤</span><span>Entradas de compra</span><span class="chevron">⌄</span></summary>
+        <p class="nav-label">INICIO</p>
+        <button class="nav-item nav-item-disabled" type="button" disabled aria-disabled="true" title="Disponible en una próxima etapa">
+          <span class="nav-icon">⌂</span><span>Panel de trabajo</span><span class="nav-soon">Próximamente</span>
+        </button>
+
+        <p class="nav-label">OPERACIÓN</p>
+        <details class="nav-group nav-group-future" data-nav-group="sales">
+          <summary class="nav-item parent"><span class="nav-icon">◫</span><span>Ventas y clientes</span><span class="nav-soon">Próximamente</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Cotizaciones</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Pedidos de venta</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Remisiones</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Facturas de venta</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Notas y devoluciones</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Cartera</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Anticipos de clientes</button>
+          </div>
+        </details>
+        <details class="nav-group" data-nav-group="purchases" open>
+          <summary class="nav-item parent"><span class="nav-icon">▤</span><span>Compras y proveedores</span><span class="chevron">⌄</span></summary>
+          <div class="nav-children">
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Órdenes de compra<span class="nav-soon">Próximamente</span></button>
             <button class="nav-subitem active" type="button" data-registration-mode="xml">Registrar desde XML</button>
-            <button class="nav-subitem" type="button" data-registration-mode="goods">Registrar manual</button>
-            <button id="savedPurchasesNav" class="nav-subitem" type="button">Entradas guardadas</button>
+            <button class="nav-subitem" type="button" data-registration-mode="goods">Registrar compra manual</button>
+            <button id="savedPurchasesNav" class="nav-subitem" type="button">Documentos de compra</button>
             <button class="nav-subitem" type="button" data-registration-mode="services">Causar servicios</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Cuentas por pagar<span class="nav-soon">Próximamente</span></button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Anticipos a proveedores<span class="nav-soon">Próximamente</span></button>
+          </div>
+        </details>
+        <details class="nav-group nav-group-future" data-nav-group="treasury">
+          <summary class="nav-item parent"><span class="nav-icon">▣</span><span>Tesorería</span><span class="nav-soon">Próximamente</span><span class="chevron">⌄</span></summary>
+          <div class="nav-children">
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Recibos de caja</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Comprobantes de egreso</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Cajas y bancos</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Transferencias</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Conciliación bancaria</button>
           </div>
         </details>
         <details class="nav-group" data-nav-group="inventory">
-          <summary class="nav-item parent"><span class="nav-icon">◇</span><span>Bodega e inventario</span><span class="chevron">⌄</span></summary>
+          <summary class="nav-item parent"><span class="nav-icon">◇</span><span>Inventarios</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
             <button class="nav-subitem" type="button" data-inventory-view="receiving">Recepción física</button>
-            <button class="nav-subitem" type="button" data-inventory-view="receipt-issues">Novedades pendientes</button>
-            <button class="nav-subitem" type="button" data-inventory-view="receipt-history">Historial recepciones</button>
+            <button class="nav-subitem" type="button" data-inventory-view="receipt-issues">Novedades de recepción</button>
+            <button class="nav-subitem" type="button" data-inventory-view="receipt-history">Historial de recepciones</button>
             <button id="inventoryNav" class="nav-subitem" type="button" data-inventory-view="stock">Existencias</button>
-            <button class="nav-subitem" type="button" data-inventory-view="serials">Seriales</button>
-            <button class="nav-subitem" type="button" data-inventory-view="kardex">Kardex</button>
-            <button class="nav-subitem" type="button" data-inventory-view="expiry">Vencimientos</button>
             <button class="nav-subitem" type="button" data-inventory-view="operations">Movimientos entre bodegas</button>
+            <button class="nav-subitem" type="button" data-inventory-view="kardex">Kardex</button>
+            <button class="nav-subitem" type="button" data-inventory-view="serials">Seriales</button>
+            <button class="nav-subitem" type="button" data-inventory-view="expiry">Vencimientos</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Conteos físicos<span class="nav-soon">Próximamente</span></button>
           </div>
         </details>
+        <details class="nav-group nav-group-future" data-nav-group="accounting">
+          <summary class="nav-item parent"><span class="nav-icon">▧</span><span>Contabilidad</span><span class="nav-soon">Próximamente</span><span class="chevron">⌄</span></summary>
+          <div class="nav-children">
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Comprobantes contables</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Periodos y cierres</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Libros contables</button>
+          </div>
+        </details>
+
+        <p class="nav-label">CONSULTAS Y CONTROL</p>
         <details class="nav-group" data-nav-group="costs">
-          <summary class="nav-item parent"><span class="nav-icon">▥</span><span>Costos y control</span><span class="chevron">⌄</span></summary>
+          <summary class="nav-item parent"><span class="nav-icon">▥</span><span>Control y auditoría</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
             <button id="controlsNav" class="nav-subitem" type="button">Controles avanzados</button>
           </div>
         </details>
+        <details class="nav-group nav-group-future" data-nav-group="reports">
+          <summary class="nav-item parent"><span class="nav-icon">≡</span><span>Informes</span><span class="nav-soon">Próximamente</span><span class="chevron">⌄</span></summary>
+          <div class="nav-children">
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Ventas y cartera</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Compras y proveedores</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Tesorería</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Inventarios</button>
+            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Contabilidad</button>
+          </div>
+        </details>
+
         <p class="nav-label">CONFIGURACIÓN</p>
         <details class="nav-group master-nav" data-nav-group="masters">
           <summary class="nav-item parent"><span class="nav-icon">▦</span><span>Datos maestros</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
+            <button class="nav-subitem master-link muted" type="button" disabled aria-disabled="true">Clientes<span class="nav-soon">Próximamente</span></button>
             <button class="nav-subitem master-link" type="button" data-master-view="suppliers">Proveedores</button>
             <button class="nav-subitem master-link" type="button" data-master-view="articles">Artículos y servicios</button>
+            <button class="nav-subitem master-link muted" type="button" disabled aria-disabled="true">Listas de precios<span class="nav-soon">Próximamente</span></button>
             <button class="nav-subitem master-link" type="button" data-master-view="units">Unidades de medida</button>
             <button class="nav-subitem master-link" type="button" data-master-view="warehouses">Bodegas</button>
             <button class="nav-subitem master-link" type="button" data-master-view="mappings">Homologación XML</button>
+            <button class="nav-subitem master-link muted" type="button" disabled aria-disabled="true">Plan de cuentas<span class="nav-soon">Próximamente</span></button>
+            <button class="nav-subitem master-link muted" type="button" disabled aria-disabled="true">Impuestos y retenciones<span class="nav-soon">Próximamente</span></button>
           </div>
         </details>
         <details class="nav-group" data-nav-group="administration">
-          <summary class="nav-item parent"><span class="nav-icon">◎</span><span>Usuarios y empresas</span><span class="chevron">⌄</span></summary>
+          <summary class="nav-item parent"><span class="nav-icon">◎</span><span>Empresas y seguridad</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
             <button id="companiesAdminNav" class="nav-subitem" type="button">Empresas</button>
             <button id="securityAdminNav" class="nav-subitem" type="button">Usuarios y permisos</button>
