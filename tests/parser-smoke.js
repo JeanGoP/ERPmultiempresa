@@ -5,7 +5,7 @@ const assert = require('assert');
 const { DOMParser, Node } = require('@xmldom/xmldom');
 
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-for (const fragment of ['DOMParser', 'CDATA_SECTION_NODE', 'findEmbeddedBusinessDocument', 'extractInvoiceData', 'AllowanceCharge', 'ChargeIndicator', 'MultiplierFactorNumeric', 'Subtotal bruto', 'Descuento %', 'AdditionalItemProperty', 'normalizePropertyName', 'informacionmoto', 'inferColorFromDescription', 'inferModelYearFromVin', 'Modelo (año)', 'WithholdingTaxTotal', 'retentionTaxCodes', 'Retenciones', 'Seriales de motos', "'Motor', 'Chasis', 'VIN'", 'retencion:item.retention', 'vin:serial.vin', 'paymentCondition', 'creditDays', 'externalProductCode', 'crearArticulosFaltantes', 'findDetailGroups', 'elementToJson', 'decodeXmlBuffer', 'TextDecoder', 'exportCsv', 'exportExcel', 'inferLineClassification', 'buildInvoiceClassificationTable', 'buildHomologationPanel', 'getCompanyMasterData', 'saveMasterRecord', 'purchaseFactor', 'addManualLine', 'saveManualDraft', 'nexo.purchaseDrafts', 'nexo.erpSession.v1', 'nexo.masterData.v1', 'initializeErpUi', 'selectCompany', 'runtimeMode', 'textContent']) {
+for (const fragment of ['DOMParser', 'CDATA_SECTION_NODE', 'findEmbeddedBusinessDocument', 'extractInvoiceData', 'collectPartyXmlFields', 'supplierApiPayload', 'AllowanceCharge', 'ChargeIndicator', 'MultiplierFactorNumeric', 'Subtotal bruto', 'Descuento %', 'AdditionalItemProperty', 'normalizePropertyName', 'informacionmoto', 'inferColorFromDescription', 'inferModelYearFromVin', 'Modelo (año)', 'WithholdingTaxTotal', 'retentionTaxCodes', 'Retenciones', 'Seriales de motos', "'Motor', 'Chasis', 'VIN'", 'retencion:item.retention', 'vin:serial.vin', 'paymentCondition', 'creditDays', 'externalProductCode', 'crearArticulosFaltantes', 'findDetailGroups', 'elementToJson', 'decodeXmlBuffer', 'TextDecoder', 'exportCsv', 'exportExcel', 'inferLineClassification', 'buildInvoiceClassificationTable', 'buildHomologationPanel', 'getCompanyMasterData', 'saveMasterRecord', 'masterEditingSupplierId', 'purchaseFactor', 'addManualLine', 'saveManualDraft', 'nexo.purchaseDrafts', 'nexo.erpSession.v1', 'nexo.masterData.v1', 'initializeErpUi', 'selectCompany', 'runtimeMode', 'textContent']) {
   if (!appSource.includes(fragment)) throw new Error(`Falta la función requerida: ${fragment}`);
 }
 assert.match(appSource, /function\s+showSuccess\s*\(/, 'Debe existir la confirmación visual de operaciones exitosas.');
@@ -54,6 +54,26 @@ assert.strictEqual(variants.items.reduce((total, item) => total + item.retention
 assert.strictEqual(variants.paymentCondition, 'CREDITO');
 assert.strictEqual(variants.creditDays, 30);
 assert.strictEqual(variants.dueDate, '2026-09-19');
+
+const supplierFixture = `<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+ <cbc:ID>SUP-1</cbc:ID><cbc:IssueDate>2026-08-20</cbc:IssueDate><cbc:DocumentCurrencyCode>COP</cbc:DocumentCurrencyCode>
+ <cac:AccountingSupplierParty><cac:Party><cbc:WebsiteURI>https://proveedor.example</cbc:WebsiteURI><cac:PartyName><cbc:Name>Proveedor Comercial</cbc:Name></cac:PartyName><cac:PartyTaxScheme><cbc:RegistrationName>Proveedor Completo SAS</cbc:RegistrationName><cbc:CompanyID schemeID="7" schemeName="31">900123456</cbc:CompanyID><cbc:TaxLevelCode>O-13;O-15</cbc:TaxLevelCode><cac:TaxScheme><cbc:ID>01</cbc:ID><cbc:Name>IVA</cbc:Name></cac:TaxScheme></cac:PartyTaxScheme><cac:PartyLegalEntity><cbc:RegistrationName>Proveedor Completo SAS</cbc:RegistrationName><cac:RegistrationAddress><cbc:ID>11001</cbc:ID><cbc:CityName>Bogotá</cbc:CityName><cbc:PostalZone>110111</cbc:PostalZone><cbc:CountrySubentity>Bogotá D.C.</cbc:CountrySubentity><cbc:CountrySubentityCode>11</cbc:CountrySubentityCode><cac:AddressLine><cbc:Line>Carrera 10 # 20-30</cbc:Line></cac:AddressLine><cac:Country><cbc:IdentificationCode>CO</cbc:IdentificationCode><cbc:Name>Colombia</cbc:Name></cac:Country></cac:RegistrationAddress></cac:PartyLegalEntity><cac:Contact><cbc:Name>Ana Compras</cbc:Name><cbc:Telephone>6015551234</cbc:Telephone><cbc:ElectronicMail>facturas@proveedor.example</cbc:ElectronicMail></cac:Contact></cac:Party></cac:AccountingSupplierParty>
+ <cac:LegalMonetaryTotal><cbc:PayableAmount currencyID="COP">100</cbc:PayableAmount></cac:LegalMonetaryTotal>
+</Invoice>`;
+const supplierInvoice=parserContext.parseInvoiceForTest(supplierFixture);
+assert.strictEqual(supplierInvoice.supplier.identification,'900123456');
+assert.strictEqual(supplierInvoice.supplier.identificationType,'NIT');
+assert.strictEqual(supplierInvoice.supplier.verificationDigit,'7');
+assert.strictEqual(supplierInvoice.supplier.name,'Proveedor Completo SAS');
+assert.strictEqual(supplierInvoice.supplier.commercialName,'Proveedor Comercial');
+assert.strictEqual(supplierInvoice.supplier.address,'Carrera 10 # 20-30');
+assert.strictEqual(supplierInvoice.supplier.city,'Bogotá');
+assert.strictEqual(supplierInvoice.supplier.department,'Bogotá D.C.');
+assert.strictEqual(supplierInvoice.supplier.country,'Colombia');
+assert.strictEqual(supplierInvoice.supplier.phone,'6015551234');
+assert.strictEqual(supplierInvoice.supplier.email,'facturas@proveedor.example');
+assert(Object.keys(supplierInvoice.supplier.xmlFields).some((key)=>key.endsWith('CompanyID')),'Debe conservar los campos originales del proveedor.');
 
 const realSamplesDir = path.join(__dirname, '..', 'tmp', 'xml-samples');
 if (fs.existsSync(realSamplesDir)) {

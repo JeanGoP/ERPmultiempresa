@@ -35,6 +35,7 @@ El modo local del lector y sus borradores se conservan. La escritura en SQL Serv
 - Menú de Compras para Entrada automática, Entrada manual y Causación de servicios.
 - Bandera persistente Local/API con autenticación, empresas y catálogos reales en modo API.
 - Maestros visuales por empresa para proveedores, artículos, servicios, unidades y bodegas.
+- Proveedores enriquecidos desde el XML con datos fiscales, dirección, ciudad, país, contacto, correo, teléfono y conservación del bloque original; edición posterior desde el maestro.
 - Conversiones por artículo, por ejemplo `1 caja = 12 unidades`.
 - Homologación proveedor + código externo hacia el artículo y la unidad interna.
 - Bandeja de líneas XML pendientes con control de avance hasta completar todas las asociaciones.
@@ -67,7 +68,7 @@ El modo local del lector y sus borradores se conservan. La escritura en SQL Serv
 - Motor, chasis y VIN vinculados a unidades serializadas.
 - Eventos Outbox y deterioros.
 - Compilación .NET sin advertencias.
-- Prueba HTTP aislada sobre una base temporal con las 41 migraciones.
+- Prueba HTTP aislada sobre una base temporal con las 42 migraciones.
 - Salud, login, permisos, rechazo anónimo `401`, denegación `403` y aislamiento entre empresas.
 - Consultas HTTP de saldos, inventario histórico y unidades serializadas.
 - Validaciones HTTP y traducción uniforme de errores de negocio.

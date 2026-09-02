@@ -69,6 +69,15 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         var hashXml = input.XmlOriginal is null ? null : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input.XmlOriginal))).ToLowerInvariant();
 
         await using var connection = await connections.OpenAsync(empresaId, false, cancellationToken);
+        await using (var supplierCommand=connection.CreateCommand())
+        {
+            supplierCommand.CommandType=CommandType.StoredProcedure;supplierCommand.CommandText="ter.usp_GuardarProveedor";
+            Add(supplierCommand,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(supplierCommand,"@TipoIdentificacion",SqlDbType.VarChar,input.ProveedorTipoIdentificacion??"NIT",10);Add(supplierCommand,"@NumeroIdentificacion",SqlDbType.NVarChar,input.ProveedorIdentificacion,30);Add(supplierCommand,"@DigitoVerificacion",SqlDbType.Char,input.ProveedorDigitoVerificacion,1);Add(supplierCommand,"@RazonSocial",SqlDbType.NVarChar,input.ProveedorRazonSocial,200);Add(supplierCommand,"@UsuarioId",SqlDbType.BigInt,input.UsuarioId);
+            Add(supplierCommand,"@NombreComercial",SqlDbType.NVarChar,input.ProveedorNombreComercial,200);Add(supplierCommand,"@CodigoResponsabilidadFiscal",SqlDbType.NVarChar,input.ProveedorResponsabilidadFiscal,100);Add(supplierCommand,"@RegimenFiscalCodigo",SqlDbType.NVarChar,input.ProveedorRegimenFiscalCodigo,20);Add(supplierCommand,"@RegimenFiscalNombre",SqlDbType.NVarChar,input.ProveedorRegimenFiscalNombre,100);
+            Add(supplierCommand,"@Direccion",SqlDbType.NVarChar,input.ProveedorDireccion,300);Add(supplierCommand,"@CiudadCodigo",SqlDbType.NVarChar,input.ProveedorCiudadCodigo,20);Add(supplierCommand,"@Ciudad",SqlDbType.NVarChar,input.ProveedorCiudad,100);Add(supplierCommand,"@DepartamentoCodigo",SqlDbType.NVarChar,input.ProveedorDepartamentoCodigo,20);Add(supplierCommand,"@Departamento",SqlDbType.NVarChar,input.ProveedorDepartamento,100);Add(supplierCommand,"@CodigoPostal",SqlDbType.NVarChar,input.ProveedorCodigoPostal,20);Add(supplierCommand,"@PaisCodigo",SqlDbType.NVarChar,input.ProveedorPaisCodigo,10);Add(supplierCommand,"@Pais",SqlDbType.NVarChar,input.ProveedorPais,100);
+            Add(supplierCommand,"@ContactoNombre",SqlDbType.NVarChar,input.ProveedorContactoNombre,150);Add(supplierCommand,"@Telefono",SqlDbType.NVarChar,input.ProveedorTelefono,50);Add(supplierCommand,"@Correo",SqlDbType.NVarChar,input.ProveedorCorreo,254);Add(supplierCommand,"@SitioWeb",SqlDbType.NVarChar,input.ProveedorSitioWeb,300);Add(supplierCommand,"@DatosXmlJson",SqlDbType.NVarChar,input.ProveedorDatosXmlJson,-1);
+            await supplierCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
         await using (var existing=connection.CreateCommand())
         {
             existing.CommandText="""

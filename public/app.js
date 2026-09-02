@@ -1,5 +1,5 @@
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
-const state = { document: null, containerDocument: null, invoice: null, json: null, fields: [], headers: [], details: [], fileName: '', registrationMode: 'xml', manualLineSequence: 0, erpSession: null, pendingEmail: '', pendingName: '', pendingSuperAdmin: false, runtimeMode: 'api', masterView: 'suppliers', masterEditingArticleId: null, inventoryView: 'stock', inventoryData: [], warehouseReceipts: [], warehouseReceiptDetail: null, warehouseIssues: [], warehouseIssuesDemoInitialized: false, advancedView: 'landed', advancedData: [], securityView: 'users', securityData: null, securityEditingUserId: null, securityEditingRoleId: null, securityPasswordUserId: null, apiContext: null, accessInitialized: false, purchaseWorkflow: null, manualWorkflow: null, manualDraft: null, savedPurchaseDocuments: [], savedPurchaseDetail: null };
+const state = { document: null, containerDocument: null, invoice: null, json: null, fields: [], headers: [], details: [], fileName: '', registrationMode: 'xml', manualLineSequence: 0, erpSession: null, pendingEmail: '', pendingName: '', pendingSuperAdmin: false, runtimeMode: 'api', masterView: 'suppliers', masterEditingArticleId: null, masterEditingSupplierId: null, inventoryView: 'stock', inventoryData: [], warehouseReceipts: [], warehouseReceiptDetail: null, warehouseIssues: [], warehouseIssuesDemoInitialized: false, advancedView: 'landed', advancedData: [], securityView: 'users', securityData: null, securityEditingUserId: null, securityEditingRoleId: null, securityPasswordUserId: null, apiContext: null, accessInitialized: false, purchaseWorkflow: null, manualWorkflow: null, manualDraft: null, savedPurchaseDocuments: [], savedPurchaseDetail: null };
 const $ = (selector) => document.querySelector(selector);
 const elements = {
   fileInput: $('#fileInput'), dropZone: $('#dropZone'), browseButton: $('#browseButton'),
@@ -313,7 +313,7 @@ const masterViewConfig = {
 
 function newMasterDataSeed() {
   return {
-    suppliers: [{ id: 'sup-fanalca', identificationType: 'NIT', identification: '890301886', verificationDigit: '5', name: 'Fábrica Nacional de Autopartes S.A.S.', active: true }],
+    suppliers: [{ id: 'sup-fanalca', identificationType: 'NIT', identification: '890301886', verificationDigit: '5', name: 'Fábrica Nacional de Autopartes S.A.S.', commercialName: 'Fanalca', address: 'Calle 13 # 31 A - 80', cityCode: '76001', city: 'Cali', departmentCode: '76', department: 'Valle del Cauca', postalCode: '', countryCode: 'CO', country: 'Colombia', contactName: '', phone: '', email: '', website: '', taxResponsibility: '', taxSchemeCode: '', taxSchemeName: '', xmlData: null, active: true }],
     units: [{ id: 'unit-und', code: 'UND', name: 'Unidad', symbol: 'und', active: true }, { id: 'unit-kgm', code: 'KGM', name: 'Kilogramo', symbol: 'kg', active: true }],
     articles: [
       { id: 'art-repuesto', code: 'REP-MOTO', description: 'Repuesto de motocicleta', type: 'INVENTARIO', unitId: 'unit-und', inventory: true, lot: false, serial: true, expiry: false, active: true },
@@ -349,7 +349,7 @@ async function loadApiCompanyContext() {
     ]);
     renderCompanyOptions(companies,true);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);
     state.apiContext={ warehouses,periods,accountingPeriods,accounts,permissions,permissionCodes:new Set(permissions.map(permissionCode)),masterData:{
-      suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,active:x.activo})),
+      suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,active:x.activo})),
       units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
       articles:articles.map(x=>({id:x.articuloId,code:x.codigo,description:x.descripcion,type:x.tipo,unitId:x.unidadBaseId,inventory:x.manejaInventario,lot:x.manejaLote,serial:x.manejaSerial,expiry:x.requiereVencimiento,active:x.activo})),
       warehouses:warehouses.map(x=>({id:x.bodegaId,code:x.codigo,name:x.nombre,locations:x.usaUbicaciones,transit:x.esTransito,active:true})),
@@ -368,9 +368,18 @@ async function loadApiCompanyContext() {
 async function ensureApiSupplier(invoice) {
   const data=state.apiContext?.masterData; if(!data) throw new Error('Los maestros de la empresa aún no están disponibles.');
   const identification=invoice.supplier.identification; if(!identification) throw new Error('El XML no contiene la identificación del proveedor.');
-  let supplier=data.suppliers.find(x=>x.identification===identification); if(supplier) return supplier;
-  const saved=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/suppliers`,{method:'POST',body:JSON.stringify({tipoIdentificacion:'NIT',numeroIdentificacion:identification,digitoVerificacion:null,razonSocial:invoice.supplier.name||'Proveedor desde XML'})});
-  supplier={id:saved.id,identificationType:'NIT',identification,verificationDigit:'',name:invoice.supplier.name||'Proveedor desde XML',active:true}; data.suppliers.push(supplier); return supplier;
+  const source=invoice.supplier; const payload=supplierApiPayload({
+    identificationType:source.identificationType||'NIT',identification,verificationDigit:source.verificationDigit||'',name:source.name||'Proveedor desde XML',commercialName:source.commercialName||'',taxResponsibility:source.taxResponsibility||'',taxSchemeCode:source.taxSchemeCode||'',taxSchemeName:source.taxSchemeName||'',address:source.address||'',cityCode:source.cityCode||'',city:source.city||'',departmentCode:source.departmentCode||'',department:source.department||'',postalCode:source.postalCode||'',countryCode:source.countryCode||'',country:source.country||'',contactName:source.contactName||'',phone:source.phone||'',email:source.email||'',website:source.website||'',xmlData:JSON.stringify(source.xmlFields||{})
+  });
+  const saved=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/suppliers`,{method:'POST',body:JSON.stringify(payload)});
+  let supplier=data.suppliers.find(x=>x.identification===identification);
+  const record={id:saved.id,identificationType:source.identificationType||'NIT',identification,verificationDigit:source.verificationDigit||'',name:source.name||'Proveedor desde XML',commercialName:source.commercialName||'',taxResponsibility:source.taxResponsibility||'',taxSchemeCode:source.taxSchemeCode||'',taxSchemeName:source.taxSchemeName||'',address:source.address||'',cityCode:source.cityCode||'',city:source.city||'',departmentCode:source.departmentCode||'',department:source.department||'',postalCode:source.postalCode||'',countryCode:source.countryCode||'',country:source.country||'',contactName:source.contactName||'',phone:source.phone||'',email:source.email||'',website:source.website||'',xmlData:payload.datosXmlJson,active:true};
+  if(supplier)Object.assign(supplier,record);else{supplier=record;data.suppliers.push(supplier);} return supplier;
+}
+
+function supplierApiPayload(supplier) {
+  const empty=(value)=>String(value??'').trim()||null;
+  return {tipoIdentificacion:supplier.identificationType||'NIT',numeroIdentificacion:String(supplier.identification||'').trim(),digitoVerificacion:empty(supplier.verificationDigit),razonSocial:String(supplier.name||'').trim(),nombreComercial:empty(supplier.commercialName),codigoResponsabilidadFiscal:empty(supplier.taxResponsibility),regimenFiscalCodigo:empty(supplier.taxSchemeCode),regimenFiscalNombre:empty(supplier.taxSchemeName),direccion:empty(supplier.address),ciudadCodigo:empty(supplier.cityCode),ciudad:empty(supplier.city),departamentoCodigo:empty(supplier.departmentCode),departamento:empty(supplier.department),codigoPostal:empty(supplier.postalCode),paisCodigo:empty(supplier.countryCode),pais:empty(supplier.country),contactoNombre:empty(supplier.contactName),telefono:empty(supplier.phone),correo:empty(supplier.email),sitioWeb:empty(supplier.website),datosXmlJson:empty(supplier.xmlData)};
 }
 
 function renderManualReferenceOptions() {
@@ -431,6 +440,18 @@ function renderArticleMasterTable(data,query) {
   table.append(head,body); elements.masterTable.replaceChildren(table); return articles.length;
 }
 
+function renderSupplierMasterTable(data,query) {
+  const suppliers=data.suppliers.filter((supplier)=>!query||Object.values(supplier).join(' ').toLocaleLowerCase('es-CO').includes(query));
+  const table=document.createElement('table');const head=document.createElement('thead');head.innerHTML='<tr><th>Identificación</th><th>Proveedor</th><th>Ubicación</th><th>Contacto</th><th>Estado</th><th>Acciones</th></tr>';const body=document.createElement('tbody');
+  suppliers.forEach((supplier)=>{
+    const row=document.createElement('tr');const values=[`${supplier.identificationType} ${supplier.identification}${supplier.verificationDigit?`-${supplier.verificationDigit}`:''}`,[supplier.name,supplier.commercialName].filter(Boolean).join(' · '),[supplier.address,supplier.city,supplier.department,supplier.country].filter(Boolean).join(' · ')||'—',[supplier.contactName,supplier.phone,supplier.email].filter(Boolean).join(' · ')||'—',activeLabel(supplier.active)];
+    values.forEach((value)=>{const cell=document.createElement('td');cell.textContent=value;row.append(cell);});
+    const actions=document.createElement('td');actions.className='master-row-actions';const edit=masterActionButton('Editar','edit',supplier.id);delete edit.dataset.masterArticleAction;edit.dataset.masterSupplierAction='edit';actions.append(edit);row.append(actions);body.append(row);
+  });
+  if(!suppliers.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=6;cell.className='empty';cell.textContent='No hay proveedores que coincidan con la búsqueda.';row.append(cell);body.append(row);}
+  table.append(head,body);elements.masterTable.replaceChildren(table);return suppliers.length;
+}
+
 function showMasterNotice(message,isError=false) {
   elements.masterNotice.textContent=message; elements.masterNotice.classList.toggle('error',isError); elements.masterNotice.hidden=!message;
 }
@@ -440,6 +461,7 @@ function renderMasterView() {
   elements.masterViewTitle.textContent=config[0]; elements.masterViewSubtitle.textContent=config[1]; elements.addMasterRecord.textContent=state.masterView==='mappings'?'＋ Nueva homologación':'＋ Nuevo registro';
   renderMasterStats(data);
   const query=elements.masterSearch.value.trim().toLocaleLowerCase('es-CO');
+  if(state.masterView==='suppliers'){const count=renderSupplierMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
   if(state.masterView==='articles'){const count=renderArticleMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
   const source=masterRows(state.masterView,data); const rows=query?source.rows.filter(row=>row.join(' ').toLocaleLowerCase('es-CO').includes(query)):source.rows;
   elements.masterTable.replaceChildren(buildDataTable(source.headers,rows)); elements.masterCount.textContent=`${rows.length} ${config[2]}`;
@@ -447,7 +469,7 @@ function renderMasterView() {
 
 function showMasterView(view) {
   if (!isMasterViewAllowed(view)) { routeToDefaultWorkspace(true); return; }
-  state.masterView=view; state.masterEditingArticleId=null; showMasterNotice(''); elements.purchaseModule.hidden=true; elements.masterDataModule.hidden=false;elements.savedPurchasesModule.hidden=true;elements.inventoryModule.hidden=true;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.savedPurchasesNav.classList.remove('active');elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');
+  state.masterView=view; state.masterEditingArticleId=null; state.masterEditingSupplierId=null; showMasterNotice(''); elements.purchaseModule.hidden=true; elements.masterDataModule.hidden=false;elements.savedPurchasesModule.hidden=true;elements.inventoryModule.hidden=true;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.savedPurchasesNav.classList.remove('active');elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');
   document.querySelector('.breadcrumb span').textContent='Maestros'; elements.breadcrumbCurrent.textContent=masterViewConfig[view][0];
   document.querySelectorAll('[data-registration-mode],[data-inventory-view]').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('[data-master-view]').forEach(x=>x.classList.toggle('active',x.dataset.masterView===view));
@@ -660,20 +682,29 @@ function addMasterCheck(labelText,name,checked=false) {
   const span=document.createElement('span'); span.textContent=labelText; label.append(input,span); elements.masterFormFields.append(label); return input;
 }
 
-function openMasterForm(article=null) {
-  const data=getCompanyMasterData().data; const editing=state.masterView==='articles'&&article?.id!=null?article:null; state.masterEditingArticleId=editing?.id||null;
+function openMasterForm(record=null) {
+  const data=getCompanyMasterData().data; const editingArticle=state.masterView==='articles'&&record?.id!=null?record:null;const editingSupplier=state.masterView==='suppliers'&&record?.id!=null?record:null;state.masterEditingArticleId=editingArticle?.id||null;state.masterEditingSupplierId=editingSupplier?.id||null;
   elements.masterFormFields.replaceChildren(); elements.masterFormError.hidden=true;
-  elements.masterDialogTitle.textContent=editing?'Editar artículo':`Nuevo: ${masterViewConfig[state.masterView][0]}`;
-  elements.masterDialogSubtitle.textContent=editing?'Actualiza la información permitida del artículo.':'Completa la información requerida.';
-  if(state.masterView==='suppliers') { addMasterField('Tipo de identificación','identificationType','text',[['NIT','NIT'],['CC','Cédula'],['CE','Cédula de extranjería']]); addMasterField('Número de identificación *','identification'); addMasterField('Dígito de verificación','verificationDigit','text',null,false,false); addMasterField('Razón social *','name','text',null,true); }
+  elements.masterDialogTitle.textContent=editingArticle?'Editar artículo':editingSupplier?'Editar proveedor':`Nuevo: ${masterViewConfig[state.masterView][0]}`;
+  elements.masterDialogSubtitle.textContent=editingArticle?'Actualiza la información permitida del artículo.':editingSupplier?'Corrige o completa los datos fiscales, de ubicación y contacto del proveedor.':'Completa la información requerida.';
+  if(state.masterView==='suppliers') {
+    addMasterField('Tipo de identificación','identificationType','text',[['NIT','NIT'],['CC','Cédula'],['CE','Cédula de extranjería']]);addMasterField('Número de identificación *','identification');addMasterField('Dígito de verificación','verificationDigit','text',null,false,false);addMasterField('Razón social *','name','text',null,true);addMasterField('Nombre comercial','commercialName','text',null,true,false);
+    addMasterField('Responsabilidad fiscal','taxResponsibility','text',null,false,false);addMasterField('Código de régimen fiscal','taxSchemeCode','text',null,false,false);addMasterField('Nombre del régimen fiscal','taxSchemeName','text',null,false,false);addMasterField('Dirección','address','text',null,true,false);
+    addMasterField('Código de ciudad','cityCode','text',null,false,false);addMasterField('Ciudad','city','text',null,false,false);addMasterField('Código de departamento','departmentCode','text',null,false,false);addMasterField('Departamento','department','text',null,false,false);addMasterField('Código postal','postalCode','text',null,false,false);addMasterField('Código de país','countryCode','text',null,false,false);addMasterField('País','country','text',null,false,false);
+    addMasterField('Persona de contacto','contactName','text',null,false,false);addMasterField('Teléfono','phone','tel',null,false,false);addMasterField('Correo','email','email',null,false,false);addMasterField('Sitio web','website','url',null,true,false);
+  }
   else if(state.masterView==='units') { addMasterField('Código *','code'); addMasterField('Símbolo *','symbol'); addMasterField('Nombre *','name','text',null,true); }
   else if(state.masterView==='articles') { addMasterField('Código interno *','code'); addMasterField('Tipo *','type','text',[['INVENTARIO','Artículo inventariable'],['SERVICIO','Servicio'],['ACTIVO_FIJO','Activo fijo'],['CONCEPTO','Concepto de costo']]); addMasterField('Descripción *','description','text',null,true); addMasterField('Unidad base *','unitId','text',data.units.map(x=>[x.id,`${x.code} · ${x.name}`])); addMasterField('Unidad de compra','purchaseUnitId','text',[['','Igual a la unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const purchaseFactor=addMasterField('Factor a unidad base','purchaseFactor','number',null,false,false); purchaseFactor.min='0.0000000001'; purchaseFactor.step='0.0000000001'; purchaseFactor.value='1'; addMasterCheck('Maneja inventario','inventory',true); addMasterCheck('Maneja serial / motor / chasis','serial'); addMasterCheck('Maneja lote','lot'); addMasterCheck('Requiere vencimiento','expiry'); }
   else if(state.masterView==='warehouses') { addMasterField('Código *','code'); addMasterField('Nombre *','name'); addMasterCheck('Usa ubicaciones','locations'); addMasterCheck('Es bodega de tránsito','transit'); }
   else { addMasterField('Proveedor *','supplierId','text',data.suppliers.map(x=>[x.id,`${x.identification} · ${x.name}`]),true); addMasterField('Código externo *','externalCode'); addMasterField('Descripción externa','externalDescription','text',null,true,false); addMasterField('Artículo interno *','articleId','text',data.articles.map(x=>[x.id,`${x.code} · ${x.description}`]),true); addMasterField('Unidad','unitId','text',[['','Unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const factor=addMasterField('Factor a unidad base *','factor','number'); factor.min='0.0000000001'; factor.step='0.0000000001'; factor.value='1'; }
-  if(editing){
-    const values={code:editing.code,type:editing.type,description:editing.description,unitId:editing.unitId,purchaseUnitId:editing.purchaseUnitId||'',purchaseFactor:editing.purchaseFactor||1};
+  if(editingArticle){
+    const values={code:editingArticle.code,type:editingArticle.type,description:editingArticle.description,unitId:editingArticle.unitId,purchaseUnitId:editingArticle.purchaseUnitId||'',purchaseFactor:editingArticle.purchaseFactor||1};
     Object.entries(values).forEach(([name,value])=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].value=String(value);});
-    ['inventory','serial','lot','expiry'].forEach(name=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].checked=Boolean(editing[name]);});
+    ['inventory','serial','lot','expiry'].forEach(name=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].checked=Boolean(editingArticle[name]);});
+  }
+  if(editingSupplier){
+    const values={identificationType:editingSupplier.identificationType,identification:editingSupplier.identification,verificationDigit:editingSupplier.verificationDigit,name:editingSupplier.name,commercialName:editingSupplier.commercialName,taxResponsibility:editingSupplier.taxResponsibility,taxSchemeCode:editingSupplier.taxSchemeCode,taxSchemeName:editingSupplier.taxSchemeName,address:editingSupplier.address,cityCode:editingSupplier.cityCode,city:editingSupplier.city,departmentCode:editingSupplier.departmentCode,department:editingSupplier.department,postalCode:editingSupplier.postalCode,countryCode:editingSupplier.countryCode,country:editingSupplier.country,contactName:editingSupplier.contactName,phone:editingSupplier.phone,email:editingSupplier.email,website:editingSupplier.website};
+    Object.entries(values).forEach(([name,value])=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].value=String(value??'');});
   }
   openErpDialog(elements.masterRecordDialog);
 }
@@ -684,15 +715,15 @@ async function saveMasterRecord(event) {
   try {
     if(context.api){
       const base=`/api/v1/companies/${state.erpSession.company.id}/master-data`;let path;let payload;
-      if(state.masterView==='suppliers'){path='suppliers';payload={tipoIdentificacion:values.identificationType,numeroIdentificacion:values.identification.trim(),digitoVerificacion:values.verificationDigit.trim()||null,razonSocial:values.name.trim()};}
+      if(state.masterView==='suppliers'){const current=findById(data.suppliers,state.masterEditingSupplierId);path='suppliers';payload=supplierApiPayload({identificationType:values.identificationType,identification:values.identification,name:values.name,verificationDigit:values.verificationDigit,commercialName:values.commercialName,taxResponsibility:values.taxResponsibility,taxSchemeCode:values.taxSchemeCode,taxSchemeName:values.taxSchemeName,address:values.address,cityCode:values.cityCode,city:values.city,departmentCode:values.departmentCode,department:values.department,postalCode:values.postalCode,countryCode:values.countryCode,country:values.country,contactName:values.contactName,phone:values.phone,email:values.email,website:values.website,xmlData:current?.xmlData||null});}
       else if(state.masterView==='units'){path='units';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),simbolo:values.symbol.trim()};}
       else if(state.masterView==='articles'){path='articles';payload={codigo:values.code.trim().toUpperCase(),descripcion:values.description.trim(),tipo:values.type,unidadBaseId:Number(values.unitId),manejaInventario:values.type==='SERVICIO'?false:checkbox('inventory'),manejaLote:checkbox('lot'),manejaSerial:checkbox('serial'),requiereVencimiento:checkbox('expiry'),pesoBaseKg:null,volumenBaseM3:null};}
       else if(state.masterView==='warehouses'){path='warehouses';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),usaUbicaciones:checkbox('locations'),esTransito:checkbox('transit')};}
       else{path='item-mappings';payload={terceroId:Number(values.supplierId),codigoExterno:values.externalCode.trim(),descripcionExterna:values.externalDescription.trim()||null,articuloId:Number(values.articleId),unidadMedidaId:values.unitId?Number(values.unitId):null,factorAUnidadBase:Number(values.factor)||1};}
-      const editingArticle=state.masterView==='articles'&&state.masterEditingArticleId; const endpoint=editingArticle?`${base}/articles/${editingArticle}`:`${base}/${path}`;
-      await apiRequest(endpoint,{method:editingArticle?'PUT':'POST',body:JSON.stringify(payload)}); state.masterEditingArticleId=null; await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice(editingArticle?'Artículo actualizado correctamente.':'Registro guardado correctamente.');if(state.invoice)renderInvoice();return;
+      const editingArticle=state.masterView==='articles'&&state.masterEditingArticleId;const editingSupplier=state.masterView==='suppliers'&&state.masterEditingSupplierId;const endpoint=editingArticle?`${base}/articles/${editingArticle}`:editingSupplier?`${base}/suppliers/${editingSupplier}`:`${base}/${path}`;
+      await apiRequest(endpoint,{method:editingArticle||editingSupplier?'PUT':'POST',body:JSON.stringify(payload)});state.masterEditingArticleId=null;state.masterEditingSupplierId=null;await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice(editingArticle?'Artículo actualizado correctamente.':editingSupplier?'Proveedor actualizado correctamente.':'Registro guardado correctamente.');if(state.invoice)renderInvoice();return;
     }
-    if(state.masterView==='suppliers') { const current=data.suppliers.find(x=>x.identification===values.identification); const record={id:current?.id||masterId('sup'),identificationType:values.identificationType,identification:values.identification.trim(),verificationDigit:values.verificationDigit.trim(),name:values.name.trim(),active:true}; current?Object.assign(current,record):data.suppliers.push(record); }
+    if(state.masterView==='suppliers') { const editing=findById(data.suppliers,state.masterEditingSupplierId);const duplicate=data.suppliers.find(x=>x!==editing&&x.identificationType===values.identificationType&&x.identification===values.identification.trim());if(duplicate)throw new Error('Ya existe otro proveedor con esa identificación.');const current=editing||data.suppliers.find(x=>x.identification===values.identification.trim());const record={id:current?.id||masterId('sup'),identificationType:values.identificationType,identification:values.identification.trim(),verificationDigit:(values.verificationDigit||'').trim(),name:values.name.trim(),commercialName:(values.commercialName||'').trim(),taxResponsibility:(values.taxResponsibility||'').trim(),taxSchemeCode:(values.taxSchemeCode||'').trim(),taxSchemeName:(values.taxSchemeName||'').trim(),address:(values.address||'').trim(),cityCode:(values.cityCode||'').trim(),city:(values.city||'').trim(),departmentCode:(values.departmentCode||'').trim(),department:(values.department||'').trim(),postalCode:(values.postalCode||'').trim(),countryCode:(values.countryCode||'').trim(),country:(values.country||'').trim(),contactName:(values.contactName||'').trim(),phone:(values.phone||'').trim(),email:(values.email||'').trim(),website:(values.website||'').trim(),xmlData:current?.xmlData||null,active:true};current?Object.assign(current,record):data.suppliers.push(record);state.masterEditingSupplierId=null; }
     else if(state.masterView==='units') { const current=data.units.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const record={id:current?.id||masterId('unit'),code:values.code.trim().toUpperCase(),name:values.name.trim(),symbol:values.symbol.trim(),active:true}; current?Object.assign(current,record):data.units.push(record); }
     else if(state.masterView==='articles') { const editing=findById(data.articles,state.masterEditingArticleId); const normalizedCode=values.code.trim().toUpperCase(); const duplicate=data.articles.find(x=>x!==editing&&x.code.toUpperCase()===normalizedCode); if(duplicate)throw new Error('Ya existe otro artículo con ese código.'); const current=editing||data.articles.find(x=>x.code.toUpperCase()===normalizedCode); const inventory=values.type==='SERVICIO'?false:checkbox('inventory'); const record={id:current?.id||masterId('art'),code:normalizedCode,description:values.description.trim(),type:values.type,unitId:values.unitId,purchaseUnitId:values.purchaseUnitId||'',purchaseFactor:Number(values.purchaseFactor)||1,inventory,serial:checkbox('serial'),lot:checkbox('lot'),expiry:checkbox('expiry'),active:true}; current?Object.assign(current,record):data.articles.push(record); state.masterEditingArticleId=null; }
     else if(state.masterView==='warehouses') { const current=data.warehouses.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const record={id:current?.id||masterId('wh'),code:values.code.trim().toUpperCase(),name:values.name.trim(),locations:checkbox('locations'),transit:checkbox('transit'),active:true}; current?Object.assign(current,record):data.warehouses.push(record); }
@@ -942,16 +973,59 @@ function findEmbeddedBusinessDocument(documentNode) {
   return null;
 }
 
+function xmlAttribute(node,name) { return node?.getAttribute?.(name) || ''; }
+function collectPartyXmlFields(section) {
+  const fields={};
+  function visit(node,path='') {
+    elementChildren(node).forEach((child)=>{
+      const key=path?`${path}.${localName(child)}`:localName(child); const value=directText(child);
+      const attributes=Array.from(child.attributes||[]).reduce((all,attribute)=>{all[attribute.name]=attribute.value;return all;},{});
+      if(value||Object.keys(attributes).length){(fields[key]??=[]).push({value,attributes});}
+      visit(child,key);
+    });
+  }
+  visit(section); return fields;
+}
+function identificationTypeFromXml(companyId) {
+  const value=(xmlAttribute(companyId,'schemeName')||xmlAttribute(companyId,'schemeID')||'').toUpperCase();
+  return ({'31':'NIT','13':'CC','22':'CE','NIT':'NIT','CC':'CC','CE':'CE'})[value]||'NIT';
+}
 function extractParty(root, sectionName) {
   const section = childByLocal(root, sectionName);
-  if (!section) return { name: '', identification: '', city: '', address: '', phone: '', email: '' };
+  if (!section) return { name: '', identification: '', identificationType:'NIT', verificationDigit:'', commercialName:'', taxResponsibility:'', taxSchemeCode:'', taxSchemeName:'', cityCode:'', city: '', departmentCode:'', department:'', postalCode:'', address: '', countryCode:'', country:'', contactName:'', phone: '', email: '', website:'', xmlFields:{} };
+  const party=childByLocal(section,'Party')||section;
+  const taxParty=descendantsByLocal(party,'PartyTaxScheme')[0]||null;
+  const legalEntity=descendantsByLocal(party,'PartyLegalEntity')[0]||null;
+  const companyId=descendantsByLocal(taxParty||legalEntity||party,'CompanyID')[0]||null;
+  const address=(legalEntity&&childByLocal(legalEntity,'RegistrationAddress'))||(taxParty&&childByLocal(taxParty,'RegistrationAddress'))||childByLocal(party,'PostalAddress')||descendantsByLocal(party,'RegistrationAddress')[0]||descendantsByLocal(party,'Address')[0]||null;
+  const addressLine=address?(nodeAt(address,['AddressLine','Line'])||descendantsByLocal(address,'Line')[0]):null;
+  const country=address?(childByLocal(address,'Country')||descendantsByLocal(address,'Country')[0]):null;
+  const contact=childByLocal(party,'Contact')||descendantsByLocal(party,'Contact')[0]||null;
+  const taxScheme=taxParty?(childByLocal(taxParty,'TaxScheme')||descendantsByLocal(taxParty,'TaxScheme')[0]):null;
+  const partyName=nodeAt(party,['PartyName','Name'])||null;
+  const registrationName=legalEntity?childByLocal(legalEntity,'RegistrationName'):null;
   return {
-    name: firstDescendantText(section, 'RegistrationName', 'Name'),
-    identification: firstDescendantText(section, 'CompanyID'),
-    city: firstDescendantText(section, 'CityName'),
-    address: firstDescendantText(section, 'Line'),
-    phone: firstDescendantText(section, 'Telephone'),
-    email: firstDescendantText(section, 'ElectronicMail'),
+    name: directText(registrationName)||firstDescendantText(section,'RegistrationName','Name'),
+    commercialName: directText(partyName),
+    identification: directText(companyId),
+    identificationType: identificationTypeFromXml(companyId),
+    verificationDigit: xmlAttribute(companyId,'schemeID'),
+    taxResponsibility: taxParty?textAt(taxParty,['TaxLevelCode']):'',
+    taxSchemeCode: taxScheme?textAt(taxScheme,['ID']):'',
+    taxSchemeName: taxScheme?textAt(taxScheme,['Name']):'',
+    cityCode: address?textAt(address,['ID']):'',
+    city: address?textAt(address,['CityName']):'',
+    departmentCode: address?textAt(address,['CountrySubentityCode']):'',
+    department: address?textAt(address,['CountrySubentity']):'',
+    postalCode: address?textAt(address,['PostalZone']):'',
+    address: directText(addressLine),
+    countryCode: country?textAt(country,['IdentificationCode']):'',
+    country: country?textAt(country,['Name']):'',
+    contactName: contact?textAt(contact,['Name']):'',
+    phone: contact?textAt(contact,['Telephone']):firstDescendantText(section,'Telephone'),
+    email: contact?textAt(contact,['ElectronicMail']):firstDescendantText(section,'ElectronicMail'),
+    website: firstDescendantText(party,'WebsiteURI'),
+    xmlFields: collectPartyXmlFields(section),
   };
 }
 
@@ -1272,7 +1346,8 @@ function invoiceOperationalSummary(invoice) {
 function ensureInvoiceSupplier(context,invoice) {
   const identification=invoice.supplier.identification||`SIN-ID-${normalizePropertyName(invoice.supplier.name).slice(0,20)}`;
   let supplier=context.data.suppliers.find(x=>x.identification===identification);
-  if(!supplier){ supplier={id:masterId('sup'),identificationType:'NIT',identification,verificationDigit:'',name:invoice.supplier.name||'Proveedor desde XML',active:true}; context.data.suppliers.push(supplier); }
+  const source=invoice.supplier;const record={id:supplier?.id||masterId('sup'),identificationType:source.identificationType||'NIT',identification,verificationDigit:source.verificationDigit||'',name:source.name||'Proveedor desde XML',commercialName:source.commercialName||'',taxResponsibility:source.taxResponsibility||'',taxSchemeCode:source.taxSchemeCode||'',taxSchemeName:source.taxSchemeName||'',address:source.address||'',cityCode:source.cityCode||'',city:source.city||'',departmentCode:source.departmentCode||'',department:source.department||'',postalCode:source.postalCode||'',countryCode:source.countryCode||'',country:source.country||'',contactName:source.contactName||'',phone:source.phone||'',email:source.email||'',website:source.website||'',xmlData:JSON.stringify(source.xmlFields||{}),active:true};
+  if(supplier)Object.assign(supplier,record);else{supplier=record;context.data.suppliers.push(supplier);}
   return supplier;
 }
 
@@ -1383,7 +1458,7 @@ function buildSupplierDocumentPayload(invoice,preparation=null) {
     };
   });
   const taxTotal=invoice.taxes.reduce((sum,tax)=>sum+(tax.amount||0),0); const lineCharges=invoice.items.reduce((sum,item)=>sum+(item.surcharge||0),0);
-  const payload={ proveedorIdentificacion:invoice.supplier.identification,proveedorRazonSocial:invoice.supplier.name||'Proveedor desde XML',tipoDocumento:documentTypeForApi(invoice.documentType),numeroDocumento:invoice.number,
+  const supplier=invoice.supplier;const payload={ proveedorIdentificacion:supplier.identification,proveedorRazonSocial:supplier.name||'Proveedor desde XML',proveedorTipoIdentificacion:supplier.identificationType||'NIT',proveedorDigitoVerificacion:supplier.verificationDigit||null,proveedorNombreComercial:supplier.commercialName||null,proveedorResponsabilidadFiscal:supplier.taxResponsibility||null,proveedorRegimenFiscalCodigo:supplier.taxSchemeCode||null,proveedorRegimenFiscalNombre:supplier.taxSchemeName||null,proveedorDireccion:supplier.address||null,proveedorCiudadCodigo:supplier.cityCode||null,proveedorCiudad:supplier.city||null,proveedorDepartamentoCodigo:supplier.departmentCode||null,proveedorDepartamento:supplier.department||null,proveedorCodigoPostal:supplier.postalCode||null,proveedorPaisCodigo:supplier.countryCode||null,proveedorPais:supplier.country||null,proveedorContactoNombre:supplier.contactName||null,proveedorTelefono:supplier.phone||null,proveedorCorreo:supplier.email||null,proveedorSitioWeb:supplier.website||null,proveedorDatosXmlJson:JSON.stringify(supplier.xmlFields||{}),tipoDocumento:documentTypeForApi(invoice.documentType),numeroDocumento:invoice.number,
     fechaDocumento:invoice.issueDate,fechaVencimiento:invoice.dueDate||null,condicionPago:invoice.paymentCondition||'CONTADO',diasCredito:Number(invoice.creditDays)||0,crearArticulosFaltantes:invoice.autoCreateItems!==false,moneda:invoice.currency||'COP',cufeCude:invoice.cufeCude||null,fuente:'XML_DIAN',
     subtotalBruto:invoice.totals.grossSubtotal??invoice.totals.cost??0,descuentoTotal:invoice.totals.allowances||0,impuestoTotal:taxTotal,cargoTotal:invoice.totals.charges??lineCharges,
     totalPagar:invoice.totals.payable??0,xmlOriginal:elements.xmlInput.value.trim(),documentoGuid:null,lineas };
@@ -2096,7 +2171,7 @@ elements.environmentForm.addEventListener('submit', (event) => {
 });
 document.querySelectorAll('[data-master-view]').forEach((button) => button.addEventListener('click', () => showMasterView(button.dataset.masterView)));
 elements.addMasterRecord.addEventListener('click',()=>openMasterForm());
-elements.masterTable.addEventListener('click',(event)=>{const button=event.target.closest('[data-master-article-action]');if(!button)return;const article=findById(getCompanyMasterData().data.articles,button.dataset.id);if(button.dataset.masterArticleAction==='edit')openMasterForm(article);else if(button.dataset.masterArticleAction==='delete')void deleteMasterArticle(article);});
+elements.masterTable.addEventListener('click',(event)=>{const supplierButton=event.target.closest('[data-master-supplier-action]');if(supplierButton){const supplier=findById(getCompanyMasterData().data.suppliers,supplierButton.dataset.id);if(supplierButton.dataset.masterSupplierAction==='edit')openMasterForm(supplier);return;}const button=event.target.closest('[data-master-article-action]');if(!button)return;const article=findById(getCompanyMasterData().data.articles,button.dataset.id);if(button.dataset.masterArticleAction==='edit')openMasterForm(article);else if(button.dataset.masterArticleAction==='delete')void deleteMasterArticle(article);});
 elements.masterRecordForm.addEventListener('submit', saveMasterRecord);
 elements.masterSearch.addEventListener('input', renderMasterView);
 elements.logoutButton.addEventListener('click', leaveErp);

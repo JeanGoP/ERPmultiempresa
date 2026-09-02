@@ -90,7 +90,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
         try { $health=Invoke-RestMethod -Uri "$baseUrl/api/v1/health" -Method Get; $healthy=$true; break } catch { if($apiProcess.HasExited){ break } }
     }
     if(-not $healthy){ throw "La API no inicio. $(Get-Content $errorLog -Raw -ErrorAction SilentlyContinue)" }
-    if($health.status -ne 'ok' -or $health.migrations -ne 41){ throw 'La salud de la API no reporto las 41 migraciones esperadas.' }
+    if($health.status -ne 'ok' -or $health.migrations -ne 42){ throw 'La salud de la API no reporto las 42 migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
 
@@ -162,7 +162,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     $warehouseId=[long](@($warehouses)|Where-Object codigo -eq 'BOD-API'|Select-Object -First 1).bodegaId
     $periodId=[long](@($periods)[0].periodoInventarioId)
     $autoBody=@{
-        proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-AUTO-ITEM-1';fechaDocumento='2026-08-20';fechaVencimiento='2026-08-20';condicionPago='CONTADO';diasCredito=0;crearArticulosFaltantes=$true;moneda='COP';
+        proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';proveedorTipoIdentificacion='NIT';proveedorDigitoVerificacion='5';proveedorNombreComercial='Proveedor QA';proveedorResponsabilidadFiscal='O-13';proveedorRegimenFiscalCodigo='01';proveedorRegimenFiscalNombre='IVA';proveedorDireccion='Calle 10 # 20-30';proveedorCiudadCodigo='11001';proveedorCiudad='Bogota';proveedorDepartamentoCodigo='11';proveedorDepartamento='Bogota D.C.';proveedorCodigoPostal='110111';proveedorPaisCodigo='CO';proveedorPais='Colombia';proveedorContactoNombre='Ana QA';proveedorTelefono='6015551234';proveedorCorreo='facturas@qa.local';proveedorSitioWeb='https://qa.local';proveedorDatosXmlJson='{"Party.CompanyID":[{"value":"890301886"}]}';tipoDocumento='FACTURA';numeroDocumento='FV-AUTO-ITEM-1';fechaDocumento='2026-08-20';fechaVencimiento='2026-08-20';condicionPago='CONTADO';diasCredito=0;crearArticulosFaltantes=$true;moneda='COP';
         cufeCude='CUFE-AUTO-ITEM-1';fuente='XML_DIAN';subtotalBruto=100;descuentoTotal=0;impuestoTotal=19;cargoTotal=0;totalPagar=119;xmlOriginal='<Invoice><ID>FV-AUTO-ITEM-1</ID></Invoice>';
         lineas=@(@{numeroLinea=1;articuloId=$null;codigoExterno='MOTO-AUTO-EXT';descripcion='Motocicleta creada desde XML';clasificacion='INVENTARIO';cantidad=1;unidadMedidaId=$null;unidadCodigo='94';manejaSerial=$true;factorAUnidadBase=1;precioUnitario=100;subtotalBruto=100;descuento=0;impuesto=19;retencion=0;cargo=0;totalNeto=100;numeroLote=$null;fechaVencimiento=$null;
             seriales=@(@{numeroUnidad=1;serial=$null;motor='MOT-AUTO-001';chasis='CHA-AUTO-001';vin='VIN-AUTO-001';color='NEGRO';modelo='2027';informacionOriginal='MOT-AUTO-001;CHA-AUTO-001'})})
@@ -172,6 +172,13 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     $autoReused=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/supplier-documents" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body ($autoSecond|ConvertTo-Json -Depth 8)
     $articlesAfterAuto=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/master-data/articles" -Headers $adminHeaders -Method Get
     if($autoCreated.articulosCreados -ne 1 -or $autoReused.articulosCreados -ne 0 -or -not (@($articlesAfterAuto)|Where-Object codigo -eq 'MOTO-AUTO-EXT')){ throw 'La API no creó el artículo con el código del proveedor o no lo reutilizó correctamente.' }
+    $suppliersAfterXml=@(Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/master-data/suppliers" -Headers $adminHeaders -Method Get)
+    $supplierAfterXml=$suppliersAfterXml|Where-Object { $_.numeroIdentificacion -eq '890301886' }|Select-Object -First 1
+    if($supplierAfterXml.direccion -ne 'Calle 10 # 20-30' -or $supplierAfterXml.ciudad -ne 'Bogota' -or $supplierAfterXml.correo -ne 'facturas@qa.local' -or -not $supplierAfterXml.datosXmlJson){ throw "El proveedor no conservó los datos completos recibidos desde el XML: $(ConvertTo-Json -InputObject $suppliersAfterXml -Compress)" }
+    $null=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/master-data/suppliers/$($supplierAfterXml.terceroId)" -Headers $adminHeaders -Method Put -ContentType 'application/json' -Body (@{tipoIdentificacion='NIT';numeroIdentificacion='890301886';digitoVerificacion='5';razonSocial='Proveedor API QA';nombreComercial='Proveedor QA';codigoResponsabilidadFiscal='O-13';regimenFiscalCodigo='01';regimenFiscalNombre='IVA';direccion='Avenida 20 # 10-40';ciudadCodigo='05001';ciudad='Medellin';departamentoCodigo='05';departamento='Antioquia';codigoPostal='050001';paisCodigo='CO';pais='Colombia';contactoNombre='Ana QA';telefono='6045551234';correo='cartera@qa.local';sitioWeb='https://qa.local';datosXmlJson=$supplierAfterXml.datosXmlJson}|ConvertTo-Json)
+    $suppliersEdited=@(Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/master-data/suppliers" -Headers $adminHeaders -Method Get)
+    $supplierEdited=$suppliersEdited|Where-Object { $_.terceroId -eq $supplierAfterXml.terceroId }|Select-Object -First 1
+    if($supplierEdited.ciudad -ne 'Medellin' -or $supplierEdited.direccion -ne 'Avenida 20 # 10-40' -or $supplierEdited.correo -ne 'cartera@qa.local'){ throw 'El maestro no permitió modificar los datos del proveedor.' }
     $documentBody=@{
         proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-POINT4';fechaDocumento='2026-08-20';fechaVencimiento='2026-09-19';condicionPago='CREDITO';diasCredito=30;crearArticulosFaltantes=$false;moneda='COP';
         cufeCude='CUFE-POINT4-UNICO';fuente='XML_DIAN';subtotalBruto=100;descuentoTotal=10;impuestoTotal=17.1;cargoTotal=0;totalPagar=107.1;xmlOriginal='<Invoice><ID>FV-POINT4</ID></Invoice>';
@@ -199,9 +206,9 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     if($null -ne $beforeMovements -and @($beforeMovements).Count -ne 0){ throw 'Preparar la recepcion afecto Kardex antes de la confirmacion.' }
     $warehouseReceipt=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipts/$($prepared.recepcionMercanciaId)" -Headers $adminHeaders -Method Get
     $warehouseUnitId=[long]@($warehouseReceipt.unidades)[0].recepcionMercanciaUnidadId
-    $null=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipts/$($prepared.recepcionMercanciaId)/checks" -Headers $adminHeaders -Method Put -ContentType 'application/json' -Body (@{revisiones=@(@{recepcionMercanciaUnidadId=$warehouseUnitId;estadoFisico='RECIBIDA_NOVEDAD';observacion='Rayón lateral reportado en prueba QA'})}|ConvertTo-Json -Depth 5)
+    $null=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipts/$($prepared.recepcionMercanciaId)/checks" -Headers $adminHeaders -Method Put -ContentType 'application/json' -Body (@{revisiones=@(@{recepcionMercanciaUnidadId=$warehouseUnitId;estadoFisico='RECIBIDA_NOVEDAD';observacion='Rayon lateral reportado en prueba QA'})}|ConvertTo-Json -Depth 5)
     $pendingIssues=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipt-issues?tipo=RECIBIDA_NOVEDAD&q=FV-POINT4" -Headers $adminHeaders -Method Get
-    if(@($pendingIssues).Count -ne 1 -or @($pendingIssues)[0].numeroDocumento -ne 'FV-POINT4' -or @($pendingIssues)[0].observacion -notlike '*Rayón*'){ throw 'La bandeja administrativa no publicó exclusivamente la novedad pendiente.' }
+    if(@($pendingIssues).Count -ne 1 -or @($pendingIssues)[0].numeroDocumento -ne 'FV-POINT4' -or @($pendingIssues)[0].observacion -notlike '*Rayon*'){ throw 'La bandeja administrativa no publicó exclusivamente la novedad pendiente.' }
     $issueId=[long]@($pendingIssues)[0].recepcionMercanciaRevisionUnidadId
     $managedIssue=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipt-issues/$issueId/resolve" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{resultado='RECLAMO_PROVEEDOR';observacionGestion='Caso QA notificado al proveedor'}|ConvertTo-Json)
     $pendingAfterManagement=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipt-issues?q=FV-POINT4" -Headers $adminHeaders -Method Get

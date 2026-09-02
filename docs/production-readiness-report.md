@@ -17,7 +17,7 @@ Resultado automatizado: **TECHNICALLY_READY**. Este resultado no equivale a auto
 | Volumen | 5.000 movimientos, 20 trabajadores, 43,68 s, 114,48 ops/s |
 | Integridad bajo carga | Sin pérdida de cantidad, valor ni secuencia |
 | Respaldo | `BACKUP CHECKSUM` y `RESTORE VERIFYONLY` correctos |
-| Restauración | Base aislada, 41 migraciones y `DBCC CHECKDB` correctos |
+| Restauración | Base aislada, 42 migraciones y `DBCC CHECKDB` correctos |
 
 Último respaldo del ensayo: `database/backups/NexoErpDev-20260816-172609.bak`. Su manifiesto contiene tamaño, SHA-256 y hora UTC.
 
