@@ -41,12 +41,7 @@ const ACCESS = {
   security: ['SEGURIDAD.PERMISOS.ADMINISTRAR']
 };
 
-const uiStorage = { session: 'nexo.erpSession.v1', masterData: 'nexo.masterData.v1', apiToken: 'nexo.apiToken.v1' };
-const demoCompanies = [
-  { empresaId: 1, razonSocial: 'Comercial Andina SAS', nit: '901.234.567-8' },
-  { empresaId: 2, razonSocial: 'Motores del Caribe SAS', nit: '900.765.432-1' },
-  { empresaId: 3, razonSocial: 'Servicios Corporativos SAS', nit: '901.800.100-4' },
-];
+const uiStorage = { session: 'nexo.erpSession.v1', apiToken: 'nexo.apiToken.v1' };
 
 function readStoredJson(key) {
   try { return JSON.parse(localStorage.getItem(key) || 'null'); }
@@ -85,14 +80,14 @@ async function apiRequest(path, options = {}) {
   return payload;
 }
 
-function renderCompanyOptions(companies, apiMode = false) {
+function renderCompanyOptions(companies) {
   const container = $('#companyOptions'); container.replaceChildren();
   companies.forEach((company) => {
     const id = company.empresaId; const name = company.razonSocial; const nit = company.nit; const companyInitials = initials(name);
     const button = document.createElement('button'); button.type = 'button'; button.className = 'company-option';
-    Object.assign(button.dataset, { companyId: id, companyName: name, companyNit: `NIT ${nit}`, companyInitials, api: apiMode ? 'true' : 'false', currency: company.monedaFuncional || 'COP' });
+    Object.assign(button.dataset, { companyId: id, companyName: name, companyNit: `NIT ${nit}`, companyInitials, api: 'true', currency: company.monedaFuncional || 'COP' });
     const avatar = document.createElement('span'); avatar.textContent = companyInitials;
-    const description = document.createElement('strong'); description.textContent = name; const small = document.createElement('small'); small.textContent = `NIT ${nit} · ${apiMode ? 'SQL Server' : 'Empresa demo'}`; description.append(small);
+    const description = document.createElement('strong'); description.textContent = name; const small = document.createElement('small'); small.textContent = `NIT ${nit}`; description.append(small);
     const arrow = document.createElement('i'); arrow.textContent = '→'; button.append(avatar, description, arrow); container.append(button);
   });
 }
@@ -102,7 +97,7 @@ function configureSuperAdminCompanyPanel(enabled,hasCompanies=true) {
   elements.companyCreateError.hidden=true;
   document.querySelector('.dialog-footnote').textContent=enabled
     ? 'El superadministrador puede crear empresas y trabajar en cualquiera de ellas sin una asignación empresa-rol.'
-    : 'En modo local se muestran empresas de demostración. En modo API solo aparecen las empresas autorizadas para el usuario.';
+    : 'Solo aparecen las empresas autorizadas para el usuario.';
   let empty=$('#companyEmptyState');
   if(!hasCompanies&&enabled){
     if(!empty){empty=document.createElement('p');empty.id='companyEmptyState';empty.className='company-empty';elements.superAdminCompanyPanel.before(empty);}
@@ -268,6 +263,7 @@ function initializeErpUi() {
   elements.topbarDate.textContent = new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date()).replace(/\./g, '').toLocaleUpperCase('es-CO');
   state.runtimeMode = 'api';
   localStorage.removeItem('nexo.runtimeMode');
+  localStorage.removeItem('nexo.masterData.v1');
   const savedSession = readStoredJson(uiStorage.session);
   if (savedSession?.email && savedSession?.company && savedSession.api && apiToken()) enterErp(savedSession);
   else { if(savedSession&&!savedSession.api)localStorage.removeItem(uiStorage.session);elements.loginView.hidden = false; elements.erpShell.hidden = true; }
@@ -298,20 +294,6 @@ const masterViewConfig = {
   mappings: ['Homologación XML', 'Relación entre códigos del proveedor y artículos internos.', 'homologaciones'],
 };
 
-function newMasterDataSeed() {
-  return {
-    suppliers: [],
-    units: [{ id: 'unit-und', code: 'UND', name: 'Unidad', symbol: 'und', active: true }, { id: 'unit-kgm', code: 'KGM', name: 'Kilogramo', symbol: 'kg', active: true }],
-    articles: [
-      { id: 'art-repuesto', code: 'REP-MOTO', description: 'Repuesto de motocicleta', type: 'INVENTARIO', unitId: 'unit-und', inventory: true, lot: false, serial: true, expiry: false, active: true },
-      { id: 'art-servicio', code: 'SER-TEC', description: 'Servicio técnico de proveedor', type: 'SERVICIO', unitId: 'unit-und', inventory: false, lot: false, serial: false, expiry: false, active: true },
-      { id: 'art-flete', code: 'FLETE', description: 'Flete de adquisición', type: 'CONCEPTO', unitId: 'unit-und', inventory: false, lot: false, serial: false, expiry: false, active: true },
-    ],
-    warehouses: [{ id: 'wh-main', code: 'PPL', name: 'Bodega principal', locations: false, transit: false, active: true }],
-    mappings: [],
-  };
-}
-
 const pendingApiMasterData = {};
 function pendingApiMasterDataFor(companyId) {
   const key=String(companyId||'sin-empresa');
@@ -320,15 +302,10 @@ function pendingApiMasterDataFor(companyId) {
 }
 
 function getCompanyMasterData() {
-  if(state.runtimeMode==='api'&&state.erpSession?.api){const companyId=String(state.erpSession?.company?.id);return {database:null,companyId,data:state.apiContext?.masterData||pendingApiMasterDataFor(companyId),api:true};}
-  const companyId = String(state.erpSession?.company?.id || 'local');
-  const database = readStoredJson(uiStorage.masterData) || {};
-  if (!database[companyId]) { database[companyId] = newMasterDataSeed(); localStorage.setItem(uiStorage.masterData, JSON.stringify(database)); }
-  return { database, companyId, data: database[companyId] };
+  const companyId=String(state.erpSession?.company?.id||'sin-empresa');
+  return {database:null,companyId,data:state.apiContext?.masterData||pendingApiMasterDataFor(companyId),api:true};
 }
 
-function saveCompanyMasterData(context) { if(context.api) return; context.database[context.companyId] = context.data; localStorage.setItem(uiStorage.masterData, JSON.stringify(context.database)); }
-function masterId(prefix) { return `${prefix}-${crypto.randomUUID ? crypto.randomUUID() : Date.now()}`; }
 function activeLabel(value) { return value ? 'Activo' : 'Inactivo'; }
 function findById(rows,id) { return rows.find((row) => String(row.id) === String(id)); }
 
@@ -341,7 +318,7 @@ async function loadApiCompanyContext() {
       apiRequest(`${base}/master-data/item-mappings`),apiRequest(`${base}/warehouses`),apiRequest(`${base}/inventory-periods`),
       apiRequest(`${base}/accounting-periods`),apiRequest(`${base}/accounting-accounts`),apiRequest('/api/v1/companies'),apiRequest(`${base}/permissions`),
     ]);
-    renderCompanyOptions(companies,true);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);
+    renderCompanyOptions(companies);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);
     state.apiContext={ warehouses,periods,accountingPeriods,accounts,permissions,permissionCodes:new Set(permissions.map(permissionCode)),masterData:{
       suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,active:x.activo})),
       units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
@@ -360,15 +337,16 @@ async function loadApiCompanyContext() {
 }
 
 async function ensureApiSupplier(invoice) {
-  const data=getCompanyMasterData().data;
   const identification=invoice.supplier.identification; if(!identification) throw new Error('El XML no contiene la identificación del proveedor.');
   const source=invoice.supplier; const payload=supplierApiPayload({
     identificationType:source.identificationType||'NIT',identification,verificationDigit:source.verificationDigit||'',name:source.name||'Proveedor desde XML',commercialName:source.commercialName||'',taxResponsibility:source.taxResponsibility||'',taxSchemeCode:source.taxSchemeCode||'',taxSchemeName:source.taxSchemeName||'',address:source.address||'',cityCode:source.cityCode||'',city:source.city||'',departmentCode:source.departmentCode||'',department:source.department||'',postalCode:source.postalCode||'',countryCode:source.countryCode||'',country:source.country||'',contactName:source.contactName||'',phone:source.phone||'',email:source.email||'',website:source.website||'',xmlData:JSON.stringify(source.xmlFields||{})
   });
   const saved=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/suppliers/from-xml`,{method:'POST',body:JSON.stringify(payload)});
-  let supplier=data.suppliers.find(x=>x.identification===identification);
-  const record={id:saved.id,identificationType:source.identificationType||'NIT',identification,verificationDigit:source.verificationDigit||'',name:source.name||'Proveedor desde XML',commercialName:source.commercialName||'',taxResponsibility:source.taxResponsibility||'',taxSchemeCode:source.taxSchemeCode||'',taxSchemeName:source.taxSchemeName||'',address:source.address||'',cityCode:source.cityCode||'',city:source.city||'',departmentCode:source.departmentCode||'',department:source.department||'',postalCode:source.postalCode||'',countryCode:source.countryCode||'',country:source.country||'',contactName:source.contactName||'',phone:source.phone||'',email:source.email||'',website:source.website||'',xmlData:payload.datosXmlJson,active:true};
-  if(supplier)Object.assign(supplier,record);else{supplier=record;data.suppliers.push(supplier);} return supplier;
+  const persisted=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/suppliers`);
+  const supplier=persisted.find(x=>String(x.terceroId)===String(saved.id)&&x.numeroIdentificacion===identification);
+  if(!supplier)throw new Error('La API respondió que guardó el proveedor, pero una lectura nueva de SQL Server no lo encontró.');
+  if(state.apiContext)state.apiContext.masterData.suppliers=persisted.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,active:x.activo}));
+  return state.apiContext?.masterData.suppliers.find(x=>String(x.id)===String(saved.id))||{id:supplier.terceroId,name:supplier.razonSocial,identification:supplier.numeroIdentificacion};
 }
 
 async function persistAnalyzedSupplier(invoice) {
@@ -376,7 +354,7 @@ async function persistAnalyzedSupplier(invoice) {
   try {
     const supplier=await ensureApiSupplier(invoice);
     if(!elements.masterDataModule.hidden&&state.masterView==='suppliers')renderMasterView();
-    showSuccess(`Proveedor ${supplier.name} guardado en el maestro de la empresa.`);
+    showSuccess(`Proveedor ${supplier.name} confirmado en SQL Server con ID ${supplier.id}.`);
   } catch(error) {
     showError(`El XML fue analizado, pero el proveedor no se guardó en la base de datos. ${error.message}`);
   }
@@ -718,42 +696,30 @@ async function saveMasterRecord(event) {
   event.preventDefault(); const values=Object.fromEntries(new FormData(elements.masterRecordForm)); const context=getCompanyMasterData(); const data=context.data;
   const checkbox=(name)=>elements.masterRecordForm.elements[name]?.checked||false;
   try {
-    if(context.api){
-      const base=`/api/v1/companies/${state.erpSession.company.id}/master-data`;let path;let payload;
-      if(state.masterView==='suppliers'){const current=findById(data.suppliers,state.masterEditingSupplierId);path='suppliers';payload=supplierApiPayload({identificationType:values.identificationType,identification:values.identification,name:values.name,verificationDigit:values.verificationDigit,commercialName:values.commercialName,taxResponsibility:values.taxResponsibility,taxSchemeCode:values.taxSchemeCode,taxSchemeName:values.taxSchemeName,address:values.address,cityCode:values.cityCode,city:values.city,departmentCode:values.departmentCode,department:values.department,postalCode:values.postalCode,countryCode:values.countryCode,country:values.country,contactName:values.contactName,phone:values.phone,email:values.email,website:values.website,xmlData:current?.xmlData||null});}
-      else if(state.masterView==='units'){path='units';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),simbolo:values.symbol.trim()};}
-      else if(state.masterView==='articles'){path='articles';payload={codigo:values.code.trim().toUpperCase(),descripcion:values.description.trim(),tipo:values.type,unidadBaseId:Number(values.unitId),manejaInventario:values.type==='SERVICIO'?false:checkbox('inventory'),manejaLote:checkbox('lot'),manejaSerial:checkbox('serial'),requiereVencimiento:checkbox('expiry'),pesoBaseKg:null,volumenBaseM3:null};}
-      else if(state.masterView==='warehouses'){path='warehouses';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),usaUbicaciones:checkbox('locations'),esTransito:checkbox('transit')};}
-      else{path='item-mappings';payload={terceroId:Number(values.supplierId),codigoExterno:values.externalCode.trim(),descripcionExterna:values.externalDescription.trim()||null,articuloId:Number(values.articleId),unidadMedidaId:values.unitId?Number(values.unitId):null,factorAUnidadBase:Number(values.factor)||1};}
-      const editingArticle=state.masterView==='articles'&&state.masterEditingArticleId;const editingSupplier=state.masterView==='suppliers'&&state.masterEditingSupplierId;const endpoint=editingArticle?`${base}/articles/${editingArticle}`:editingSupplier?`${base}/suppliers/${editingSupplier}`:`${base}/${path}`;
-      await apiRequest(endpoint,{method:editingArticle||editingSupplier?'PUT':'POST',body:JSON.stringify(payload)});state.masterEditingArticleId=null;state.masterEditingSupplierId=null;await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice(editingArticle?'Artículo actualizado correctamente.':editingSupplier?'Proveedor actualizado correctamente.':'Registro guardado correctamente.');if(state.invoice)renderInvoice();return;
-    }
-    if(state.masterView==='suppliers') { const editing=findById(data.suppliers,state.masterEditingSupplierId);const duplicate=data.suppliers.find(x=>x!==editing&&x.identificationType===values.identificationType&&x.identification===values.identification.trim());if(duplicate)throw new Error('Ya existe otro proveedor con esa identificación.');const current=editing||data.suppliers.find(x=>x.identification===values.identification.trim());const record={id:current?.id||masterId('sup'),identificationType:values.identificationType,identification:values.identification.trim(),verificationDigit:(values.verificationDigit||'').trim(),name:values.name.trim(),commercialName:(values.commercialName||'').trim(),taxResponsibility:(values.taxResponsibility||'').trim(),taxSchemeCode:(values.taxSchemeCode||'').trim(),taxSchemeName:(values.taxSchemeName||'').trim(),address:(values.address||'').trim(),cityCode:(values.cityCode||'').trim(),city:(values.city||'').trim(),departmentCode:(values.departmentCode||'').trim(),department:(values.department||'').trim(),postalCode:(values.postalCode||'').trim(),countryCode:(values.countryCode||'').trim(),country:(values.country||'').trim(),contactName:(values.contactName||'').trim(),phone:(values.phone||'').trim(),email:(values.email||'').trim(),website:(values.website||'').trim(),xmlData:current?.xmlData||null,active:true};current?Object.assign(current,record):data.suppliers.push(record);state.masterEditingSupplierId=null; }
-    else if(state.masterView==='units') { const current=data.units.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const record={id:current?.id||masterId('unit'),code:values.code.trim().toUpperCase(),name:values.name.trim(),symbol:values.symbol.trim(),active:true}; current?Object.assign(current,record):data.units.push(record); }
-    else if(state.masterView==='articles') { const editing=findById(data.articles,state.masterEditingArticleId); const normalizedCode=values.code.trim().toUpperCase(); const duplicate=data.articles.find(x=>x!==editing&&x.code.toUpperCase()===normalizedCode); if(duplicate)throw new Error('Ya existe otro artículo con ese código.'); const current=editing||data.articles.find(x=>x.code.toUpperCase()===normalizedCode); const inventory=values.type==='SERVICIO'?false:checkbox('inventory'); const record={id:current?.id||masterId('art'),code:normalizedCode,description:values.description.trim(),type:values.type,unitId:values.unitId,purchaseUnitId:values.purchaseUnitId||'',purchaseFactor:Number(values.purchaseFactor)||1,inventory,serial:checkbox('serial'),lot:checkbox('lot'),expiry:checkbox('expiry'),active:true}; current?Object.assign(current,record):data.articles.push(record); state.masterEditingArticleId=null; }
-    else if(state.masterView==='warehouses') { const current=data.warehouses.find(x=>x.code.toUpperCase()===values.code.trim().toUpperCase()); const record={id:current?.id||masterId('wh'),code:values.code.trim().toUpperCase(),name:values.name.trim(),locations:checkbox('locations'),transit:checkbox('transit'),active:true}; current?Object.assign(current,record):data.warehouses.push(record); }
-    else { const current=data.mappings.find(x=>x.supplierId===values.supplierId&&x.externalCode.toUpperCase()===values.externalCode.trim().toUpperCase()); const record={id:current?.id||masterId('map'),supplierId:values.supplierId,externalCode:values.externalCode.trim(),externalDescription:values.externalDescription.trim(),articleId:values.articleId,unitId:values.unitId||findById(data.articles,values.articleId)?.unitId||'',factor:Number(values.factor)||1,active:true}; current?Object.assign(current,record):data.mappings.push(record); }
-    saveCompanyMasterData(context); closeErpDialog(elements.masterRecordDialog); renderMasterView(); showMasterNotice('Registro guardado correctamente.'); if(state.invoice) renderInvoice();
+    const base=`/api/v1/companies/${state.erpSession.company.id}/master-data`;let path;let payload;
+    if(state.masterView==='suppliers'){const current=findById(data.suppliers,state.masterEditingSupplierId);path='suppliers';payload=supplierApiPayload({identificationType:values.identificationType,identification:values.identification,name:values.name,verificationDigit:values.verificationDigit,commercialName:values.commercialName,taxResponsibility:values.taxResponsibility,taxSchemeCode:values.taxSchemeCode,taxSchemeName:values.taxSchemeName,address:values.address,cityCode:values.cityCode,city:values.city,departmentCode:values.departmentCode,department:values.department,postalCode:values.postalCode,countryCode:values.countryCode,country:values.country,contactName:values.contactName,phone:values.phone,email:values.email,website:values.website,xmlData:current?.xmlData||null});}
+    else if(state.masterView==='units'){path='units';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),simbolo:values.symbol.trim()};}
+    else if(state.masterView==='articles'){path='articles';payload={codigo:values.code.trim().toUpperCase(),descripcion:values.description.trim(),tipo:values.type,unidadBaseId:Number(values.unitId),manejaInventario:values.type==='SERVICIO'?false:checkbox('inventory'),manejaLote:checkbox('lot'),manejaSerial:checkbox('serial'),requiereVencimiento:checkbox('expiry'),pesoBaseKg:null,volumenBaseM3:null};}
+    else if(state.masterView==='warehouses'){path='warehouses';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),usaUbicaciones:checkbox('locations'),esTransito:checkbox('transit')};}
+    else{path='item-mappings';payload={terceroId:Number(values.supplierId),codigoExterno:values.externalCode.trim(),descripcionExterna:values.externalDescription.trim()||null,articuloId:Number(values.articleId),unidadMedidaId:values.unitId?Number(values.unitId):null,factorAUnidadBase:Number(values.factor)||1};}
+    const editingArticle=state.masterView==='articles'&&state.masterEditingArticleId;const editingSupplier=state.masterView==='suppliers'&&state.masterEditingSupplierId;const endpoint=editingArticle?`${base}/articles/${editingArticle}`:editingSupplier?`${base}/suppliers/${editingSupplier}`:`${base}/${path}`;
+    await apiRequest(endpoint,{method:editingArticle||editingSupplier?'PUT':'POST',body:JSON.stringify(payload)});state.masterEditingArticleId=null;state.masterEditingSupplierId=null;await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice(editingArticle?'Artículo actualizado correctamente.':editingSupplier?'Proveedor actualizado correctamente.':'Registro guardado correctamente.');if(state.invoice)renderInvoice();
   } catch(error) { elements.masterFormError.textContent=error.message||'No fue posible guardar el registro.'; elements.masterFormError.hidden=false; }
 }
 
 async function deleteMasterArticle(article) {
   if(!article||!window.confirm(`¿Eliminar el artículo ${article.code} · ${article.description}?\n\nSolo podrá eliminarse si nunca ha sido utilizado.`))return;
-  const context=getCompanyMasterData();
   try{
-    if(context.api){await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/articles/${article.id}`,{method:'DELETE'});await loadApiCompanyContext();}
-    else{if(context.data.mappings.some(x=>String(x.articleId)===String(article.id)))throw new Error('El artículo tiene homologaciones con proveedores y no puede eliminarse.');context.data.articles=context.data.articles.filter(x=>String(x.id)!==String(article.id));saveCompanyMasterData(context);}
+    await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/articles/${article.id}`,{method:'DELETE'});await loadApiCompanyContext();
     renderMasterView();showMasterNotice(`Artículo ${article.code} eliminado correctamente.`);if(state.invoice)renderInvoice();
   }catch(error){showMasterNotice(error.message||'No fue posible eliminar el artículo.',true);}
 }
 
 async function deleteMasterSupplier(supplier) {
-  const context=getCompanyMasterData();
-  const warning=context.api?'Solo podrá eliminarse si no tiene compras, pagos, movimientos u otro historial relacionado.':'Esta acción solo afecta los datos locales de esta empresa.';
+  const warning='Solo podrá eliminarse si no tiene compras, pagos, movimientos u otro historial relacionado.';
   if(!supplier||!window.confirm(`¿Eliminar el proveedor ${supplier.name}?\n\n${warning}`))return;
   try{
-    if(context.api){await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/suppliers/${supplier.id}`,{method:'DELETE'});await loadApiCompanyContext();}
-    else{if(context.data.mappings.some(x=>String(x.supplierId)===String(supplier.id)))throw new Error('El proveedor tiene homologaciones de artículos y no puede eliminarse.');context.data.suppliers=context.data.suppliers.filter(x=>String(x.id)!==String(supplier.id));saveCompanyMasterData(context);}
+    await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/suppliers/${supplier.id}`,{method:'DELETE'});await loadApiCompanyContext();
     renderMasterView();showMasterNotice(`Proveedor ${supplier.name} eliminado correctamente.`);if(state.invoice)renderInvoice();
   }catch(error){showMasterNotice(error.message||'No fue posible eliminar el proveedor.',true);}
 }
@@ -1361,14 +1327,6 @@ function invoiceOperationalSummary(invoice) {
   return summary;
 }
 
-function ensureInvoiceSupplier(context,invoice) {
-  const identification=invoice.supplier.identification||`SIN-ID-${normalizePropertyName(invoice.supplier.name).slice(0,20)}`;
-  let supplier=context.data.suppliers.find(x=>x.identification===identification);
-  const source=invoice.supplier;const record={id:supplier?.id||masterId('sup'),identificationType:source.identificationType||'NIT',identification,verificationDigit:source.verificationDigit||'',name:source.name||'Proveedor desde XML',commercialName:source.commercialName||'',taxResponsibility:source.taxResponsibility||'',taxSchemeCode:source.taxSchemeCode||'',taxSchemeName:source.taxSchemeName||'',address:source.address||'',cityCode:source.cityCode||'',city:source.city||'',departmentCode:source.departmentCode||'',department:source.department||'',postalCode:source.postalCode||'',countryCode:source.countryCode||'',country:source.country||'',contactName:source.contactName||'',phone:source.phone||'',email:source.email||'',website:source.website||'',xmlData:JSON.stringify(source.xmlFields||{}),active:true};
-  if(supplier)Object.assign(supplier,record);else{supplier=record;context.data.suppliers.push(supplier);}
-  return supplier;
-}
-
 function externalProductCode(item) {
   const explicit=String(item.code||'').trim();
   if(explicit) return explicit;
@@ -1406,19 +1364,12 @@ function buildHomologationPanel(invoice) {
     candidates.forEach(article=>{const option=document.createElement('option');option.value=article.id;option.textContent=`${article.code} · ${article.description}`;option.selected=current?.articleId===article.id;select.append(option);});
     if(current&&!candidates.some(x=>x.id===current.articleId)){const article=findById(data.articles,current.articleId);if(article){const option=document.createElement('option');option.value=article.id;option.textContent=`${article.code} · ${article.description}`;option.selected=true;select.append(option);}}
     select.addEventListener('change',async()=>{
-      if(context.api){
-        if(!select.value){ renderInvoice(); return; }
-        try {
-          const supplier=await ensureApiSupplier(invoice); const article=findById(data.articles,select.value);
-          await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/item-mappings`,{method:'POST',body:JSON.stringify({terceroId:supplier.id,codigoExterno:externalProductCode(item),descripcionExterna:item.description,articuloId:article.id,unidadMedidaId:article.unitId,factorAUnidadBase:1})});
-          await loadApiCompanyContext();
-        } catch(error) { showError(`No fue posible guardar la homologación. ${error.message}`); renderInvoice(); }
-        return;
-      }
-      const externalCode=externalProductCode(item); const supplier=ensureInvoiceSupplier(context,invoice); const existing=context.data.mappings.find(x=>x.supplierId===supplier.id&&x.externalCode.toUpperCase()===externalCode.toUpperCase());
-      if(!select.value){ if(existing) existing.active=false; }
-      else { const article=findById(context.data.articles,select.value); const record={id:existing?.id||masterId('map'),supplierId:supplier.id,externalCode,externalDescription:item.description,articleId:article.id,unitId:article.unitId,factor:1,active:true}; existing?Object.assign(existing,record):context.data.mappings.push(record); }
-      saveCompanyMasterData(context); renderInvoice();
+      if(!select.value){ renderInvoice(); return; }
+      try {
+        const supplier=await ensureApiSupplier(invoice); const article=findById(data.articles,select.value);
+        await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/item-mappings`,{method:'POST',body:JSON.stringify({terceroId:supplier.id,codigoExterno:externalProductCode(item),descripcionExterna:item.description,articuloId:article.id,unidadMedidaId:article.unitId,factorAUnidadBase:1})});
+        await loadApiCompanyContext();
+      } catch(error) { showError(`No fue posible guardar la homologación. ${error.message}`); renderInvoice(); }
     }); selectCell.append(select);
     const statusCell=row.insertCell(); const status=document.createElement('span'); status.className=`mapping-status ${current?'':'pending'}`; status.textContent=current?'Homologada':'Pendiente'; statusCell.append(status);
   });
@@ -1514,7 +1465,6 @@ function buildPurchaseWorkflowPanel(invoice) {
   const panel=document.createElement('section'); panel.className='purchase-workflow-panel';
   const heading=document.createElement('div'); heading.className='purchase-workflow-heading'; heading.innerHTML='<div><span>REGISTRO ERP</span><h3>Guardar la entrada de mercancía</h3><p>Puedes conservar un borrador o guardar y contabilizar todo en una sola acción.</p></div>';
   panel.append(heading);
-  if(state.runtimeMode!=='api'||!state.erpSession?.api){ const notice=document.createElement('p'); notice.className='workflow-notice'; notice.textContent='Estás en modo local. Activa “API ERP”, cierra sesión e ingresa con un usuario de SQL Server para registrar esta factura.'; panel.append(notice); return panel; }
   if(!state.apiContext){ const notice=document.createElement('p'); notice.className='workflow-notice'; notice.textContent='Cargando bodegas, periodos y homologaciones de la empresa…'; panel.append(notice); return panel; }
 
   const inventoryLines=invoice.items.filter(x=>x.classification==='inventory'); const serviceLines=invoice.items.filter(x=>x.classification==='service');
@@ -2014,7 +1964,7 @@ async function createCompanyAsSuperAdmin(event) {
     submit.disabled=true;submit.textContent='Creando empresa…';
     const created=await apiRequest('/api/v1/companies',{method:'POST',body:JSON.stringify(payload)});
     const companies=await apiRequest('/api/v1/companies');
-    renderCompanyOptions(companies,true);configureSuperAdminCompanyPanel(true,true);form.reset();
+    renderCompanyOptions(companies);configureSuperAdminCompanyPanel(true,true);form.reset();
     const option=Array.from($('#companyOptions').querySelectorAll('.company-option')).find(x=>x.dataset.companyId===String(created.empresaId));
     if(option)selectCompany(option);
   } catch(error) {
@@ -2024,13 +1974,13 @@ async function createCompanyAsSuperAdmin(event) {
 
 async function openCompanyManager() {
   if(state.runtimeMode==='api'&&apiToken()){
-    try {const companies=await apiRequest('/api/v1/companies');renderCompanyOptions(companies,true);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);}
+    try {const companies=await apiRequest('/api/v1/companies');renderCompanyOptions(companies);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);}
     catch(error){showError(`No fue posible cargar las empresas. ${error.message}`);return;}
   } else configureSuperAdminCompanyPanel(false,true);
   openErpDialog(elements.companyDialog);
 }
 
-async function beginLocalLogin(event) {
+async function beginLogin(event) {
   event.preventDefault();
   const email = elements.loginEmail.value.trim();
   if (!email || elements.loginPassword.value.length < 4) {
@@ -2042,14 +1992,13 @@ async function beginLocalLogin(event) {
   state.pendingEmail = email;
   state.pendingName='';
   state.pendingSuperAdmin=false;
-  if(state.runtimeMode!=='api'){ renderCompanyOptions(demoCompanies,false); configureSuperAdminCompanyPanel(false,true); openErpDialog(elements.companyDialog); return; }
   const submit=elements.loginForm.querySelector('[type="submit"]'); submit.disabled=true; submit.firstChild.textContent='Conectando ';
   try {
     const login=await apiRequest('/api/v1/auth/login',{method:'POST',body:JSON.stringify({correo:email,password:elements.loginPassword.value})});
     sessionStorage.setItem(uiStorage.apiToken,login.token); state.pendingName=login.nombreCompleto;state.pendingSuperAdmin=Boolean(login.esSuperAdministrador);
     const companies=await apiRequest('/api/v1/companies');
     if(!companies.length&&!state.pendingSuperAdmin) throw new Error('El usuario no tiene empresas activas asignadas.');
-    renderCompanyOptions(companies,true);configureSuperAdminCompanyPanel(state.pendingSuperAdmin,companies.length>0);openErpDialog(elements.companyDialog);
+    renderCompanyOptions(companies);configureSuperAdminCompanyPanel(state.pendingSuperAdmin,companies.length>0);openErpDialog(elements.companyDialog);
   } catch(error) { sessionStorage.removeItem(uiStorage.apiToken); elements.loginError.textContent=`No fue posible ingresar a la API. ${error.message}`; elements.loginError.hidden=false; }
   finally { submit.disabled=false; submit.firstChild.textContent='Continuar '; }
 }
@@ -2152,7 +2101,7 @@ $('#exportJson').addEventListener('click', () => download('datos-xml.json', JSON
 $('#exportCsv').addEventListener('click', exportCsv);
 $('#exportExcel').addEventListener('click', exportExcel);
 
-elements.loginForm.addEventListener('submit', beginLocalLogin);
+elements.loginForm.addEventListener('submit', beginLogin);
 $('#togglePassword').addEventListener('click', () => {
   const show = elements.loginPassword.type === 'password';
   elements.loginPassword.type = show ? 'text' : 'password';

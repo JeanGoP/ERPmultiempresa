@@ -21,4 +21,9 @@ New-Item -ItemType Directory -Force -Path $publishRoot | Out-Null
 dotnet publish (Join-Path $projectRoot 'backend\NexoERP.Api\NexoERP.Api.csproj') -c $Configuration -o $publishRoot --no-restore
 if ($LASTEXITCODE -ne 0) { throw 'Fallo la publicacion de la API.' }
 
+$publishedSettings = Get-ChildItem -LiteralPath $publishRoot -Filter 'appsettings*.json' -File -ErrorAction SilentlyContinue
+if ($publishedSettings) {
+    throw 'La publicación contiene appsettings. Las cadenas de conexión de producción deben permanecer únicamente en el servidor.'
+}
+
 Write-Host "Backend publicado en $publishRoot"

@@ -10,9 +10,9 @@ Requiere Node.js 18 o superior.
 npm start
 ```
 
-Abre <http://127.0.0.1:4173> e inicia también la API local en el puerto `5180`. El entorno visual permite trabajar en modo local o API, elegir la empresa y abrir Entrada automática, Entrada manual o Causación de servicios. La lectura UBL 2.1, incluido `AttachedDocument` con `CDATA`, extrae proveedor, fechas, artículos, descuentos, impuestos, fletes, motor, chasis, VIN y seriales.
+Abre <http://127.0.0.1:4173> e inicia también la API local en el puerto `5180`. La interfaz trabaja exclusivamente contra la API ERP, permite elegir la empresa y abrir Entrada automática, Entrada manual o Causación de servicios. La lectura UBL 2.1, incluido `AttachedDocument` con `CDATA`, extrae proveedor, fechas, artículos, descuentos, impuestos, fletes, motor, chasis, VIN y seriales.
 
-En modo API, tanto la entrada automática como la entrada manual crean el documento como borrador y separan sus efectos. La mercancía prepara una recepción y solo contabiliza Kardex después de una confirmación explícita; los servicios generan una causación independiente con cuentas, centro de costo, proyecto, impuestos, retenciones, comprobante balanceado y cuenta por pagar, siempre sin afectar Kardex. En modo local, el comportamiento anterior y los borradores del navegador permanecen iguales.
+Tanto la entrada automática como la entrada manual crean el documento como borrador y separan sus efectos. La mercancía prepara una recepción y solo contabiliza Kardex después de una confirmación explícita; los servicios generan una causación independiente con cuentas, centro de costo, proyecto, impuestos, retenciones, comprobante balanceado y cuenta por pagar, siempre sin afectar Kardex.
 
 La interfaz ofrece **Guardar solo como borrador** y **Guardar y contabilizar entrada**. La segunda opción ejecuta el registro, preparación y contabilización de mercancía en una sola acción confirmada. **Compras → Entradas guardadas** permite recuperar documentos después de cerrar la sesión, buscar por factura, proveedor, motor, chasis o VIN, revisar todos los seriales desde el borrador, contabilizar pendientes y anular borradores que todavía no tengan procesos preparados.
 
@@ -55,7 +55,7 @@ Consulta [docs/api.md](docs/api.md) para ver las rutas y los permisos publicados
 
 Para preparación productiva consulta el [manual operativo](docs/operations-manual.md), la [matriz de permisos](docs/permissions-matrix.md) y el [acta de autorización](docs/go-live-approval.md). El ensayo integral se ejecuta con `npm run production:rehearsal`.
 
-Para usar SQL Server, selecciona `API ERP`, cierra la sesión local e ingresa con un usuario creado mediante `set-local-user.ps1`. El selector mostrará únicamente las empresas autorizadas. La homologación del XML usa los artículos reales de la empresa.
+La aplicación trabaja siempre con la API y muestra únicamente las empresas autorizadas para el usuario. La homologación del XML usa los artículos reales de la empresa.
 
 Consulta [docs/implementation-status.md](docs/implementation-status.md) para el avance y los pendientes.
 
@@ -81,4 +81,4 @@ Después de validar y crear el commit del trabajo, genera una entrega completa c
 npm run publish:manual
 ```
 
-El comando reemplaza de forma segura la carpeta local `publish/` y deja allí exclusivamente el backend compilado en configuración Release. Consulta [docs/manual-publishing.md](docs/manual-publishing.md) para el orden de despliegue.
+El comando reemplaza de forma segura la carpeta local `publish/` y deja allí exclusivamente el backend compilado en configuración Release, sin copiar `appsettings.json`. La cadena `ConnectionStrings__NexoErp` debe configurarse en el servidor. Consulta [docs/manual-publishing.md](docs/manual-publishing.md) para el orden de despliegue.

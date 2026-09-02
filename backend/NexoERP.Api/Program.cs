@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 using NexoERP.Api.AdvancedControls;
@@ -10,6 +12,12 @@ using NexoERP.Api.Production;
 using NexoERP.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
+var configuredConnectionString=builder.Configuration.GetConnectionString("NexoErp");
+if(string.IsNullOrWhiteSpace(configuredConnectionString)) throw new InvalidOperationException("Falta configurar ConnectionStrings__NexoErp para la base del ERP.");
+var configuredDatabase=new SqlConnectionStringBuilder(configuredConnectionString);
+var usesLocalDb=configuredDatabase.DataSource.Contains("(localdb)",StringComparison.OrdinalIgnoreCase);
+if(usesLocalDb&&!builder.Configuration.GetValue<bool>("Database:AllowLocalDb"))
+    throw new InvalidOperationException("Esta instalación no permite LocalDB. Configura ConnectionStrings__NexoErp con la instancia SQL Server compartida antes de iniciar la API.");
 builder.Services.AddSingleton<TenantConnectionFactory>();
 builder.Services.AddScoped<InventoryRepository>();
 builder.Services.AddScoped<InventoryOperationsRepository>();
@@ -26,7 +34,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.01.1";
+const string ReleaseVersion="2026.09.01.2";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -99,7 +107,10 @@ app.MapGet("/api/v1/health", async (TenantConnectionFactory connections, Cancell
     await using var command = connection.CreateCommand();
     command.CommandText = "SELECT COUNT(*) FROM core.SchemaMigration;";
     var migrations = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
-    return Results.Ok(new { status = "ok", database = "connected", migrations, release=ReleaseVersion });
+    var target=$"{connection.DataSource}|{connection.Database}".ToUpperInvariant();
+    var databaseFingerprint=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(target)))[..12];
+    var databaseMode=usesLocalDb?"localdb":"sqlserver";
+    return Results.Ok(new { status = "ok", database = "connected", databaseMode, databaseFingerprint, migrations, release=ReleaseVersion });
 });
 app.MapGet("/api/v1/health/live",()=>Results.Ok(new { status="live",utc=DateTime.UtcNow }));
 app.MapGet("/api/v1/health/ready",async(ProductionOperationsRepository operations,IOptions<OutboxOptions> options,CancellationToken ct)=>

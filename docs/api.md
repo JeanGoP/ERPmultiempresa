@@ -6,7 +6,7 @@ La API usa el prefijo `/api/v1`. Salvo salud e inicio de sesion, todas las rutas
 
 | Metodo | Ruta | Proposito |
 | --- | --- | --- |
-| GET | `/health` | Comprueba conexion y numero de migraciones. |
+| GET | `/health` | Comprueba conexión, migraciones, versión y huella no sensible de la base configurada. |
 | GET | `/health/live` | Comprueba que el proceso responde. |
 | GET | `/health/ready` | Comprueba migraciones, Outbox e integración productiva. |
 | POST | `/auth/login` | Autentica y entrega la sesion. |
