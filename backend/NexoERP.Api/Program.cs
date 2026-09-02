@@ -204,6 +204,12 @@ app.MapPost("/api/v1/companies/{empresaId:long}/master-data/suppliers", async (l
     return Results.Ok(await masters.SaveSupplierAsync(empresaId,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct));
 }).RequireErpPermission("MAESTROS.PROVEEDOR.ADMINISTRAR");
 
+app.MapPost("/api/v1/companies/{empresaId:long}/master-data/suppliers/from-xml", async (long empresaId,SaveSupplierRequest input,HttpContext context,MasterDataRepository masters,CancellationToken ct) =>
+{
+    if(string.IsNullOrWhiteSpace(input.NumeroIdentificacion)||string.IsNullOrWhiteSpace(input.RazonSocial)) return Results.ValidationProblem(new Dictionary<string,string[]> { ["proveedor"]=["El XML debe informar identificación y razón social del proveedor."] });
+    return Results.Ok(await masters.SaveSupplierAsync(empresaId,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct));
+}).RequireErpPermission("COMPRAS.DOCUMENTO.CREAR");
+
 app.MapPut("/api/v1/companies/{empresaId:long}/master-data/suppliers/{terceroId:long}", async (long empresaId,long terceroId,SaveSupplierRequest input,HttpContext context,MasterDataRepository masters,CancellationToken ct) =>
 {
     if(string.IsNullOrWhiteSpace(input.NumeroIdentificacion)||string.IsNullOrWhiteSpace(input.RazonSocial)) return Results.ValidationProblem(new Dictionary<string,string[]> { ["proveedor"]=["Identificación y razón social son obligatorias."] });

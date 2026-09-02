@@ -325,8 +325,15 @@ function newMasterDataSeed() {
   };
 }
 
+const pendingApiMasterData = {};
+function pendingApiMasterDataFor(companyId) {
+  const key=String(companyId||'sin-empresa');
+  if(!pendingApiMasterData[key])pendingApiMasterData[key]={suppliers:[],units:[],articles:[],warehouses:[],mappings:[]};
+  return pendingApiMasterData[key];
+}
+
 function getCompanyMasterData() {
-  if(state.runtimeMode==='api'&&state.apiContext?.masterData) return { database:null,companyId:String(state.erpSession?.company?.id),data:state.apiContext.masterData,api:true };
+  if(state.runtimeMode==='api'&&state.erpSession?.api){const companyId=String(state.erpSession?.company?.id);return {database:null,companyId,data:state.apiContext?.masterData||pendingApiMasterDataFor(companyId),api:true};}
   const companyId = String(state.erpSession?.company?.id || 'local');
   const database = readStoredJson(uiStorage.masterData) || {};
   if (!database[companyId]) { database[companyId] = newMasterDataSeed(); localStorage.setItem(uiStorage.masterData, JSON.stringify(database)); }
@@ -366,15 +373,26 @@ async function loadApiCompanyContext() {
 }
 
 async function ensureApiSupplier(invoice) {
-  const data=state.apiContext?.masterData; if(!data) throw new Error('Los maestros de la empresa aún no están disponibles.');
+  const data=getCompanyMasterData().data;
   const identification=invoice.supplier.identification; if(!identification) throw new Error('El XML no contiene la identificación del proveedor.');
   const source=invoice.supplier; const payload=supplierApiPayload({
     identificationType:source.identificationType||'NIT',identification,verificationDigit:source.verificationDigit||'',name:source.name||'Proveedor desde XML',commercialName:source.commercialName||'',taxResponsibility:source.taxResponsibility||'',taxSchemeCode:source.taxSchemeCode||'',taxSchemeName:source.taxSchemeName||'',address:source.address||'',cityCode:source.cityCode||'',city:source.city||'',departmentCode:source.departmentCode||'',department:source.department||'',postalCode:source.postalCode||'',countryCode:source.countryCode||'',country:source.country||'',contactName:source.contactName||'',phone:source.phone||'',email:source.email||'',website:source.website||'',xmlData:JSON.stringify(source.xmlFields||{})
   });
-  const saved=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/suppliers`,{method:'POST',body:JSON.stringify(payload)});
+  const saved=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/suppliers/from-xml`,{method:'POST',body:JSON.stringify(payload)});
   let supplier=data.suppliers.find(x=>x.identification===identification);
   const record={id:saved.id,identificationType:source.identificationType||'NIT',identification,verificationDigit:source.verificationDigit||'',name:source.name||'Proveedor desde XML',commercialName:source.commercialName||'',taxResponsibility:source.taxResponsibility||'',taxSchemeCode:source.taxSchemeCode||'',taxSchemeName:source.taxSchemeName||'',address:source.address||'',cityCode:source.cityCode||'',city:source.city||'',departmentCode:source.departmentCode||'',department:source.department||'',postalCode:source.postalCode||'',countryCode:source.countryCode||'',country:source.country||'',contactName:source.contactName||'',phone:source.phone||'',email:source.email||'',website:source.website||'',xmlData:payload.datosXmlJson,active:true};
   if(supplier)Object.assign(supplier,record);else{supplier=record;data.suppliers.push(supplier);} return supplier;
+}
+
+async function persistAnalyzedSupplier(invoice) {
+  if(state.runtimeMode!=='api'||!state.erpSession?.api||!invoice?.supplier) return;
+  try {
+    const supplier=await ensureApiSupplier(invoice);
+    if(!elements.masterDataModule.hidden&&state.masterView==='suppliers')renderMasterView();
+    showSuccess(`Proveedor ${supplier.name} guardado en el maestro de la empresa.`);
+  } catch(error) {
+    showError(`El XML fue analizado, pero el proveedor no se guardó en la base de datos. ${error.message}`);
+  }
 }
 
 function supplierApiPayload(supplier) {
@@ -1234,7 +1252,7 @@ function parseXml(source) {
   if (!doc.documentElement) throw new Error('El documento no tiene un elemento raíz.');
   return doc;
 }
-function analyze() {
+async function analyze() {
   hideError();
   const source = elements.xmlInput.value.trim();
   if (!source) return showError('Carga un archivo o pega contenido XML para comenzar.');
@@ -1258,6 +1276,7 @@ function analyze() {
       purchaseWorkflow: null,
     });
     renderResults();
+    await persistAnalyzedSupplier(state.invoice);
   } catch (error) { showError(`No se pudo interpretar el XML. ${error.message}`); }
 }
 
@@ -2128,8 +2147,8 @@ elements.fileInput.addEventListener('change', () => handleFile(elements.fileInpu
 ['dragenter', 'dragover'].forEach((name) => elements.dropZone.addEventListener(name, (event) => { event.preventDefault(); elements.dropZone.classList.add('dragging'); }));
 ['dragleave', 'drop'].forEach((name) => elements.dropZone.addEventListener(name, (event) => { event.preventDefault(); elements.dropZone.classList.remove('dragging'); }));
 elements.dropZone.addEventListener('drop', (event) => handleFile(event.dataTransfer.files[0]));
-elements.analyzeButton.addEventListener('click', analyze);
-elements.exampleButton.addEventListener('click', () => { elements.xmlInput.value = exampleXml; state.fileName = 'factura-ejemplo.xml'; elements.inputStatus.textContent = 'Ejemplo de factura cargado'; analyze(); });
+elements.analyzeButton.addEventListener('click', () => void analyze());
+elements.exampleButton.addEventListener('click', () => { elements.xmlInput.value = exampleXml; state.fileName = 'factura-ejemplo.xml'; elements.inputStatus.textContent = 'Ejemplo de factura cargado'; void analyze(); });
 $('#exportJson').addEventListener('click', () => download('datos-xml.json', JSON.stringify(state.json, null, 2), 'application/json'));
 $('#exportCsv').addEventListener('click', exportCsv);
 $('#exportExcel').addEventListener('click', exportExcel);
