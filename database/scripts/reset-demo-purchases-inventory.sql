@@ -1,9 +1,10 @@
 /*
     Reinicio controlado para una demostracion de compras e inventario.
+    Compatible con el esquema hasta la migracion 042.
 
     CONSERVA:
       - empresa, usuarios, roles y permisos;
-      - bodegas, ubicaciones y periodos;
+      - bodegas, ubicaciones y periodos (los periodos cerrados se reabren);
       - proveedores, articulos, unidades y homologaciones;
       - auditoria (audit.Evento), porque en un ERP no debe borrarse.
 
@@ -11,7 +12,16 @@
       - documentos de proveedor y sus lineas/seriales;
       - recepciones y causaciones originadas por esos documentos;
       - unidades serializadas, lotes, Kardex y saldos;
-      - operaciones dependientes de inventario, costos y Outbox.
+      - operaciones dependientes de inventario, costos y Outbox;
+      - alertas y aprobaciones operativas de la empresa.
+
+    IMPORTANTE:
+      - Ejecute el borrado durante una ventana de mantenimiento, sin usuarios
+        registrando operaciones en la empresa seleccionada.
+      - Los IDENTITY no se reinician: son globales y pueden contener datos de
+        otras empresas. La informacion operativa queda vacia, aunque el proximo
+        identificador interno no vuelva a ser 1.
+      - El propio reinicio se registra en audit.Evento.
 
     USO:
       1. Cambie @EmpresaCodigo por el codigo exacto de la empresa.
@@ -26,10 +36,18 @@
 
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
 
 DECLARE @EmpresaCodigo nvarchar(20) = N'CAMBIAR-AQUI';
 DECLARE @Confirmacion nvarchar(100) = N'SOLO-VISTA-PREVIA';
 DECLARE @EmpresaId bigint;
+DECLARE @ResumenAntes nvarchar(max);
 
 EXEC sys.sp_set_session_context @key=N'BypassRls',@value=1;
 
@@ -63,11 +81,30 @@ SELECT
     (SELECT COUNT(*) FROM inv.RecepcionMercancia WHERE EmpresaId=@EmpresaId) AS Recepciones,
     (SELECT COUNT(*) FROM inv.RecepcionMercancia WHERE EmpresaId=@EmpresaId AND Estado='CONTABILIZADA') AS RecepcionesContabilizadas,
     (SELECT COUNT(*) FROM inv.RecepcionMercanciaRevisionUnidad WHERE EmpresaId=@EmpresaId) AS RevisionesFisicas,
+    (SELECT COUNT(*) FROM inv.RecepcionMercanciaRevisionUnidad WHERE EmpresaId=@EmpresaId AND EstadoFisico IN('RECIBIDA_NOVEDAD','NO_RECIBIDA') AND GestionadaEnUtc IS NULL) AS NovedadesPendientes,
+    (SELECT COUNT(*) FROM comp.CausacionServicio WHERE EmpresaId=@EmpresaId) AS CausacionesServicio,
     (SELECT COUNT(*) FROM comp.DocumentoProveedorLineaUnidad WHERE EmpresaId=@EmpresaId) AS SerialesEnDocumentos,
     (SELECT COUNT(*) FROM inv.UnidadSerializada WHERE EmpresaId=@EmpresaId) AS UnidadesSerializadasInventario,
     (SELECT COUNT(*) FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId) AS MovimientosKardex,
+    (SELECT COUNT(*) FROM core.OutboxEvento WHERE EmpresaId=@EmpresaId) AS EventosOutbox,
+    (SELECT COUNT(*) FROM core.AlertaOperacion WHERE EmpresaId=@EmpresaId) AS AlertasOperativas,
+    (SELECT COUNT(*) FROM seg.AprobacionOperacion WHERE EmpresaId=@EmpresaId) AS AprobacionesOperativas,
+    (SELECT COUNT(*) FROM core.PeriodoInventario WHERE EmpresaId=@EmpresaId AND Estado<>'ABIERTO') AS PeriodosInventarioNoAbiertos,
+    (SELECT COUNT(*) FROM core.PeriodoContable WHERE EmpresaId=@EmpresaId AND Estado<>'ABIERTO') AS PeriodosContablesNoAbiertos,
     (SELECT COALESCE(SUM(Existencia),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS ExistenciaTotal,
     (SELECT COALESCE(SUM(ValorTotal),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS ValorInventario;
+
+SELECT @ResumenAntes=(
+    SELECT
+        (SELECT COUNT(*) FROM comp.DocumentoProveedor WHERE EmpresaId=@EmpresaId) AS documentosProveedor,
+        (SELECT COUNT(*) FROM inv.RecepcionMercancia WHERE EmpresaId=@EmpresaId) AS recepciones,
+        (SELECT COUNT(*) FROM comp.CausacionServicio WHERE EmpresaId=@EmpresaId) AS causaciones,
+        (SELECT COUNT(*) FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId) AS movimientosKardex,
+        (SELECT COUNT(*) FROM inv.UnidadSerializada WHERE EmpresaId=@EmpresaId) AS unidadesSerializadas,
+        (SELECT COALESCE(SUM(Existencia),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS existenciaTotal,
+        (SELECT COALESCE(SUM(ValorTotal),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS valorInventario
+    FOR JSON PATH,WITHOUT_ARRAY_WRAPPER
+);
 
 IF @Confirmacion<>CONCAT(N'BORRAR-',@EmpresaCodigo)
 BEGIN
@@ -106,8 +143,9 @@ BEGIN TRY
     DISABLE TRIGGER cont.TR_ComprobanteContable_Inmutable ON cont.ComprobanteContable;
     DISABLE TRIGGER cont.TR_ComprobanteContableLinea_Inmutable ON cont.ComprobanteContableLinea;
 
-    -- Integraciones generadas por las operaciones que se van a retirar.
+    -- Integraciones y alertas generadas por las operaciones que se retiran.
     DELETE FROM core.EntregaIntegracion WHERE EmpresaId=@EmpresaId;
+    DELETE FROM core.AlertaOperacion WHERE EmpresaId=@EmpresaId;
     DELETE FROM core.OutboxEvento WHERE EmpresaId=@EmpresaId;
     DELETE FROM inv.MovimientoInventarioArchivo WHERE EmpresaId=@EmpresaId;
 
@@ -136,6 +174,9 @@ BEGIN TRY
     DELETE FROM inv.CierrePeriodoInventario WHERE EmpresaId=@EmpresaId;
     DELETE FROM inv.ReversionMovimientoInventario WHERE EmpresaId=@EmpresaId;
     DELETE FROM inv.SalidaExcepcionalNegativa WHERE EmpresaId=@EmpresaId;
+
+    -- Ya no quedan operaciones que dependan de estas aprobaciones.
+    DELETE FROM seg.AprobacionOperacion WHERE EmpresaId=@EmpresaId;
 
     -- Deterioros y costos dependientes del Kardex o de las recepciones.
     DELETE FROM inv.SaldoDeterioroInventario WHERE EmpresaId=@EmpresaId;
@@ -188,6 +229,24 @@ BEGIN TRY
     -- Los lotes son datos operativos; los articulos y homologaciones se conservan.
     DELETE FROM inv.Lote WHERE EmpresaId=@EmpresaId;
 
+    -- Los cierres ya se eliminaron. Se habilitan nuevamente los periodos para
+    -- registrar entradas desde cero; los periodos BLOQUEADOS se respetan.
+    UPDATE core.PeriodoInventario
+    SET Estado='ABIERTO',CerradoEnUtc=NULL,CerradoPorUsuarioId=NULL,MotivoReapertura=NULL
+    WHERE EmpresaId=@EmpresaId AND Estado IN('CERRADO','EN_CIERRE','REABIERTO');
+
+    UPDATE core.PeriodoContable
+    SET Estado='ABIERTO',CerradoEnUtc=NULL
+    WHERE EmpresaId=@EmpresaId AND Estado IN('CERRADO','REABIERTO');
+
+    INSERT audit.Evento
+        (EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,Motivo,ValoresAnteriores,ValoresPosteriores,AplicacionOrigen)
+    VALUES
+        (@EmpresaId,NULL,'REINICIO_DEMO_COMPRAS_INVENTARIO','core.Empresa',CONVERT(nvarchar(100),@EmpresaId),
+         N'Reinicio administrativo solicitado para comenzar compras e inventario desde cero.',@ResumenAntes,
+         N'{"documentosProveedor":0,"recepciones":0,"causaciones":0,"movimientosKardex":0,"existenciaTotal":0,"valorInventario":0}',
+         N'SCRIPT_ADMINISTRATIVO');
+
     ENABLE TRIGGER inv.TR_MovimientoInventario_Inmutable ON inv.MovimientoInventario;
     ENABLE TRIGGER inv.TR_MovimientoInventarioUnidad_Inmutable ON inv.MovimientoInventarioUnidad;
     ENABLE TRIGGER cont.TR_ComprobanteContable_Inmutable ON cont.ComprobanteContable;
@@ -200,8 +259,14 @@ BEGIN TRY
         (SELECT COUNT(*) FROM comp.DocumentoProveedor WHERE EmpresaId=@EmpresaId) AS EntradasGuardadas,
         (SELECT COUNT(*) FROM inv.RecepcionMercancia WHERE EmpresaId=@EmpresaId) AS Recepciones,
         (SELECT COUNT(*) FROM inv.RecepcionMercanciaRevisionUnidad WHERE EmpresaId=@EmpresaId) AS RevisionesFisicas,
+        (SELECT COUNT(*) FROM comp.CausacionServicio WHERE EmpresaId=@EmpresaId) AS CausacionesServicio,
         (SELECT COUNT(*) FROM inv.UnidadSerializada WHERE EmpresaId=@EmpresaId) AS UnidadesSerializadasInventario,
         (SELECT COUNT(*) FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId) AS MovimientosKardex,
+        (SELECT COUNT(*) FROM core.OutboxEvento WHERE EmpresaId=@EmpresaId) AS EventosOutbox,
+        (SELECT COUNT(*) FROM core.AlertaOperacion WHERE EmpresaId=@EmpresaId) AS AlertasOperativas,
+        (SELECT COUNT(*) FROM seg.AprobacionOperacion WHERE EmpresaId=@EmpresaId) AS AprobacionesOperativas,
+        (SELECT COUNT(*) FROM core.PeriodoInventario WHERE EmpresaId=@EmpresaId AND Estado='ABIERTO') AS PeriodosInventarioAbiertos,
+        (SELECT COUNT(*) FROM core.PeriodoContable WHERE EmpresaId=@EmpresaId AND Estado='ABIERTO') AS PeriodosContablesAbiertos,
         (SELECT COALESCE(SUM(Existencia),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS ExistenciaTotal,
         (SELECT COALESCE(SUM(ValorTotal),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS ValorInventario;
     DROP TABLE IF EXISTS #Comprobantes;
