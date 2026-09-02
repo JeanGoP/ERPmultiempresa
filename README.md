@@ -6,6 +6,8 @@ Módulo ERP para registrar compras de proveedores. Procesa XML de la DIAN, entra
 
 Requiere Node.js 18 o superior.
 
+Copia `.env.example` como `.env` y configura `ConnectionStrings__NexoErp`. La API carga ese archivo al iniciar y da prioridad a las variables ya definidas por el sistema operativo. El `.env` real está ignorado por Git.
+
 ```powershell
 npm start
 ```
@@ -81,4 +83,4 @@ Después de validar y crear el commit del trabajo, genera una entrega completa c
 npm run publish:manual
 ```
 
-El comando reemplaza de forma segura la carpeta local `publish/` y deja allí exclusivamente el backend compilado en configuración Release, sin copiar `appsettings.json`. La cadena `ConnectionStrings__NexoErp` debe configurarse en el servidor. Consulta [docs/manual-publishing.md](docs/manual-publishing.md) para el orden de despliegue.
+El comando reemplaza de forma segura la carpeta local `publish/` y deja allí exclusivamente el backend compilado en configuración Release, sin copiar `appsettings.json` ni `.env`. Transfiere el `.env` de manera segura y separada, y déjalo junto al ejecutable del backend en el servidor. Consulta [docs/manual-publishing.md](docs/manual-publishing.md) para el orden de despliegue.

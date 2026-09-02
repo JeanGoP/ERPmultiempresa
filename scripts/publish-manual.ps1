@@ -25,5 +25,9 @@ $publishedSettings = Get-ChildItem -LiteralPath $publishRoot -Filter 'appsetting
 if ($publishedSettings) {
     throw 'La publicación contiene appsettings. Las cadenas de conexión de producción deben permanecer únicamente en el servidor.'
 }
+$publishedEnv = Get-ChildItem -LiteralPath $publishRoot -Filter '.env*' -File -ErrorAction SilentlyContinue
+if ($publishedEnv) {
+    throw 'La publicación contiene un archivo .env. Transfiérelo de forma segura y separada del paquete.'
+}
 
 Write-Host "Backend publicado en $publishRoot"

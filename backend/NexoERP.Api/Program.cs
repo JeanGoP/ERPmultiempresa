@@ -11,6 +11,7 @@ using NexoERP.Api.Purchasing;
 using NexoERP.Api.Production;
 using NexoERP.Api.Security;
 
+LoadDotEnv();
 var builder = WebApplication.CreateBuilder(args);
 var configuredConnectionString=builder.Configuration.GetConnectionString("NexoErp");
 if(string.IsNullOrWhiteSpace(configuredConnectionString)) throw new InvalidOperationException("Falta configurar ConnectionStrings__NexoErp para la base del ERP.");
@@ -34,7 +35,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.01.2";
+const string ReleaseVersion="2026.09.01.3";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -611,3 +612,25 @@ app.MapPost("/api/v1/companies/{empresaId:long}/inventory/movements/{id:long}/re
 }).RequireErpPermission("INVENTARIO.AJUSTE.REVERSAR");
 
 app.Run();
+
+static void LoadDotEnv()
+{
+    var candidates=new[]
+    {
+        Path.Combine(Directory.GetCurrentDirectory(),".env"),
+        Path.Combine(AppContext.BaseDirectory,".env")
+    };
+    var path=candidates.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists);
+    if(path is null) return;
+    foreach(var rawLine in File.ReadLines(path))
+    {
+        var line=rawLine.Trim();
+        if(line.Length==0||line.StartsWith('#')) continue;
+        var separator=line.IndexOf('=');
+        if(separator<=0) continue;
+        var key=line[..separator].Trim();
+        var value=line[(separator+1)..].Trim();
+        if(value.Length>=2&&((value[0]=='"'&&value[^1]=='"')||(value[0]=='\''&&value[^1]=='\''))) value=value[1..^1];
+        if(Environment.GetEnvironmentVariable(key) is null) Environment.SetEnvironmentVariable(key,value);
+    }
+}
