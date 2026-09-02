@@ -218,6 +218,13 @@ app.MapPut("/api/v1/companies/{empresaId:long}/master-data/suppliers/{terceroId:
     catch(SqlException error) when(error.Number is 2601 or 2627){return Results.Conflict(new { error="Ya existe otro tercero con la misma identificación." });}
 }).RequireErpPermission("MAESTROS.PROVEEDOR.ADMINISTRAR");
 
+app.MapDelete("/api/v1/companies/{empresaId:long}/master-data/suppliers/{terceroId:long}",async(long empresaId,long terceroId,HttpContext context,MasterDataRepository masters,CancellationToken ct)=>
+{
+    try{await masters.DeleteSupplierAsync(empresaId,terceroId,Convert.ToInt64(context.Items["UsuarioId"]),ct);return Results.NoContent();}
+    catch(InvalidOperationException error){return Results.Conflict(new { error=error.Message });}
+    catch(SqlException error) when(error.Number==547){return Results.Conflict(new { error="No se puede eliminar el proveedor porque está relacionado con información del ERP." });}
+}).RequireErpPermission("MAESTROS.PROVEEDOR.ADMINISTRAR");
+
 app.MapPost("/api/v1/companies/{empresaId:long}/master-data/units", async (long empresaId,SaveUnitRequest input,HttpContext context,MasterDataRepository masters,CancellationToken ct) =>
 {
     if(string.IsNullOrWhiteSpace(input.Codigo)||string.IsNullOrWhiteSpace(input.Nombre)||string.IsNullOrWhiteSpace(input.Simbolo)) return Results.ValidationProblem(new Dictionary<string,string[]> { ["unidad"]=["Código, nombre y símbolo son obligatorios."] });

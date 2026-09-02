@@ -458,13 +458,13 @@ function renderArticleMasterTable(data,query) {
   table.append(head,body); elements.masterTable.replaceChildren(table); return articles.length;
 }
 
-function renderSupplierMasterTable(data,query,allowDelete=false) {
+function renderSupplierMasterTable(data,query) {
   const suppliers=data.suppliers.filter((supplier)=>!query||Object.values(supplier).join(' ').toLocaleLowerCase('es-CO').includes(query));
   const table=document.createElement('table');const head=document.createElement('thead');head.innerHTML='<tr><th>Identificación</th><th>Proveedor</th><th>Ubicación</th><th>Contacto</th><th>Estado</th><th>Acciones</th></tr>';const body=document.createElement('tbody');
   suppliers.forEach((supplier)=>{
     const row=document.createElement('tr');const values=[`${supplier.identificationType} ${supplier.identification}${supplier.verificationDigit?`-${supplier.verificationDigit}`:''}`,[supplier.name,supplier.commercialName].filter(Boolean).join(' · '),[supplier.address,supplier.city,supplier.department,supplier.country].filter(Boolean).join(' · ')||'—',[supplier.contactName,supplier.phone,supplier.email].filter(Boolean).join(' · ')||'—',activeLabel(supplier.active)];
     values.forEach((value)=>{const cell=document.createElement('td');cell.textContent=value;row.append(cell);});
-    const actions=document.createElement('td');actions.className='master-row-actions';const edit=masterActionButton('Editar','edit',supplier.id);delete edit.dataset.masterArticleAction;edit.dataset.masterSupplierAction='edit';actions.append(edit);if(allowDelete){const remove=masterActionButton('Eliminar','delete',supplier.id,true);delete remove.dataset.masterArticleAction;remove.dataset.masterSupplierAction='delete';actions.append(remove);}row.append(actions);body.append(row);
+    const actions=document.createElement('td');actions.className='master-row-actions';const edit=masterActionButton('Editar','edit',supplier.id);delete edit.dataset.masterArticleAction;edit.dataset.masterSupplierAction='edit';const remove=masterActionButton('Eliminar','delete',supplier.id,true);delete remove.dataset.masterArticleAction;remove.dataset.masterSupplierAction='delete';actions.append(edit,remove);row.append(actions);body.append(row);
   });
   if(!suppliers.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=6;cell.className='empty';cell.textContent='No hay proveedores que coincidan con la búsqueda.';row.append(cell);body.append(row);}
   table.append(head,body);elements.masterTable.replaceChildren(table);return suppliers.length;
@@ -479,7 +479,7 @@ function renderMasterView() {
   elements.masterViewTitle.textContent=config[0]; elements.masterViewSubtitle.textContent=config[1]; elements.addMasterRecord.textContent=state.masterView==='mappings'?'＋ Nueva homologación':'＋ Nuevo registro';
   renderMasterStats(data);
   const query=elements.masterSearch.value.trim().toLocaleLowerCase('es-CO');
-  if(state.masterView==='suppliers'){const count=renderSupplierMasterTable(data,query,!context.api);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
+  if(state.masterView==='suppliers'){const count=renderSupplierMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
   if(state.masterView==='articles'){const count=renderArticleMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
   const source=masterRows(state.masterView,data); const rows=query?source.rows.filter(row=>row.join(' ').toLocaleLowerCase('es-CO').includes(query)):source.rows;
   elements.masterTable.replaceChildren(buildDataTable(source.headers,rows)); elements.masterCount.textContent=`${rows.length} ${config[2]}`;
@@ -760,14 +760,14 @@ async function deleteMasterArticle(article) {
   }catch(error){showMasterNotice(error.message||'No fue posible eliminar el artículo.',true);}
 }
 
-function deleteLocalMasterSupplier(supplier) {
-  if(!supplier||!window.confirm(`¿Eliminar el proveedor ${supplier.name}?\n\nEsta acción solo afecta los datos locales de esta empresa.`))return;
+async function deleteMasterSupplier(supplier) {
   const context=getCompanyMasterData();
+  const warning=context.api?'Solo podrá eliminarse si no tiene compras, pagos, movimientos u otro historial relacionado.':'Esta acción solo afecta los datos locales de esta empresa.';
+  if(!supplier||!window.confirm(`¿Eliminar el proveedor ${supplier.name}?\n\n${warning}`))return;
   try{
-    if(context.api)throw new Error('La eliminación de proveedores de la API aún no está habilitada.');
-    if(context.data.mappings.some(x=>String(x.supplierId)===String(supplier.id)))throw new Error('El proveedor tiene homologaciones de artículos y no puede eliminarse.');
-    context.data.suppliers=context.data.suppliers.filter(x=>String(x.id)!==String(supplier.id));
-    saveCompanyMasterData(context);renderMasterView();showMasterNotice(`Proveedor ${supplier.name} eliminado correctamente.`);if(state.invoice)renderInvoice();
+    if(context.api){await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/suppliers/${supplier.id}`,{method:'DELETE'});await loadApiCompanyContext();}
+    else{if(context.data.mappings.some(x=>String(x.supplierId)===String(supplier.id)))throw new Error('El proveedor tiene homologaciones de artículos y no puede eliminarse.');context.data.suppliers=context.data.suppliers.filter(x=>String(x.id)!==String(supplier.id));saveCompanyMasterData(context);}
+    renderMasterView();showMasterNotice(`Proveedor ${supplier.name} eliminado correctamente.`);if(state.invoice)renderInvoice();
   }catch(error){showMasterNotice(error.message||'No fue posible eliminar el proveedor.',true);}
 }
 
@@ -2202,7 +2202,7 @@ elements.environmentForm.addEventListener('submit', (event) => {
 });
 document.querySelectorAll('[data-master-view]').forEach((button) => button.addEventListener('click', () => showMasterView(button.dataset.masterView)));
 elements.addMasterRecord.addEventListener('click',()=>openMasterForm());
-elements.masterTable.addEventListener('click',(event)=>{const supplierButton=event.target.closest('[data-master-supplier-action]');if(supplierButton){const supplier=findById(getCompanyMasterData().data.suppliers,supplierButton.dataset.id);if(supplierButton.dataset.masterSupplierAction==='edit')openMasterForm(supplier);else if(supplierButton.dataset.masterSupplierAction==='delete')deleteLocalMasterSupplier(supplier);return;}const button=event.target.closest('[data-master-article-action]');if(!button)return;const article=findById(getCompanyMasterData().data.articles,button.dataset.id);if(button.dataset.masterArticleAction==='edit')openMasterForm(article);else if(button.dataset.masterArticleAction==='delete')void deleteMasterArticle(article);});
+elements.masterTable.addEventListener('click',(event)=>{const supplierButton=event.target.closest('[data-master-supplier-action]');if(supplierButton){const supplier=findById(getCompanyMasterData().data.suppliers,supplierButton.dataset.id);if(supplierButton.dataset.masterSupplierAction==='edit')openMasterForm(supplier);else if(supplierButton.dataset.masterSupplierAction==='delete')void deleteMasterSupplier(supplier);return;}const button=event.target.closest('[data-master-article-action]');if(!button)return;const article=findById(getCompanyMasterData().data.articles,button.dataset.id);if(button.dataset.masterArticleAction==='edit')openMasterForm(article);else if(button.dataset.masterArticleAction==='delete')void deleteMasterArticle(article);});
 elements.masterRecordForm.addEventListener('submit', saveMasterRecord);
 elements.masterSearch.addEventListener('input', renderMasterView);
 elements.logoutButton.addEventListener('click', leaveErp);

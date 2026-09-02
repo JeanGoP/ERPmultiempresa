@@ -71,6 +71,40 @@ public sealed class MasterDataRepository(TenantConnectionFactory connections)
         Add(c,"@Direccion",SqlDbType.NVarChar,r.Direccion,300);Add(c,"@CiudadCodigo",SqlDbType.NVarChar,r.CiudadCodigo,20);Add(c,"@Ciudad",SqlDbType.NVarChar,r.Ciudad,100);Add(c,"@DepartamentoCodigo",SqlDbType.NVarChar,r.DepartamentoCodigo,20);Add(c,"@Departamento",SqlDbType.NVarChar,r.Departamento,100);Add(c,"@CodigoPostal",SqlDbType.NVarChar,r.CodigoPostal,20);Add(c,"@PaisCodigo",SqlDbType.NVarChar,r.PaisCodigo,10);Add(c,"@Pais",SqlDbType.NVarChar,r.Pais,100);
         Add(c,"@ContactoNombre",SqlDbType.NVarChar,r.ContactoNombre,150);Add(c,"@Telefono",SqlDbType.NVarChar,r.Telefono,50);Add(c,"@Correo",SqlDbType.NVarChar,r.Correo,254);Add(c,"@SitioWeb",SqlDbType.NVarChar,r.SitioWeb,300);Add(c,"@DatosXmlJson",SqlDbType.NVarChar,r.DatosXmlJson,-1);
     });
+
+    public async Task DeleteSupplierAsync(long empresaId,long supplierId,long actorId,CancellationToken ct)
+    {
+        await using var connection=await connections.OpenAsync(empresaId,false,ct);
+        await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(ct);
+        string name; bool isClient;
+        await using(var current=connection.CreateCommand())
+        {
+            current.Transaction=transaction;
+            current.CommandText="SELECT RazonSocial,EsCliente FROM ter.Tercero WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@EmpresaId AND TerceroId=@TerceroId AND EsProveedor=1;";
+            Add(current,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(current,"@TerceroId",SqlDbType.BigInt,supplierId);
+            await using var reader=await current.ExecuteReaderAsync(ct);if(!await reader.ReadAsync(ct))throw new InvalidOperationException("El proveedor no existe en esta empresa.");name=reader.GetString(0);isClient=reader.GetBoolean(1);
+        }
+        if(await HasSupplierOperationalHistoryAsync(connection,transaction,supplierId,ct)) throw new InvalidOperationException("No se puede eliminar el proveedor porque tiene compras, pagos, movimientos u otro historial relacionado.");
+        int removedMappings;
+        await using(var mappings=connection.CreateCommand())
+        {
+            mappings.Transaction=transaction;mappings.CommandText="DELETE comp.HomologacionArticuloProveedor WHERE EmpresaId=@EmpresaId AND TerceroId=@TerceroId;";Add(mappings,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(mappings,"@TerceroId",SqlDbType.BigInt,supplierId);removedMappings=await mappings.ExecuteNonQueryAsync(ct);
+        }
+        await using(var command=connection.CreateCommand())
+        {
+            command.Transaction=transaction;command.CommandText=isClient
+                ? "UPDATE ter.Tercero SET EsProveedor=0 WHERE EmpresaId=@EmpresaId AND TerceroId=@TerceroId AND EsProveedor=1;"
+                : "DELETE ter.Tercero WHERE EmpresaId=@EmpresaId AND TerceroId=@TerceroId AND EsProveedor=1;";
+            Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@TerceroId",SqlDbType.BigInt,supplierId);await command.ExecuteNonQueryAsync(ct);
+        }
+        await using(var audit=connection.CreateCommand())
+        {
+            audit.Transaction=transaction;audit.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@EmpresaId,@Actor,'PROVEEDOR_ELIMINADO','ter.Tercero',CONVERT(nvarchar(100),@TerceroId),@Valores,'MAESTROS');";
+            Add(audit,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(audit,"@Actor",SqlDbType.BigInt,actorId);Add(audit,"@TerceroId",SqlDbType.BigInt,supplierId);Add(audit,"@Valores",SqlDbType.NVarChar,JsonSerializer.Serialize(new { RazonSocial=name,HomologacionesEliminadas=removedMappings,ConservadoComoCliente=isClient }));await audit.ExecuteNonQueryAsync(ct);
+        }
+        await transaction.CommitAsync(ct);
+    }
+
     public Task<MasterSaveResponse> SaveUnitAsync(long e,SaveUnitRequest r,CancellationToken ct)=>ExecuteSaveAsync(e,"inv.usp_GuardarUnidadMedida",r.UsuarioId,ct,c=>{Add(c,"@Codigo",SqlDbType.NVarChar,r.Codigo,20);Add(c,"@Nombre",SqlDbType.NVarChar,r.Nombre,80);Add(c,"@Simbolo",SqlDbType.NVarChar,r.Simbolo,15);});
     public Task<MasterSaveResponse> SaveWarehouseAsync(long e,SaveWarehouseRequest r,CancellationToken ct)=>ExecuteSaveAsync(e,"inv.usp_GuardarBodega",r.UsuarioId,ct,c=>{Add(c,"@Codigo",SqlDbType.NVarChar,r.Codigo,30);Add(c,"@Nombre",SqlDbType.NVarChar,r.Nombre,120);Add(c,"@UsaUbicaciones",SqlDbType.Bit,r.UsaUbicaciones);Add(c,"@EsTransito",SqlDbType.Bit,r.EsTransito);});
     public Task<MasterSaveResponse> SaveArticleAsync(long e,SaveArticleRequest r,CancellationToken ct)=>ExecuteSaveAsync(e,"inv.usp_GuardarArticulo",r.UsuarioId,ct,c=>{Add(c,"@Codigo",SqlDbType.NVarChar,r.Codigo,50);Add(c,"@Descripcion",SqlDbType.NVarChar,r.Descripcion,300);Add(c,"@Tipo",SqlDbType.VarChar,r.Tipo,20);Add(c,"@UnidadBaseId",SqlDbType.BigInt,r.UnidadBaseId);Add(c,"@ManejaInventario",SqlDbType.Bit,r.ManejaInventario);Add(c,"@ManejaLote",SqlDbType.Bit,r.ManejaLote);Add(c,"@ManejaSerial",SqlDbType.Bit,r.ManejaSerial);Add(c,"@RequiereVencimiento",SqlDbType.Bit,r.RequiereVencimiento);AddDecimal(c,"@PesoBaseKg",r.PesoBaseKg,20,8);AddDecimal(c,"@VolumenBaseM3",r.VolumenBaseM3,20,10);});
@@ -147,6 +181,25 @@ public sealed class MasterDataRepository(TenantConnectionFactory connections)
             SELECT @HasHistory;
             """;
         Add(command,"@ArticleId",SqlDbType.BigInt,articleId);
+        return Convert.ToBoolean(await command.ExecuteScalarAsync(ct));
+    }
+
+    private static async Task<bool> HasSupplierOperationalHistoryAsync(SqlConnection connection,SqlTransaction transaction,long supplierId,CancellationToken ct)
+    {
+        await using var command=connection.CreateCommand();command.Transaction=transaction;
+        command.CommandText="""
+            DECLARE @Sql nvarchar(max)=N'',@HasHistory bit=0;
+            SELECT @Sql=STRING_AGG(CONVERT(nvarchar(max),N'IF EXISTS(SELECT 1 FROM '+QUOTENAME(SCHEMA_NAME(t.schema_id))+N'.'+QUOTENAME(t.name)+N' WHERE '+QUOTENAME(c.name)+N'=@SupplierId) SET @HasHistory=1;'),NCHAR(10))
+            FROM sys.foreign_key_columns fkc
+            JOIN sys.tables t ON t.object_id=fkc.parent_object_id
+            JOIN sys.columns c ON c.object_id=fkc.parent_object_id AND c.column_id=fkc.parent_column_id
+            JOIN sys.columns referenced ON referenced.object_id=fkc.referenced_object_id AND referenced.column_id=fkc.referenced_column_id
+            WHERE fkc.referenced_object_id=OBJECT_ID(N'ter.Tercero') AND referenced.name=N'TerceroId'
+              AND NOT(SCHEMA_NAME(t.schema_id)=N'comp' AND t.name=N'HomologacionArticuloProveedor');
+            IF NULLIF(@Sql,N'') IS NOT NULL EXEC sys.sp_executesql @Sql,N'@SupplierId bigint,@HasHistory bit OUTPUT',@SupplierId,@HasHistory OUTPUT;
+            SELECT @HasHistory;
+            """;
+        Add(command,"@SupplierId",SqlDbType.BigInt,supplierId);
         return Convert.ToBoolean(await command.ExecuteScalarAsync(ct));
     }
 
