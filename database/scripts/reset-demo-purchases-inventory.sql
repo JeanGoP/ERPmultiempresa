@@ -5,13 +5,14 @@
     CONSERVA:
       - empresa, usuarios, roles y permisos;
       - bodegas, ubicaciones y periodos (los periodos cerrados se reabren);
-      - proveedores, articulos, unidades y homologaciones;
+      - proveedores, unidades de medida y grupos de inventario;
       - auditoria (audit.Evento), porque en un ERP no debe borrarse.
 
     ELIMINA PARA UNA SOLA EMPRESA:
       - documentos de proveedor y sus lineas/seriales;
       - recepciones y causaciones originadas por esos documentos;
       - unidades serializadas, lotes, Kardex y saldos;
+      - homologaciones, unidades asociadas y articulos;
       - operaciones dependientes de inventario, costos y Outbox;
       - alertas y aprobaciones operativas de la empresa.
 
@@ -89,6 +90,8 @@ SELECT
     (SELECT COUNT(*) FROM core.OutboxEvento WHERE EmpresaId=@EmpresaId) AS EventosOutbox,
     (SELECT COUNT(*) FROM core.AlertaOperacion WHERE EmpresaId=@EmpresaId) AS AlertasOperativas,
     (SELECT COUNT(*) FROM seg.AprobacionOperacion WHERE EmpresaId=@EmpresaId) AS AprobacionesOperativas,
+    (SELECT COUNT(*) FROM comp.HomologacionArticuloProveedor WHERE EmpresaId=@EmpresaId) AS HomologacionesArticulo,
+    (SELECT COUNT(*) FROM inv.Articulo WHERE EmpresaId=@EmpresaId) AS Articulos,
     (SELECT COUNT(*) FROM core.PeriodoInventario WHERE EmpresaId=@EmpresaId AND Estado<>'ABIERTO') AS PeriodosInventarioNoAbiertos,
     (SELECT COUNT(*) FROM core.PeriodoContable WHERE EmpresaId=@EmpresaId AND Estado<>'ABIERTO') AS PeriodosContablesNoAbiertos,
     (SELECT COALESCE(SUM(Existencia),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS ExistenciaTotal,
@@ -101,6 +104,8 @@ SELECT @ResumenAntes=(
         (SELECT COUNT(*) FROM comp.CausacionServicio WHERE EmpresaId=@EmpresaId) AS causaciones,
         (SELECT COUNT(*) FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId) AS movimientosKardex,
         (SELECT COUNT(*) FROM inv.UnidadSerializada WHERE EmpresaId=@EmpresaId) AS unidadesSerializadas,
+        (SELECT COUNT(*) FROM comp.HomologacionArticuloProveedor WHERE EmpresaId=@EmpresaId) AS homologacionesArticulo,
+        (SELECT COUNT(*) FROM inv.Articulo WHERE EmpresaId=@EmpresaId) AS articulos,
         (SELECT COALESCE(SUM(Existencia),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS existenciaTotal,
         (SELECT COALESCE(SUM(ValorTotal),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS valorInventario
     FOR JSON PATH,WITHOUT_ARRAY_WRAPPER
@@ -226,8 +231,16 @@ BEGIN TRY
     DELETE FROM comp.DocumentoProveedorLinea WHERE EmpresaId=@EmpresaId;
     DELETE FROM comp.DocumentoProveedor WHERE EmpresaId=@EmpresaId;
 
-    -- Los lotes son datos operativos; los articulos y homologaciones se conservan.
+    -- Los articulos se reinician junto con sus relaciones maestras. Las unidades
+    -- de medida se conservan para poder volver a crear o importar articulos.
     DELETE FROM inv.Lote WHERE EmpresaId=@EmpresaId;
+    DELETE FROM comp.HomologacionArticuloProveedor WHERE EmpresaId=@EmpresaId;
+    DELETE FROM inv.ArticuloUnidad WHERE EmpresaId=@EmpresaId;
+    DELETE FROM inv.Articulo WHERE EmpresaId=@EmpresaId;
+
+    -- La creacion automatica desde XML vuelve a iniciar sus codigos internos.
+    DELETE FROM core.Consecutivo
+    WHERE EmpresaId=@EmpresaId AND TipoDocumento IN('ARTICULO','ARTICULO_MOTO');
 
     -- Los cierres ya se eliminaron. Se habilitan nuevamente los periodos para
     -- registrar entradas desde cero; los periodos BLOQUEADOS se respetan.
@@ -244,7 +257,7 @@ BEGIN TRY
     VALUES
         (@EmpresaId,NULL,'REINICIO_DEMO_COMPRAS_INVENTARIO','core.Empresa',CONVERT(nvarchar(100),@EmpresaId),
          N'Reinicio administrativo solicitado para comenzar compras e inventario desde cero.',@ResumenAntes,
-         N'{"documentosProveedor":0,"recepciones":0,"causaciones":0,"movimientosKardex":0,"existenciaTotal":0,"valorInventario":0}',
+         N'{"documentosProveedor":0,"recepciones":0,"causaciones":0,"movimientosKardex":0,"homologacionesArticulo":0,"articulos":0,"existenciaTotal":0,"valorInventario":0}',
          N'SCRIPT_ADMINISTRATIVO');
 
     ENABLE TRIGGER inv.TR_MovimientoInventario_Inmutable ON inv.MovimientoInventario;
@@ -265,6 +278,8 @@ BEGIN TRY
         (SELECT COUNT(*) FROM core.OutboxEvento WHERE EmpresaId=@EmpresaId) AS EventosOutbox,
         (SELECT COUNT(*) FROM core.AlertaOperacion WHERE EmpresaId=@EmpresaId) AS AlertasOperativas,
         (SELECT COUNT(*) FROM seg.AprobacionOperacion WHERE EmpresaId=@EmpresaId) AS AprobacionesOperativas,
+        (SELECT COUNT(*) FROM comp.HomologacionArticuloProveedor WHERE EmpresaId=@EmpresaId) AS HomologacionesArticulo,
+        (SELECT COUNT(*) FROM inv.Articulo WHERE EmpresaId=@EmpresaId) AS Articulos,
         (SELECT COUNT(*) FROM core.PeriodoInventario WHERE EmpresaId=@EmpresaId AND Estado='ABIERTO') AS PeriodosInventarioAbiertos,
         (SELECT COUNT(*) FROM core.PeriodoContable WHERE EmpresaId=@EmpresaId AND Estado='ABIERTO') AS PeriodosContablesAbiertos,
         (SELECT COALESCE(SUM(Existencia),0) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId) AS ExistenciaTotal,
