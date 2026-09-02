@@ -31,9 +31,9 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\manual-publishing.md') -Des
 $commit = (& git -C $projectRoot rev-parse --short HEAD).Trim()
 $generatedAt = Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'
 @(
-    "Nexo ERP - paquete de publicación manual"
+    "Nexo ERP - paquete de publicacion manual"
     "Commit: $commit"
-    "Configuración: $Configuration"
+    "Configuracion: $Configuration"
     "Generado: $generatedAt"
 ) | Set-Content -LiteralPath (Join-Path $publishRoot 'VERSION.txt') -Encoding utf8
 
