@@ -10,6 +10,7 @@
     "api:check": "dotnet build backend/NexoERP.Api/NexoERP.Api.csproj --no-restore",
     "test:all": "npm run check && npm test && npm run api:check",
     "db:init": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/init-localdb.ps1",
+    "db:migrate:production": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/apply-production-migrations.ps1",
     "db:check": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/check-localdb.ps1",
     "db:concurrency": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/check-concurrency.ps1",
     "db:backup": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/backup-database.ps1",

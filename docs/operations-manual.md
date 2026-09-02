@@ -12,6 +12,8 @@ Este manual cubre despliegue, disponibilidad, integración, respaldo, recuperaci
 4. Terminar TLS en un proxy confiable, restringir `AllowedHosts` y conservar `X-Correlation-ID` en todos los componentes.
 5. Ejecutar las 41 migraciones sobre un respaldo reciente y validar `/api/v1/health/ready` antes de habilitar tráfico.
 
+Para la base desplegada configura `ConnectionStrings__NexoErp` y `ERP_API_HEALTH_URL` en el entorno de ejecución y usa `npm run db:migrate:production`. Este comando rechaza LocalDB, aplica las migraciones idempotentes y exige que el endpoint remoto confirme el mismo número. `npm run db:init` es exclusivamente local y no demuestra que producción esté actualizada.
+
 `DeliveryMode=Ledger` es útil para desarrollo y ensayos, pero `/health/ready` informa `productionIntegration=false`; no satisface por sí solo la integración productiva.
 
 ## Comprobaciones de salud

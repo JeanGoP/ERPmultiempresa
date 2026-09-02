@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Write-Warning 'Este comando actualiza únicamente SQL Server LocalDB. No aplica migraciones a la base desplegada.'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $databaseFolder = Join-Path $projectRoot 'database\local'
 $migrationFolder = Join-Path $projectRoot 'database\migrations'
@@ -32,4 +33,4 @@ Get-ChildItem -LiteralPath $migrationFolder -Filter '*.sql' | Sort-Object Name |
     if ($LASTEXITCODE -ne 0) { throw "Falló la migración $($_.Name)." }
 }
 
-Write-Host "Base $DatabaseName actualizada correctamente."
+Write-Host "Base LOCAL $DatabaseName actualizada correctamente. Producción no fue modificada."
