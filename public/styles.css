@@ -407,13 +407,6 @@ footer p { margin: 0; }
 .company-create-form .wide { grid-column: 1 / -1; }
 .dialog-footnote { margin: 0; padding: 0 28px 24px; color: var(--muted); font-size: 9px; line-height: 1.55; }
 .compact-dialog { width: min(92vw, 520px); }
-#environmentForm { padding: 20px 28px 26px; }
-.environment-option { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: start; margin-bottom: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 11px; cursor: pointer; }
-.environment-option:has(input:checked) { border-color: #91bca7; background: #f1f8f4; }
-.environment-option input { margin: 3px 0 0; accent-color: var(--green); }
-.environment-option strong, .environment-option small { display: block; }
-.environment-option strong { margin-bottom: 3px; font-size: 12px; }
-.environment-option small { color: var(--muted); font-size: 10px; line-height: 1.45; }
 .environment-message { min-height: 17px; margin: 13px 0; color: #95502f; font-size: 10px; line-height: 1.45; }
 .dialog-submit { width: 100%; }
 
@@ -711,7 +704,7 @@ footer p { margin: 0; }
   .login-promise > p:last-child, .login-capabilities { display: none; }
   .login-form-panel { min-height: auto; padding: 22px 14px 40px; }
   .login-card { margin-top: -1px; padding: 27px 22px; border-radius: 16px; }
-  .dialog-heading, .company-options, #environmentForm { padding-right: 18px; padding-left: 18px; }
+  .dialog-heading, .company-options { padding-right: 18px; padding-left: 18px; }
   .super-admin-company { margin-right: 18px; margin-left: 18px; }
   .company-create-form { grid-template-columns: 1fr; }
   .company-create-form .wide { grid-column: auto; }

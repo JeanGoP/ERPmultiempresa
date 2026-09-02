@@ -16,7 +16,6 @@ const elements = {
   loginView: $('#loginView'), loginForm: $('#loginForm'), loginEmail: $('#loginEmail'), loginPassword: $('#loginPassword'), loginError: $('#loginError'),
   erpShell: $('#erpShell'), companyDialog: $('#companyDialog'), companySwitcher: $('#companySwitcher'), companyAvatar: $('#companyAvatar'), companyName: $('#companyName'), companyNit: $('#companyNit'),
   userAvatar: $('#userAvatar'), userName: $('#userName'), userEmail: $('#userEmail'), logoutButton: $('#logoutButton'),
-  environmentDialog: $('#environmentDialog'), environmentForm: $('#environmentForm'), environmentMessage: $('#environmentMessage'), runtimeBadge: $('#runtimeBadge'),
   breadcrumbCurrent: $('#breadcrumbCurrent'), moduleHeadingTitle: $('#moduleHeadingTitle'), topbarDate: $('#topbarDate'),
   purchaseModule: $('#purchaseModule'), masterDataModule: $('#masterDataModule'), inventoryModule: $('#inventoryModule'), inventoryNav: $('#inventoryNav'), inventoryStats: $('#inventoryStats'), inventoryTable: $('#inventoryTable'), inventorySearch: $('#inventorySearch'), inventoryWarehouse: $('#inventoryWarehouse'), inventoryIssueType: $('#inventoryIssueType'), inventoryIssueTypeField: $('#inventoryIssueTypeField'), inventoryDateFrom: $('#inventoryDateFrom'), inventoryDateTo: $('#inventoryDateTo'), inventoryDateFromField: $('#inventoryDateFromField'), inventoryDateToField: $('#inventoryDateToField'), inventoryNotice: $('#inventoryNotice'), inventoryOperationPanel: $('#inventoryOperationPanel'), inventoryStatus: $('#inventoryStatus'),
   savedPurchasesModule:$('#savedPurchasesModule'),savedPurchasesNav:$('#savedPurchasesNav'),savedPurchasesStats:$('#savedPurchasesStats'),savedPurchasesStatus:$('#savedPurchasesStatus'),savedPurchasesSearch:$('#savedPurchasesSearch'),savedPurchasesState:$('#savedPurchasesState'),savedPurchasesTable:$('#savedPurchasesTable'),savedPurchasesNotice:$('#savedPurchasesNotice'),savedPurchaseDetail:$('#savedPurchaseDetail'),refreshSavedPurchases:$('#refreshSavedPurchases'),
@@ -42,7 +41,7 @@ const ACCESS = {
   security: ['SEGURIDAD.PERMISOS.ADMINISTRAR']
 };
 
-const uiStorage = { session: 'nexo.erpSession.v1', runtimeMode: 'nexo.runtimeMode', masterData: 'nexo.masterData.v1', apiToken: 'nexo.apiToken.v1' };
+const uiStorage = { session: 'nexo.erpSession.v1', masterData: 'nexo.masterData.v1', apiToken: 'nexo.apiToken.v1' };
 const demoCompanies = [
   { empresaId: 1, razonSocial: 'Comercial Andina SAS', nit: '901.234.567-8' },
   { empresaId: 2, razonSocial: 'Motores del Caribe SAS', nit: '900.765.432-1' },
@@ -109,18 +108,6 @@ function configureSuperAdminCompanyPanel(enabled,hasCompanies=true) {
     if(!empty){empty=document.createElement('p');empty.id='companyEmptyState';empty.className='company-empty';elements.superAdminCompanyPanel.before(empty);}
     empty.textContent='No hay empresas creadas. Completa el formulario para registrar la primera compañía.';
   } else empty?.remove();
-}
-
-function updateRuntimeMode(mode, persist = true) {
-  state.runtimeMode = mode === 'api' ? 'api' : 'local';
-  if (persist) localStorage.setItem(uiStorage.runtimeMode, state.runtimeMode);
-  elements.runtimeBadge.classList.toggle('api-mode', state.runtimeMode === 'api');
-  elements.runtimeBadge.querySelector('span').textContent = state.runtimeMode === 'api' ? 'API ERP · preparación' : 'Procesamiento local';
-  const option = elements.environmentForm.querySelector(`[name="runtimeMode"][value="${state.runtimeMode}"]`);
-  if (option) option.checked = true;
-  elements.environmentMessage.textContent = state.runtimeMode === 'api'
-    ? 'API activa: al iniciar sesión podrás guardar, preparar y contabilizar la entrada en SQL Server.'
-    : 'Modo estable: archivos XML y borradores permanecen únicamente en este equipo.';
 }
 
 function renderErpSession() {
@@ -270,7 +257,6 @@ function leaveErp() {
   state.pendingEmail = '';
   state.pendingSuperAdmin = false;
   closeErpDialog(elements.companyDialog);
-  closeErpDialog(elements.environmentDialog);
   elements.erpShell.hidden = true;
   elements.loginView.hidden = false;
   elements.loginPassword.value = '';
@@ -280,10 +266,11 @@ function leaveErp() {
 
 function initializeErpUi() {
   elements.topbarDate.textContent = new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date()).replace(/\./g, '').toLocaleUpperCase('es-CO');
-  updateRuntimeMode(localStorage.getItem(uiStorage.runtimeMode) || 'api', false);
+  state.runtimeMode = 'api';
+  localStorage.removeItem('nexo.runtimeMode');
   const savedSession = readStoredJson(uiStorage.session);
-  if (savedSession?.email && savedSession?.company && (!savedSession.api || apiToken())) enterErp(savedSession);
-  else { elements.loginView.hidden = false; elements.erpShell.hidden = true; }
+  if (savedSession?.email && savedSession?.company && savedSession.api && apiToken()) enterErp(savedSession);
+  else { if(savedSession&&!savedSession.api)localStorage.removeItem(uiStorage.session);elements.loginView.hidden = false; elements.erpShell.hidden = true; }
 }
 
 function setupCollapsibleNavigation() {
@@ -2184,22 +2171,6 @@ elements.securityTable.addEventListener('click',event=>{const button=event.targe
 elements.securityUserForm.addEventListener('submit',saveSecurityUser);
 elements.securityRoleForm.addEventListener('submit',saveSecurityRole);
 elements.securityPasswordForm.addEventListener('submit',saveSecurityPassword);
-elements.runtimeBadge.addEventListener('click', () => {
-  updateRuntimeMode(state.runtimeMode, false);
-  openErpDialog(elements.environmentDialog);
-});
-elements.environmentForm.addEventListener('change', (event) => {
-  if (event.target.name !== 'runtimeMode') return;
-  elements.environmentMessage.textContent = event.target.value === 'api'
-    ? 'Al volver a iniciar sesión, usarás empresas, maestros y registros reales de SQL Server.'
-    : 'Los archivos XML y borradores permanecerán únicamente en este equipo.';
-});
-elements.environmentForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  const selected = new FormData(elements.environmentForm).get('runtimeMode');
-  updateRuntimeMode(selected);
-  closeErpDialog(elements.environmentDialog);
-});
 document.querySelectorAll('[data-master-view]').forEach((button) => button.addEventListener('click', () => showMasterView(button.dataset.masterView)));
 elements.addMasterRecord.addEventListener('click',()=>openMasterForm());
 elements.masterTable.addEventListener('click',(event)=>{const supplierButton=event.target.closest('[data-master-supplier-action]');if(supplierButton){const supplier=findById(getCompanyMasterData().data.suppliers,supplierButton.dataset.id);if(supplierButton.dataset.masterSupplierAction==='edit')openMasterForm(supplier);else if(supplierButton.dataset.masterSupplierAction==='delete')void deleteMasterSupplier(supplier);return;}const button=event.target.closest('[data-master-article-action]');if(!button)return;const article=findById(getCompanyMasterData().data.articles,button.dataset.id);if(button.dataset.masterArticleAction==='edit')openMasterForm(article);else if(button.dataset.masterArticleAction==='delete')void deleteMasterArticle(article);});

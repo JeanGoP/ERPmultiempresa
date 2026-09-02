@@ -32,7 +32,7 @@
         <div class="login-field"><label for="loginPassword">Contraseña</label><span class="password-field"><input id="loginPassword" type="password" required minlength="4" autocomplete="current-password" placeholder="Mínimo 4 caracteres"><button id="togglePassword" type="button" aria-label="Mostrar contraseña">Ver</button></span></div>
         <p id="loginError" class="login-error" hidden></p>
         <button class="button primary login-submit" type="submit">Continuar <span>→</span></button>
-        <div class="login-notice"><i></i><span><strong>Entorno local protegido</strong>En esta etapa las credenciales no salen de este equipo.</span></div>
+        <div class="login-notice"><i></i><span><strong>Acceso empresarial</strong>Las credenciales se validan de forma segura contra la API del ERP.</span></div>
       </form>
     </div>
   </section>
@@ -167,7 +167,6 @@
       <header class="erp-topbar">
         <div class="breadcrumb"><span>Compras</span><b>/</b><strong id="breadcrumbCurrent">Entrada automática</strong></div>
         <div class="topbar-actions">
-          <button id="runtimeBadge" class="local-badge" type="button" title="Configurar origen de datos"><i></i><span>Procesamiento local</span></button>
           <button class="icon-button" type="button" aria-label="Notificaciones">●</button>
           <span id="topbarDate" class="topbar-date"></span>
         </div>
@@ -193,7 +192,7 @@
             <div id="masterNotice" class="master-notice" hidden role="status"></div>
             <div id="masterTable" class="table-wrap master-table"></div>
           </section>
-          <div class="master-scope-note"><strong>Datos por empresa</strong><span>En modo API los catálogos se guardan en SQL Server; en modo local permanecen únicamente en este navegador.</span></div>
+          <div class="master-scope-note"><strong>Datos por empresa</strong><span>Los catálogos de la empresa se guardan y consultan directamente en SQL Server.</span></div>
         </section>
 
         <section id="savedPurchasesModule" class="saved-purchases-module" hidden>
@@ -423,20 +422,7 @@
         <button class="button primary wide" type="submit">Crear empresa operativa</button>
       </form>
     </section>
-    <p class="dialog-footnote">En modo local se muestran empresas de demostración. En modo API solo aparecen las empresas autorizadas para el usuario.</p>
-  </dialog>
-
-  <dialog id="environmentDialog" class="erp-dialog compact-dialog" aria-labelledby="environmentDialogTitle">
-    <div class="dialog-heading">
-      <div><span class="dialog-kicker">BANDERA DE ACTIVACIÓN</span><h2 id="environmentDialogTitle">Origen de los datos</h2><p>Define cómo trabajará este navegador.</p></div>
-      <button class="dialog-close" type="button" data-close-dialog="environmentDialog" aria-label="Cerrar">×</button>
-    </div>
-    <form id="environmentForm">
-      <label class="environment-option"><input type="radio" name="runtimeMode" value="local"><span><strong>Local</strong><small>XML y borradores permanecen en este equipo. Es el modo estable actual.</small></span></label>
-      <label class="environment-option"><input type="radio" name="runtimeMode" value="api"><span><strong>API ERP</strong><small>Conecta usuarios, empresas, maestros y entradas automáticas con SQL Server.</small></span></label>
-      <p id="environmentMessage" class="environment-message"></p>
-      <button class="button primary dialog-submit" type="submit">Guardar configuración</button>
-    </form>
+    <p class="dialog-footnote">Solo aparecen las empresas autorizadas para el usuario.</p>
   </dialog>
 
   <dialog id="masterRecordDialog" class="erp-dialog master-dialog" aria-labelledby="masterDialogTitle">
