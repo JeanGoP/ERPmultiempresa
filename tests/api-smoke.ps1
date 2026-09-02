@@ -90,7 +90,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
         try { $health=Invoke-RestMethod -Uri "$baseUrl/api/v1/health" -Method Get; $healthy=$true; break } catch { if($apiProcess.HasExited){ break } }
     }
     if(-not $healthy){ throw "La API no inicio. $(Get-Content $errorLog -Raw -ErrorAction SilentlyContinue)" }
-    if($health.status -ne 'ok' -or $health.migrations -ne 40){ throw 'La salud de la API no reporto las 40 migraciones esperadas.' }
+    if($health.status -ne 'ok' -or $health.migrations -ne 41){ throw 'La salud de la API no reporto las 41 migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
 
@@ -197,6 +197,15 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     if($prepared.recepcionMercanciaId -ne $preparedAgain.recepcionMercanciaId){ throw 'La preparacion duplico la recepcion.' }
     $beforeMovements=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/receipts/$($prepared.recepcionMercanciaId)/movements" -Headers $adminHeaders -Method Get
     if($null -ne $beforeMovements -and @($beforeMovements).Count -ne 0){ throw 'Preparar la recepcion afecto Kardex antes de la confirmacion.' }
+    $warehouseReceipt=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipts/$($prepared.recepcionMercanciaId)" -Headers $adminHeaders -Method Get
+    $warehouseUnitId=[long]@($warehouseReceipt.unidades)[0].recepcionMercanciaUnidadId
+    $null=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipts/$($prepared.recepcionMercanciaId)/checks" -Headers $adminHeaders -Method Put -ContentType 'application/json' -Body (@{revisiones=@(@{recepcionMercanciaUnidadId=$warehouseUnitId;estadoFisico='RECIBIDA_NOVEDAD';observacion='Rayón lateral reportado en prueba QA'})}|ConvertTo-Json -Depth 5)
+    $pendingIssues=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipt-issues?tipo=RECIBIDA_NOVEDAD&q=FV-POINT4" -Headers $adminHeaders -Method Get
+    if(@($pendingIssues).Count -ne 1 -or @($pendingIssues)[0].numeroDocumento -ne 'FV-POINT4' -or @($pendingIssues)[0].observacion -notlike '*Rayón*'){ throw 'La bandeja administrativa no publicó exclusivamente la novedad pendiente.' }
+    $issueId=[long]@($pendingIssues)[0].recepcionMercanciaRevisionUnidadId
+    $managedIssue=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipt-issues/$issueId/resolve" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{resultado='RECLAMO_PROVEEDOR';observacionGestion='Caso QA notificado al proveedor'}|ConvertTo-Json)
+    $pendingAfterManagement=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipt-issues?q=FV-POINT4" -Headers $adminHeaders -Method Get
+    if($managedIssue.estado -ne 'GESTIONADA' -or ($null -ne $pendingAfterManagement -and @($pendingAfterManagement).Count -ne 0)){ throw 'La novedad gestionada no desapareció de la bandeja pendiente.' }
     $posted=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/receipts/$($prepared.recepcionMercanciaId)/post" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{correlationId=[guid]::NewGuid()}|ConvertTo-Json)
     $postedAgain=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/receipts/$($prepared.recepcionMercanciaId)/post" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{correlationId=[guid]::NewGuid()}|ConvertTo-Json)
     if($posted.movimientos -ne 1 -or -not $postedAgain.yaExistia){ throw 'La contabilizacion de la recepcion no fue idempotente.' }

@@ -490,6 +490,106 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         return header is null ? null : new(header,units);
     }
 
+    public async Task<IReadOnlyList<WarehouseReceiptIssueResponse>> GetPendingWarehouseReceiptIssuesAsync(long empresaId,long? bodegaId,string? query,string? tipo,DateOnly? desde,DateOnly? hasta,CancellationToken cancellationToken)
+    {
+        var normalizedQuery=string.IsNullOrWhiteSpace(query)?null:query.Trim();
+        var normalizedType=string.IsNullOrWhiteSpace(tipo)?null:tipo.Trim().ToUpperInvariant();
+        if(normalizedType is not null and not ("RECIBIDA_NOVEDAD" or "NO_RECIBIDA"))
+            throw new ArgumentException("El tipo de novedad no es válido.",nameof(tipo));
+        await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
+        await using var command=connection.CreateCommand();
+        command.CommandText="""
+            SELECT TOP(500)
+                   rv.RecepcionMercanciaRevisionUnidadId,r.RecepcionMercanciaId,r.Numero,d.DocumentoProveedorId,
+                   d.TipoDocumento,d.NumeroDocumento,t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre,
+                   u.RecepcionMercanciaUnidadId,l.NumeroLinea,a.Codigo,a.Descripcion,u.NumeroUnidad,
+                   u.Serial,u.Motor,u.Chasis,u.Vin,u.Color,u.Modelo,
+                   rv.EstadoFisico,rv.Observacion,s.NombreCompleto,rv.RevisadoEnUtc
+            FROM inv.RecepcionMercanciaRevisionUnidad rv
+            JOIN inv.RecepcionMercanciaUnidad u ON u.EmpresaId=rv.EmpresaId AND u.RecepcionMercanciaUnidadId=rv.RecepcionMercanciaUnidadId
+            JOIN inv.RecepcionMercanciaLinea l ON l.EmpresaId=u.EmpresaId AND l.RecepcionMercanciaLineaId=u.RecepcionMercanciaLineaId
+            JOIN inv.RecepcionMercancia r ON r.EmpresaId=l.EmpresaId AND r.RecepcionMercanciaId=l.RecepcionMercanciaId
+            JOIN comp.DocumentoProveedor d ON d.EmpresaId=r.EmpresaId AND d.DocumentoProveedorId=r.DocumentoProveedorId
+            JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
+            JOIN inv.Bodega b ON b.EmpresaId=r.EmpresaId AND b.BodegaId=r.BodegaId
+            JOIN inv.Articulo a ON a.EmpresaId=l.EmpresaId AND a.ArticuloId=l.ArticuloId
+            JOIN seg.Usuario s ON s.UsuarioId=rv.RevisadoPorUsuarioId
+            WHERE rv.EmpresaId=@EmpresaId
+              AND rv.EstadoFisico IN('RECIBIDA_NOVEDAD','NO_RECIBIDA')
+              AND rv.GestionadaEnUtc IS NULL
+              AND (@BodegaId IS NULL OR r.BodegaId=@BodegaId)
+              AND (@Tipo IS NULL OR rv.EstadoFisico=@Tipo)
+              AND (@Desde IS NULL OR r.FechaContable>=@Desde)
+              AND (@Hasta IS NULL OR r.FechaContable<=@Hasta)
+              AND (@Query IS NULL OR d.NumeroDocumento LIKE '%'+@Query+'%' OR r.Numero LIKE '%'+@Query+'%'
+                   OR t.RazonSocial LIKE '%'+@Query+'%' OR a.Codigo LIKE '%'+@Query+'%' OR a.Descripcion LIKE '%'+@Query+'%'
+                   OR u.Serial LIKE '%'+@Query+'%' OR u.Motor LIKE '%'+@Query+'%' OR u.Chasis LIKE '%'+@Query+'%' OR u.Vin LIKE '%'+@Query+'%'
+                   OR rv.Observacion LIKE '%'+@Query+'%')
+            ORDER BY d.FechaDocumento DESC,d.DocumentoProveedorId DESC,l.NumeroLinea,u.NumeroUnidad;
+            """;
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
+        Add(command,"@BodegaId",SqlDbType.BigInt,bodegaId);
+        Add(command,"@Query",SqlDbType.NVarChar,normalizedQuery,120);
+        Add(command,"@Tipo",SqlDbType.VarChar,normalizedType,20);
+        Add(command,"@Desde",SqlDbType.Date,desde?.ToDateTime(TimeOnly.MinValue));
+        Add(command,"@Hasta",SqlDbType.Date,hasta?.ToDateTime(TimeOnly.MinValue));
+        await using var reader=await command.ExecuteReaderAsync(cancellationToken);
+        var result=new List<WarehouseReceiptIssueResponse>();
+        while(await reader.ReadAsync(cancellationToken))
+            result.Add(new(reader.GetInt64(0),reader.GetInt64(1),reader.GetString(2),reader.GetInt64(3),reader.GetString(4),reader.GetString(5),reader.GetString(6),
+                DateOnly.FromDateTime(reader.GetDateTime(7)),DateOnly.FromDateTime(reader.GetDateTime(8)),reader.GetString(9),reader.GetInt64(10),reader.GetInt32(11),reader.GetString(12),reader.GetString(13),reader.GetInt32(14),
+                reader.IsDBNull(15)?null:reader.GetString(15),reader.IsDBNull(16)?null:reader.GetString(16),reader.IsDBNull(17)?null:reader.GetString(17),reader.IsDBNull(18)?null:reader.GetString(18),
+                reader.IsDBNull(19)?null:reader.GetString(19),reader.IsDBNull(20)?null:reader.GetString(20),reader.GetString(21),reader.IsDBNull(22)?null:reader.GetString(22),reader.GetString(23),reader.GetDateTime(24)));
+        return result;
+    }
+
+    public async Task<ResolvedWarehouseReceiptIssueResponse> ResolveWarehouseReceiptIssueAsync(long empresaId,long revisionId,ResolveWarehouseReceiptIssueRequest input,CancellationToken cancellationToken)
+    {
+        var result=input.Resultado.Trim().ToUpperInvariant();
+        if(result is not ("RECLAMO_PROVEEDOR" or "AJUSTE_INVENTARIO" or "DEVOLUCION" or "ACEPTADA_DOCUMENTADA" or "OTRA"))
+            throw new ArgumentException("El resultado de gestión no es válido.",nameof(input));
+        var note=string.IsNullOrWhiteSpace(input.ObservacionGestion)?null:input.ObservacionGestion.Trim();
+        if(note?.Length>1000) throw new ArgumentException("La nota de gestión admite máximo 1000 caracteres.",nameof(input));
+        if(result=="OTRA"&&note is null) throw new ArgumentException("Describe la gestión realizada cuando seleccionas Otra.",nameof(input));
+        var userId=input.UsuarioId ?? throw new ArgumentException("No se identificó al administrador.",nameof(input));
+        await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
+        await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        DateTime managedAt;
+        await using(var command=connection.CreateCommand())
+        {
+            command.Transaction=transaction;
+            command.CommandText="""
+                UPDATE inv.RecepcionMercanciaRevisionUnidad WITH(UPDLOCK)
+                SET ResultadoGestion=@Resultado,ObservacionGestion=@ObservacionGestion,
+                    GestionadaPorUsuarioId=@UsuarioId,GestionadaEnUtc=SYSUTCDATETIME()
+                OUTPUT inserted.GestionadaEnUtc
+                WHERE EmpresaId=@EmpresaId AND RecepcionMercanciaRevisionUnidadId=@RevisionId
+                  AND EstadoFisico IN('RECIBIDA_NOVEDAD','NO_RECIBIDA') AND GestionadaEnUtc IS NULL;
+                """;
+            Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@RevisionId",SqlDbType.BigInt,revisionId);
+            Add(command,"@Resultado",SqlDbType.VarChar,result,30);Add(command,"@ObservacionGestion",SqlDbType.NVarChar,note,1000);Add(command,"@UsuarioId",SqlDbType.BigInt,userId);
+            var value=await command.ExecuteScalarAsync(cancellationToken);
+            if(value is null) throw new InvalidOperationException("La novedad ya fue gestionada, dejó de estar pendiente o no existe.");
+            managedAt=Convert.ToDateTime(value);
+        }
+        string managedBy;
+        await using(var user=connection.CreateCommand())
+        {
+            user.Transaction=transaction;user.CommandText="SELECT NombreCompleto FROM seg.Usuario WHERE UsuarioId=@UsuarioId;";Add(user,"@UsuarioId",SqlDbType.BigInt,userId);
+            managedBy=Convert.ToString(await user.ExecuteScalarAsync(cancellationToken)) ?? "Administrador";
+        }
+        await using(var audit=connection.CreateCommand())
+        {
+            audit.Transaction=transaction;
+            audit.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@EmpresaId,@UsuarioId,'NOVEDAD_RECEPCION_GESTIONADA','inv.RecepcionMercanciaRevisionUnidad',CONVERT(nvarchar(100),@RevisionId),@Valores,'ADMINISTRACION');";
+            Add(audit,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(audit,"@UsuarioId",SqlDbType.BigInt,userId);Add(audit,"@RevisionId",SqlDbType.BigInt,revisionId);
+            Add(audit,"@Valores",SqlDbType.NVarChar,JsonSerializer.Serialize(new { resultado=result,observacionGestion=note }),-1);
+            await audit.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await transaction.CommitAsync(cancellationToken);
+        return new(revisionId,"GESTIONADA",result,note,managedBy,managedAt);
+    }
+
     public async Task<WarehouseReceiptCheckSummaryResponse> SaveWarehouseReceiptChecksAsync(long empresaId,long recepcionId,SaveWarehouseReceiptChecksRequest input,CancellationToken cancellationToken)
     {
         if(input.Revisiones.Count==0) throw new ArgumentException("Envía al menos una revisión física.",nameof(input));
@@ -523,7 +623,8 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
                 MERGE inv.RecepcionMercanciaRevisionUnidad AS target
                 USING(SELECT @EmpresaId EmpresaId,@UnidadId RecepcionMercanciaUnidadId) AS source
                 ON target.EmpresaId=source.EmpresaId AND target.RecepcionMercanciaUnidadId=source.RecepcionMercanciaUnidadId
-                WHEN MATCHED THEN UPDATE SET EstadoFisico=@EstadoFisico,Observacion=@Observacion,RevisadoPorUsuarioId=@UsuarioId,ActualizadoEnUtc=SYSUTCDATETIME()
+                WHEN MATCHED THEN UPDATE SET EstadoFisico=@EstadoFisico,Observacion=@Observacion,RevisadoPorUsuarioId=@UsuarioId,ActualizadoEnUtc=SYSUTCDATETIME(),
+                    ResultadoGestion=NULL,ObservacionGestion=NULL,GestionadaPorUsuarioId=NULL,GestionadaEnUtc=NULL
                 WHEN NOT MATCHED THEN INSERT(EmpresaId,RecepcionMercanciaUnidadId,EstadoFisico,Observacion,RevisadoPorUsuarioId)
                     VALUES(@EmpresaId,@UnidadId,@EstadoFisico,@Observacion,@UsuarioId);
                 """;

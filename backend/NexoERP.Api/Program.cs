@@ -26,7 +26,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.08.21.2";
+const string ReleaseVersion="2026.09.01.1";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -104,7 +104,7 @@ app.MapGet("/api/v1/health", async (TenantConnectionFactory connections, Cancell
 app.MapGet("/api/v1/health/live",()=>Results.Ok(new { status="live",utc=DateTime.UtcNow }));
 app.MapGet("/api/v1/health/ready",async(ProductionOperationsRepository operations,IOptions<OutboxOptions> options,CancellationToken ct)=>
 {
-    var health=await operations.GetPlatformHealthAsync(ct);var ready=health.Migrations>=40&&health.DiscardedOutbox==0;
+    var health=await operations.GetPlatformHealthAsync(ct);var ready=health.Migrations>=41&&health.DiscardedOutbox==0;
     var productionIntegration=string.Equals(options.Value.DeliveryMode,"Webhook",StringComparison.OrdinalIgnoreCase)&&Uri.IsWellFormedUriString(options.Value.WebhookUrl,UriKind.Absolute);
     return Results.Json(new { status=ready?"ready":"degraded",database="connected",health.Migrations,health.PendingOutbox,health.DiscardedOutbox,health.OldestPendingUtc,integrationMode=options.Value.DeliveryMode,productionIntegration },statusCode:ready?200:503);
 });
@@ -466,6 +466,20 @@ app.MapGet("/api/v1/companies/{empresaId:long}/warehouse-receipts-history/{recep
 {
     var result=await purchasing.GetWarehouseReceiptDetailAsync(empresaId,recepcionId,cancellationToken,true);
     return result is null?Results.NotFound():Results.Ok(result);
+}).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+
+app.MapGet("/api/v1/companies/{empresaId:long}/warehouse-receipt-issues", async (long empresaId,long? bodegaId,string? q,string? tipo,DateOnly? desde,DateOnly? hasta,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
+{
+    try { return Results.Ok(await purchasing.GetPendingWarehouseReceiptIssuesAsync(empresaId,bodegaId,q,tipo,desde,hasta,cancellationToken)); }
+    catch(ArgumentException error) { return Results.ValidationProblem(new Dictionary<string,string[]> { ["tipo"]=[error.Message] }); }
+}).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+
+app.MapPost("/api/v1/companies/{empresaId:long}/warehouse-receipt-issues/{revisionId:long}/resolve", async (long empresaId,long revisionId,ResolveWarehouseReceiptIssueRequest input,HttpContext context,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
+{
+    if(string.IsNullOrWhiteSpace(input.Resultado)) return Results.ValidationProblem(new Dictionary<string,string[]> { ["resultado"]=["Selecciona el resultado de la gestión."] });
+    try { return Results.Ok(await purchasing.ResolveWarehouseReceiptIssueAsync(empresaId,revisionId,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },cancellationToken)); }
+    catch(ArgumentException error) { return Results.ValidationProblem(new Dictionary<string,string[]> { ["gestion"]=[error.Message] }); }
+    catch(InvalidOperationException error) { return Results.Conflict(new { error=error.Message }); }
 }).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
 
 app.MapPut("/api/v1/companies/{empresaId:long}/warehouse-receipts/{recepcionId:long}/checks", async (long empresaId,long recepcionId,SaveWarehouseReceiptChecksRequest input,HttpContext context,PurchasingRepository purchasing,CancellationToken cancellationToken) =>

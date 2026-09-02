@@ -29,7 +29,7 @@ npm run db:init
 npm run db:check
 ```
 
-Los comandos crean `NexoErpDev` en SQL Server LocalDB, aplican 40 migraciones idempotentes y prueban costos, inventario, compras, causaciones, maestros, homologación, seguridad, auditoría y operación productiva.
+Los comandos crean `NexoErpDev` en SQL Server LocalDB, aplican 41 migraciones idempotentes y prueban costos, inventario, compras, causaciones, maestros, homologación, seguridad, auditoría y operación productiva.
 
 La estrategia de códigos `MOT-`/`ART-`, equivalencias por proveedor y seriales está documentada en [docs/codificacion-articulos.md](docs/codificacion-articulos.md).
 
@@ -45,7 +45,7 @@ La API exige autenticación salvo en `/api/v1/health` y `/api/v1/auth/login`. Pa
 powershell -File database/scripts/set-local-user.ps1 -Correo admin@empresa.com -Password (Read-Host -AsSecureString) -NombreCompleto "Administrador" -EmpresaCodigo EMPRESA
 ```
 
-La prueba HTTP aislada crea una base temporal, aplica las 40 migraciones y valida autenticación, empresa, permisos, maestros, homologación, recepción, causación y salud operativa sin modificar `NexoErpDev`:
+La prueba HTTP aislada crea una base temporal, aplica las 41 migraciones y valida autenticación, empresa, permisos, maestros, homologación, recepción, gestión de novedades, causación y salud operativa sin modificar `NexoErpDev`:
 
 ```powershell
 npm run api:smoke
@@ -69,6 +69,16 @@ El repositorio incluye `netlify.toml`, por lo que Netlify puede desplegarlo sin 
 
 La configuración ejecuta las validaciones JavaScript, publica `public/`, conserva las rutas de la SPA y envía `/erp-api/*` al backend alojado en `http://stecno.dyndns.org/ERP`.
 
-Después del despliegue, comprueba `https://TU-SITIO.netlify.app/erp-api/api/v1/health`. Debe responder con `status: ok`, `database: connected` y `migrations: 40`.
+Después del despliegue, comprueba `https://TU-SITIO.netlify.app/erp-api/api/v1/health`. Debe responder con `status: ok`, `database: connected` y `migrations: 41`.
 
 > Seguridad pendiente: habilitar HTTPS en el backend y actualizar el destino del proxy en `netlify.toml`. La exportación a Excel no forma parte de esta configuración de Netlify.
+
+## Paquete para publicación manual
+
+Después de validar y crear el commit del trabajo, genera una entrega completa con:
+
+```powershell
+npm run publish:manual
+```
+
+El comando reemplaza de forma segura la carpeta local `publish/` y deja separados el frontend estático, la API compilada, las migraciones SQL y el manifiesto de versión. Consulta [docs/manual-publishing.md](docs/manual-publishing.md) para el orden de despliegue.

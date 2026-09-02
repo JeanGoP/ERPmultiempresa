@@ -15,7 +15,8 @@
     "db:backup": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/backup-database.ps1",
     "test:volume": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/production-volume.ps1",
     "production:rehearsal": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/production-rehearsal.ps1",
-    "api:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/api-smoke.ps1"
+    "api:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/api-smoke.ps1",
+    "publish:manual": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-manual.ps1"
   },
   "devDependencies": {
     "@xmldom/xmldom": "^0.9.11"

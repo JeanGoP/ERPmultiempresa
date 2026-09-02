@@ -29,6 +29,7 @@ La API usa el prefijo `/api/v1`. Salvo salud e inicio de sesion, todas las rutas
 | GET | `/companies/{empresaId}/supplier-documents/{id}/detail` | Documento, líneas y unidades serializadas, incluidos color y modelo. |
 | GET | `/companies/{empresaId}/warehouse-receipts?q=&bodegaId=` | Recepciones de mercancía pendientes para revisión física de bodega. |
 | GET | `/companies/{empresaId}/warehouse-receipts/{id}` | Detalle de motos y marcas físicas de una recepción pendiente. |
+| GET | `/companies/{empresaId}/warehouse-receipt-issues?bodegaId=&q=&tipo=&desde=&hasta=` | Novedades de recepción pendientes, agrupables por factura. Solo administrador. |
 | GET | `/companies/{empresaId}/receipts/{id}/movements` | Movimientos de Kardex creados por la recepción. |
 | GET | `/companies/{empresaId}/service-accruals/{id}` | Líneas, dimensiones, totales y comprobante de la causación. |
 | GET | `/companies/{empresaId}/inventory/balances` | Existencias y valores actuales. |
@@ -44,6 +45,7 @@ La API usa el prefijo `/api/v1`. Salvo salud e inicio de sesion, todas las rutas
 | POST | `/companies/{empresaId}/supplier-documents/{id}/reject` | `COMPRAS.DOCUMENTO.CREAR`; solo borradores sin recepción ni causación preparada. |
 | POST | `/companies/{empresaId}/supplier-documents/{id}/prepare` | `COMPRAS.DOCUMENTO.CREAR` |
 | PUT | `/companies/{empresaId}/warehouse-receipts/{id}/checks` | `COMPRAS.RECEPCION.REVISAR` |
+| POST | `/companies/{empresaId}/warehouse-receipt-issues/{revisionId}/resolve` | `SEGURIDAD.PERMISOS.ADMINISTRAR`; registra resultado, nota, responsable y fecha de gestión. |
 | POST | `/companies/{empresaId}/receipts/{id}/post` | `COMPRAS.RECEPCION.CONTABILIZAR` |
 | PUT | `/companies/{empresaId}/service-accruals/{id}/accounts` | `COMPRAS.SERVICIO.CAUSAR` |
 | POST | `/companies/{empresaId}/service-accruals/{id}/post` | `COMPRAS.SERVICIO.CAUSAR` |
