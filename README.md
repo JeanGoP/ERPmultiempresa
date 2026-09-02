@@ -81,4 +81,4 @@ Después de validar y crear el commit del trabajo, genera una entrega completa c
 npm run publish:manual
 ```
 
-El comando reemplaza de forma segura la carpeta local `publish/` y deja separados el frontend estático, la API compilada, las migraciones SQL y el manifiesto de versión. Consulta [docs/manual-publishing.md](docs/manual-publishing.md) para el orden de despliegue.
+El comando reemplaza de forma segura la carpeta local `publish/` y deja allí exclusivamente el backend compilado en configuración Release. Consulta [docs/manual-publishing.md](docs/manual-publishing.md) para el orden de despliegue.

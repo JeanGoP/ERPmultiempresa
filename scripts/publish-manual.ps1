@@ -16,28 +16,9 @@ if (Test-Path -LiteralPath $publishRoot) {
     Remove-Item -LiteralPath $publishRoot -Recurse -Force
 }
 
-$frontendTarget = Join-Path $publishRoot 'frontend'
-$apiTarget = Join-Path $publishRoot 'api'
-$databaseTarget = Join-Path $publishRoot 'database\migrations'
-New-Item -ItemType Directory -Force -Path $frontendTarget,$apiTarget,$databaseTarget | Out-Null
+New-Item -ItemType Directory -Force -Path $publishRoot | Out-Null
 
-dotnet publish (Join-Path $projectRoot 'backend\NexoERP.Api\NexoERP.Api.csproj') -c $Configuration -o $apiTarget --no-restore
+dotnet publish (Join-Path $projectRoot 'backend\NexoERP.Api\NexoERP.Api.csproj') -c $Configuration -o $publishRoot --no-restore
 if ($LASTEXITCODE -ne 0) { throw 'Fallo la publicacion de la API.' }
 
-Copy-Item -Path (Join-Path $projectRoot 'public\*') -Destination $frontendTarget -Recurse -Force
-Copy-Item -Path (Join-Path $projectRoot 'database\migrations\*.sql') -Destination $databaseTarget -Force
-Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\manual-publishing.md') -Destination (Join-Path $publishRoot 'LEEME.md') -Force
-
-$commit = (& git -C $projectRoot rev-parse --short HEAD).Trim()
-$generatedAt = Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'
-@(
-    "Nexo ERP - paquete de publicacion manual"
-    "Commit: $commit"
-    "Configuracion: $Configuration"
-    "Generado: $generatedAt"
-) | Set-Content -LiteralPath (Join-Path $publishRoot 'VERSION.txt') -Encoding utf8
-
-Write-Host "Publicacion manual generada en $publishRoot"
-Write-Host "Frontend: $frontendTarget"
-Write-Host "API: $apiTarget"
-Write-Host "Migraciones: $databaseTarget"
+Write-Host "Backend publicado en $publishRoot"
