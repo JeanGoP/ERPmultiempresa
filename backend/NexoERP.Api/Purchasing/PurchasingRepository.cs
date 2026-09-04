@@ -210,6 +210,67 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         return new(documentoId,yaExistia,articulosCreados);
     }
 
+    public async Task<SupplierAccountsPayableResponse> GetSupplierAccountsPayableAsync(
+        long empresaId,long? terceroId,string? query,string? estado,DateOnly? desde,DateOnly? hasta,CancellationToken cancellationToken)
+    {
+        var normalizedQuery=string.IsNullOrWhiteSpace(query)?null:query.Trim();
+        var normalizedStatus=string.IsNullOrWhiteSpace(estado)?null:estado.Trim().ToUpperInvariant();
+        if(normalizedStatus is not null and not ("PENDIENTE" or "VENCIDA" or "PAGADA" or "ANULADA"))
+            throw new ArgumentException("El estado debe ser PENDIENTE, VENCIDA, PAGADA o ANULADA.",nameof(estado));
+        if(desde is not null&&hasta is not null&&desde>hasta)
+            throw new ArgumentException("La fecha inicial no puede ser posterior a la fecha final.",nameof(desde));
+
+        await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
+        await using var command=connection.CreateCommand();
+        command.CommandText="""
+            DECLARE @Hoy date=CONVERT(date,SYSUTCDATETIME());
+            SELECT TOP(500) p.DocumentoPorPagarId,p.DocumentoProveedorId,p.TerceroId,t.RazonSocial,t.NumeroIdentificacion,
+                   d.TipoDocumento,d.NumeroDocumento,p.FechaDocumento,p.FechaReconocimiento,p.FechaVencimiento,d.CondicionPago,
+                   p.Moneda,p.ValorOriginal,p.SaldoPendiente,
+                   CASE WHEN p.Estado='ANULADA' THEN 'ANULADA' WHEN p.SaldoPendiente=0 THEN 'PAGADA'
+                        WHEN p.FechaVencimiento<@Hoy THEN 'VENCIDA' ELSE 'PENDIENTE' END EstadoConsulta,
+                   CASE WHEN p.SaldoPendiente>0 AND p.FechaVencimiento<@Hoy THEN DATEDIFF(day,p.FechaVencimiento,@Hoy) ELSE 0 END DiasVencida,
+                   CASE WHEN p.Estado='ANULADA' THEN 'Anulada' WHEN p.SaldoPendiente=0 THEN 'Pagada'
+                        WHEN p.FechaVencimiento>=@Hoy THEN 'Por vencer'
+                        WHEN DATEDIFF(day,p.FechaVencimiento,@Hoy)<=30 THEN '1 a 30 dias'
+                        WHEN DATEDIFF(day,p.FechaVencimiento,@Hoy)<=60 THEN '31 a 60 dias'
+                        WHEN DATEDIFF(day,p.FechaVencimiento,@Hoy)<=90 THEN '61 a 90 dias'
+                        ELSE 'Mas de 90 dias' END RangoEdad
+            FROM cxp.DocumentoPorPagar p
+            JOIN comp.DocumentoProveedor d ON d.EmpresaId=p.EmpresaId AND d.DocumentoProveedorId=p.DocumentoProveedorId
+            JOIN ter.Tercero t ON t.EmpresaId=p.EmpresaId AND t.TerceroId=p.TerceroId
+            WHERE p.EmpresaId=@EmpresaId AND (@TerceroId IS NULL OR p.TerceroId=@TerceroId)
+              AND (@Desde IS NULL OR p.FechaReconocimiento>=@Desde) AND (@Hasta IS NULL OR p.FechaReconocimiento<=@Hasta)
+              AND (@Query IS NULL OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial LIKE '%'+@Query+'%' OR t.NumeroIdentificacion LIKE '%'+@Query+'%')
+              AND
+              (
+                  @Estado IS NULL
+                  OR (@Estado='PENDIENTE' AND p.SaldoPendiente>0 AND p.FechaVencimiento>=@Hoy AND p.Estado<>'ANULADA')
+                  OR (@Estado='VENCIDA' AND p.SaldoPendiente>0 AND p.FechaVencimiento<@Hoy AND p.Estado<>'ANULADA')
+                  OR (@Estado='PAGADA' AND p.SaldoPendiente=0 AND p.Estado<>'ANULADA')
+                  OR (@Estado='ANULADA' AND p.Estado='ANULADA')
+              )
+            ORDER BY CASE WHEN p.SaldoPendiente>0 AND p.FechaVencimiento<@Hoy THEN 0 ELSE 1 END,p.FechaVencimiento,p.DocumentoPorPagarId DESC;
+            """;
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
+        Add(command,"@TerceroId",SqlDbType.BigInt,terceroId);
+        Add(command,"@Query",SqlDbType.NVarChar,normalizedQuery,120);
+        Add(command,"@Estado",SqlDbType.VarChar,normalizedStatus,12);
+        Add(command,"@Desde",SqlDbType.Date,desde?.ToDateTime(TimeOnly.MinValue));
+        Add(command,"@Hasta",SqlDbType.Date,hasta?.ToDateTime(TimeOnly.MinValue));
+        await using var reader=await command.ExecuteReaderAsync(cancellationToken);
+        var documents=new List<SupplierPayableItemResponse>();
+        while(await reader.ReadAsync(cancellationToken)) documents.Add(new(
+            reader.GetInt64(0),reader.GetInt64(1),reader.GetInt64(2),reader.GetString(3),reader.GetString(4),reader.GetString(5),reader.GetString(6),
+            DateOnly.FromDateTime(reader.GetDateTime(7)),DateOnly.FromDateTime(reader.GetDateTime(8)),DateOnly.FromDateTime(reader.GetDateTime(9)),
+            reader.GetString(10),reader.GetString(11),reader.GetDecimal(12),reader.GetDecimal(13),reader.GetString(14),reader.GetInt32(15),reader.GetString(16)));
+        var summary=new SupplierPayableSummaryResponse(
+            documents.Count(x=>x.SaldoPendiente>0&&x.Estado!="ANULADA"),documents.Count(x=>x.Estado=="VENCIDA"),
+            documents.Where(x=>x.Estado!="ANULADA").Sum(x=>x.SaldoPendiente),documents.Where(x=>x.Estado=="VENCIDA").Sum(x=>x.SaldoPendiente),
+            documents.Where(x=>x.Estado=="PENDIENTE").Sum(x=>x.SaldoPendiente));
+        return new(summary,documents);
+    }
+
     public async Task<IReadOnlyList<SupplierDocumentListItemResponse>> GetDocumentsAsync(long empresaId,string? query,string? estado,CancellationToken cancellationToken)
     {
         var normalizedQuery=string.IsNullOrWhiteSpace(query)?null:query.Trim();

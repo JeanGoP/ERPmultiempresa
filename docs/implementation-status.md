@@ -55,6 +55,7 @@ El modo local del lector y sus borradores se conservan. La escritura en SQL Serv
 - Comprobante contable balanceado visible, separado de la recepción y sin movimientos de Kardex para servicios.
 - Rol de auxiliar de bodega con panel de recepción física para chulear motos recibidas, con novedad o no recibidas antes de contabilizar el ingreso a bodega.
 - Bandeja administrativa de novedades pendientes agrupada por factura, con filtros y cierre auditado por resultado, nota, usuario y fecha.
+- Cartera de proveedores generada de forma atómica e idempotente solo cuando la factura completa queda contabilizada, con estado de cuenta, vencimientos y filtros por proveedor.
 
 ## Pruebas automatizadas actuales
 
@@ -68,7 +69,7 @@ El modo local del lector y sus borradores se conservan. La escritura en SQL Serv
 - Motor, chasis y VIN vinculados a unidades serializadas.
 - Eventos Outbox y deterioros.
 - Compilación .NET sin advertencias.
-- Prueba HTTP aislada sobre una base temporal con las 42 migraciones.
+- Prueba HTTP aislada sobre una base temporal con las 43 migraciones.
 - Salud, login, permisos, rechazo anónimo `401`, denegación `403` y aislamiento entre empresas.
 - Consultas HTTP de saldos, inventario histórico y unidades serializadas.
 - Validaciones HTTP y traducción uniforme de errores de negocio.
@@ -78,6 +79,7 @@ El modo local del lector y sus borradores se conservan. La escritura en SQL Serv
 - Prueba integral de entrada manual: idempotencia, lote, vencimiento y trazabilidad serializada, comparando su costo de Kardex con una entrada XML equivalente.
 - Prueba visual del borrador manual con descuento, impuesto, cargo, seriales y total, sin errores de consola.
 - Prueba integral de factura mixta: una recepción, una causación, comprobante balanceado, idempotencia y cero Kardex para la línea de servicio.
+- Prueba integral de cartera: cero obligación en borrador o factura mixta incompleta y una sola cuenta por pagar al terminar la contabilización.
 - Prueba visual de servicios con descuento, impuesto, retención y cuenta por pagar, sin errores de consola.
 - Prueba operacional de Outbox, alerta, reintento y archivo conservando Kardex.
 - Prueba de volumen de 5.000 movimientos con 20 trabajadores sin pérdida de cantidad, valor o secuencia.

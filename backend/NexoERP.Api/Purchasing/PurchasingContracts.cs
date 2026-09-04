@@ -87,6 +87,36 @@ public sealed record SupplierDocumentResponse(
     long? RecepcionMercanciaId = null,
     long? CausacionServicioId = null);
 
+public sealed record SupplierPayableSummaryResponse(
+    int Facturas,
+    int FacturasVencidas,
+    decimal SaldoTotal,
+    decimal SaldoVencido,
+    decimal SaldoPorVencer);
+
+public sealed record SupplierPayableItemResponse(
+    long DocumentoPorPagarId,
+    long DocumentoProveedorId,
+    long TerceroId,
+    string Proveedor,
+    string ProveedorIdentificacion,
+    string TipoDocumento,
+    string NumeroDocumento,
+    DateOnly FechaDocumento,
+    DateOnly FechaReconocimiento,
+    DateOnly FechaVencimiento,
+    string CondicionPago,
+    string Moneda,
+    decimal ValorOriginal,
+    decimal SaldoPendiente,
+    string Estado,
+    int DiasVencida,
+    string RangoEdad);
+
+public sealed record SupplierAccountsPayableResponse(
+    SupplierPayableSummaryResponse Resumen,
+    IReadOnlyList<SupplierPayableItemResponse> Documentos);
+
 public sealed record SupplierDocumentListItemResponse(
     long DocumentoProveedorId,string Estado,string TipoDocumento,string NumeroDocumento,string Proveedor,
     string ProveedorIdentificacion,DateOnly FechaDocumento,DateOnly? FechaVencimiento,string CondicionPago,string Moneda,

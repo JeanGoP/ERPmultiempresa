@@ -35,7 +35,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.01.3";
+const string ReleaseVersion="2026.09.04.1";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -437,6 +437,12 @@ app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents", async (long
 
 app.MapGet("/api/v1/companies/{empresaId:long}/supplier-documents",async(long empresaId,string? q,string? estado,PurchasingRepository purchasing,CancellationToken cancellationToken)=>
     Results.Ok(await purchasing.GetDocumentsAsync(empresaId,q,estado,cancellationToken)));
+
+app.MapGet("/api/v1/companies/{empresaId:long}/accounts-payable",async(long empresaId,long? terceroId,string? q,string? estado,DateOnly? desde,DateOnly? hasta,PurchasingRepository purchasing,CancellationToken cancellationToken)=>
+{
+    try { return Results.Ok(await purchasing.GetSupplierAccountsPayableAsync(empresaId,terceroId,q,estado,desde,hasta,cancellationToken)); }
+    catch(ArgumentException error) { return Results.ValidationProblem(new Dictionary<string,string[]> { ["filtros"]=[error.Message] }); }
+}).RequireErpPermission("COMPRAS.DOCUMENTO.CREAR");
 
 app.MapGet("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:long}", async (long empresaId,long documentoId,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
 {

@@ -1,6 +1,6 @@
 /*
     Reinicio controlado para una demostracion de compras e inventario.
-    Compatible con el esquema hasta la migracion 042.
+    Compatible con el esquema hasta la migracion 043.
 
     CONSERVA:
       - empresa, usuarios, roles y permisos;
@@ -10,6 +10,7 @@
 
     ELIMINA PARA UNA SOLA EMPRESA:
       - documentos de proveedor y sus lineas/seriales;
+      - cartera y movimientos de proveedor originados por esos documentos;
       - recepciones y causaciones originadas por esos documentos;
       - unidades serializadas, lotes, Kardex y saldos;
       - homologaciones, unidades asociadas y articulos;
@@ -79,6 +80,7 @@ WHERE EmpresaId=@EmpresaId;
 PRINT N'Resumen antes del reinicio:';
 SELECT
     (SELECT COUNT(*) FROM comp.DocumentoProveedor WHERE EmpresaId=@EmpresaId) AS EntradasGuardadas,
+    (SELECT COUNT(*) FROM cxp.DocumentoPorPagar WHERE EmpresaId=@EmpresaId) AS CuentasPorPagar,
     (SELECT COUNT(*) FROM inv.RecepcionMercancia WHERE EmpresaId=@EmpresaId) AS Recepciones,
     (SELECT COUNT(*) FROM inv.RecepcionMercancia WHERE EmpresaId=@EmpresaId AND Estado='CONTABILIZADA') AS RecepcionesContabilizadas,
     (SELECT COUNT(*) FROM inv.RecepcionMercanciaRevisionUnidad WHERE EmpresaId=@EmpresaId) AS RevisionesFisicas,
@@ -100,6 +102,7 @@ SELECT
 SELECT @ResumenAntes=(
     SELECT
         (SELECT COUNT(*) FROM comp.DocumentoProveedor WHERE EmpresaId=@EmpresaId) AS documentosProveedor,
+        (SELECT COUNT(*) FROM cxp.DocumentoPorPagar WHERE EmpresaId=@EmpresaId) AS cuentasPorPagar,
         (SELECT COUNT(*) FROM inv.RecepcionMercancia WHERE EmpresaId=@EmpresaId) AS recepciones,
         (SELECT COUNT(*) FROM comp.CausacionServicio WHERE EmpresaId=@EmpresaId) AS causaciones,
         (SELECT COUNT(*) FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId) AS movimientosKardex,
@@ -226,6 +229,8 @@ BEGIN TRY
     WHERE h.EmpresaId=@EmpresaId;
 
     -- Documentos XML/manuales y sus detalles.
+    DELETE FROM cxp.MovimientoProveedor WHERE EmpresaId=@EmpresaId;
+    DELETE FROM cxp.DocumentoPorPagar WHERE EmpresaId=@EmpresaId;
     DELETE FROM comp.DocumentoProveedorLineaTrazabilidad WHERE EmpresaId=@EmpresaId;
     DELETE FROM comp.DocumentoProveedorLineaUnidad WHERE EmpresaId=@EmpresaId;
     DELETE FROM comp.DocumentoProveedorLinea WHERE EmpresaId=@EmpresaId;

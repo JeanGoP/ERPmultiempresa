@@ -525,14 +525,21 @@ footer p { margin: 0; }
 .saved-purchases-toolbar { display: grid; grid-template-columns: minmax(280px,1fr) 210px auto; gap: 12px; align-items: end; padding: 20px; border-bottom: 1px solid var(--line); background: #f8faf9; }
 .saved-purchases-toolbar label>span { display: block; margin-bottom: 6px; color: #4b5e54; font-size: 8px; font-weight: 850; text-transform: uppercase; }
 .saved-purchases-toolbar input,.saved-purchases-toolbar select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: white; }
+.accounts-payable-toolbar { grid-template-columns: minmax(210px,1fr) minmax(190px,1fr) 135px 155px 155px auto; }
 .saved-purchases-table { min-height: 300px; max-height: 610px; overflow: auto; }
 .saved-purchases-table table { min-width: 1100px; }
+.accounts-payable-workspace td strong,.accounts-payable-workspace td small { display: block; }
+.accounts-payable-workspace td small { margin-top: 4px; color: var(--muted); font-size: 8px; }
+.accounts-payable-balance { color: var(--green-dark); font-weight: 900; }
 .saved-document-identity strong,.saved-document-identity small { display: block; }
 .saved-document-identity small { margin-top: 4px; color: var(--muted); font-size: 8px; }
 .saved-purchase-badge { display: inline-block; padding: 6px 8px; border-radius: 999px; color: #755817; background: #fff2cb; font-size: 8px; font-weight: 900; white-space: nowrap; }
 .saved-purchase-badge.state-contabilizada { color: #205d41; background: #dff2e8; }
 .saved-purchase-badge.state-anulada { color: #874237; background: #f7dfda; }
 .saved-purchase-badge.state-borrador { color: #4d5e56; background: #e9efec; }
+.saved-purchase-badge.state-pendiente { color: #6f5426; background: #fff2cb; }
+.saved-purchase-badge.state-vencida { color: #8a4033; background: #f9ded8; }
+.saved-purchase-badge.state-pagada { color: #205d41; background: #dff2e8; }
 .saved-purchase-detail { margin-top: 20px; padding: 24px; border: 1px solid #bdd9cb; border-radius: 15px; background: #f8fcfa; box-shadow: 0 14px 34px rgba(35,86,63,.08); }
 .saved-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .saved-detail-heading span { color: var(--green); font-size: 8px; font-weight: 900; letter-spacing: .12em; }

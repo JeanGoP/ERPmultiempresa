@@ -90,7 +90,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
         try { $health=Invoke-RestMethod -Uri "$baseUrl/api/v1/health" -Method Get; $healthy=$true; break } catch { if($apiProcess.HasExited){ break } }
     }
     if(-not $healthy){ throw "La API no inicio. $(Get-Content $errorLog -Raw -ErrorAction SilentlyContinue)" }
-    if($health.status -ne 'ok' -or $health.migrations -ne 42 -or $health.release -ne '2026.09.01.3' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
+    if($health.status -ne 'ok' -or $health.migrations -ne 43 -or $health.release -ne '2026.09.04.1' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
 
@@ -169,7 +169,9 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     $warehouses=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouses" -Headers $adminHeaders -Method Get
     $periods=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory-periods" -Headers $adminHeaders -Method Get
     $warehouseId=[long](@($warehouses)|Where-Object codigo -eq 'BOD-API'|Select-Object -First 1).bodegaId
-    $periodId=[long](@($periods)[0].periodoInventarioId)
+    $inventoryPeriod=@($periods)|Where-Object codigo -eq '2026-08'|Select-Object -First 1
+    $periodId=[long]$inventoryPeriod.periodoInventarioId
+    if($periodId -le 0){ throw 'No se encontró el periodo de inventario 2026-08 para la prueba.' }
     $autoBody=@{
         proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';proveedorTipoIdentificacion='NIT';proveedorDigitoVerificacion='5';proveedorNombreComercial='Proveedor QA';proveedorResponsabilidadFiscal='O-13';proveedorRegimenFiscalCodigo='01';proveedorRegimenFiscalNombre='IVA';proveedorDireccion='Calle 10 # 20-30';proveedorCiudadCodigo='11001';proveedorCiudad='Bogota';proveedorDepartamentoCodigo='11';proveedorDepartamento='Bogota D.C.';proveedorCodigoPostal='110111';proveedorPaisCodigo='CO';proveedorPais='Colombia';proveedorContactoNombre='Ana QA';proveedorTelefono='6015551234';proveedorCorreo='facturas@qa.local';proveedorSitioWeb='https://qa.local';proveedorDatosXmlJson='{"Party.CompanyID":[{"value":"890301886"}]}';tipoDocumento='FACTURA';numeroDocumento='FV-AUTO-ITEM-1';fechaDocumento='2026-08-20';fechaVencimiento='2026-08-20';condicionPago='CONTADO';diasCredito=0;crearArticulosFaltantes=$true;moneda='COP';
         cufeCude='CUFE-AUTO-ITEM-1';fuente='XML_DIAN';subtotalBruto=100;descuentoTotal=0;impuestoTotal=19;cargoTotal=0;totalPagar=119;xmlOriginal='<Invoice><ID>FV-AUTO-ITEM-1</ID></Invoice>';
@@ -224,9 +226,15 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     $managedIssue=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipt-issues/$issueId/resolve" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{resultado='RECLAMO_PROVEEDOR';observacionGestion='Caso QA notificado al proveedor'}|ConvertTo-Json)
     $pendingAfterManagement=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/warehouse-receipt-issues?q=FV-POINT4" -Headers $adminHeaders -Method Get
     if($managedIssue.estado -ne 'GESTIONADA' -or ($null -ne $pendingAfterManagement -and @($pendingAfterManagement).Count -ne 0)){ throw 'La novedad gestionada no desapareció de la bandeja pendiente.' }
+    $payableBeforePosting=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/accounts-payable?q=FV-POINT4" -Headers $adminHeaders -Method Get
+    if(@($payableBeforePosting.documentos).Count -ne 0 -or $payableBeforePosting.resumen.saldoTotal -ne 0){ throw 'La factura alimentó cartera antes de ser contabilizada.' }
     $posted=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/receipts/$($prepared.recepcionMercanciaId)/post" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{correlationId=[guid]::NewGuid()}|ConvertTo-Json)
     $postedAgain=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/receipts/$($prepared.recepcionMercanciaId)/post" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{correlationId=[guid]::NewGuid()}|ConvertTo-Json)
     if($posted.movimientos -ne 1 -or -not $postedAgain.yaExistia){ throw 'La contabilizacion de la recepcion no fue idempotente.' }
+    $payableAfterPosting=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/accounts-payable?q=FV-POINT4" -Headers $adminHeaders -Method Get
+    $payableSqlCount=[int]((& sqlcmd -S $Instance -E -h -1 -W -d $databaseName -Q "SET NOCOUNT ON; EXEC sys.sp_set_session_context @key=N'BypassRls',@value=1; SELECT COUNT(*) FROM cxp.DocumentoPorPagar WHERE EmpresaId=$companyId AND DocumentoProveedorId=$($created.documentoProveedorId);" )|Select-Object -First 1).Trim()
+    $payablePoint4=@($payableAfterPosting.documentos)[0]
+    if(@($payableAfterPosting.documentos).Count -ne 1 -or $payablePoint4.saldoPendiente -ne 107.1 -or $payablePoint4.numeroDocumento -ne 'FV-POINT4' -or $payableSqlCount -ne 1){ throw 'La contabilización no generó una sola cuenta por pagar por el valor de la factura.' }
     $movements=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/receipts/$($prepared.recepcionMercanciaId)/movements" -Headers $adminHeaders -Method Get
     if(@($movements).Count -ne 1 -or @($movements)[0].cantidadEntrada -ne 1){ throw 'El resultado de Kardex no corresponde con la factura.' }
     $serials=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory/serialized-units" -Headers $adminHeaders -Method Get
@@ -257,8 +265,10 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
 
     $accountingPeriods=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/accounting-periods" -Headers $adminHeaders -Method Get
     $accounts=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/accounting-accounts" -Headers $adminHeaders -Method Get
-    if(@($accountingPeriods).Count -ne 1 -or @($accounts).Count -ne 4){ throw 'La API no publico los periodos y cuentas contables de la empresa.' }
-    $accountingPeriodId=[long](@($accountingPeriods)[0].periodoContableId)
+    if(@($accountingPeriods).Count -lt 1 -or @($accounts).Count -lt 4){ throw 'La API no publico los periodos y cuentas contables de la empresa.' }
+    $accountingPeriod=@($accountingPeriods)|Where-Object codigo -eq '2026-08'|Select-Object -First 1
+    $accountingPeriodId=[long]$accountingPeriod.periodoContableId
+    if($accountingPeriodId -le 0){ throw 'No se encontró el periodo contable 2026-08 para la prueba.' }
     $mixedBody=@{
         proveedorIdentificacion='890301886';proveedorRazonSocial='Proveedor API QA';tipoDocumento='FACTURA';numeroDocumento='FV-MIXTA-P6';fechaDocumento='2026-08-20';fechaVencimiento='2026-09-19';condicionPago='CREDITO';diasCredito=30;crearArticulosFaltantes=$false;moneda='COP';
         cufeCude=$null;fuente='MANUAL';subtotalBruto=150;descuentoTotal=15;impuestoTotal=25.65;cargoTotal=0;totalPagar=156.65;xmlOriginal=$null;documentoGuid=[guid]::NewGuid();
@@ -279,6 +289,8 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     $servicePosted=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/service-accruals/$($mixedPrepared.causacionServicioId)/post" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{periodoContableId=$accountingPeriodId;cuentaImpuestoCodigo='240810';cuentaRetencionCodigo='236525';cuentaPorPagarCodigo='220505';correlationId=[guid]::NewGuid()}|ConvertTo-Json)
     $servicePostedAgain=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/service-accruals/$($mixedPrepared.causacionServicioId)/post" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{periodoContableId=$accountingPeriodId;cuentaImpuestoCodigo='240810';cuentaRetencionCodigo='236525';cuentaPorPagarCodigo='220505';correlationId=[guid]::NewGuid()}|ConvertTo-Json)
     if($servicePosted.estado -ne 'CONTABILIZADA' -or -not $servicePostedAgain.yaExistia){ throw 'La causacion no fue contabilizada de forma idempotente.' }
+    $mixedPayableBeforeReceipt=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/accounts-payable?q=FV-MIXTA-P6" -Headers $adminHeaders -Method Get
+    if(@($mixedPayableBeforeReceipt.documentos).Count -ne 0){ throw 'La factura mixta alimentó cartera antes de contabilizar su parte de mercancía.' }
     $mixedReceiptPosted=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/receipts/$($mixedPrepared.recepcionMercanciaId)/post" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body (@{correlationId=[guid]::NewGuid()}|ConvertTo-Json)
     if($mixedReceiptPosted.movimientos -ne 1){ throw 'La parte de mercancia de la factura mixta no genero exactamente un movimiento.' }
     $accrualPosted=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/service-accruals/$($mixedPrepared.causacionServicioId)" -Headers $adminHeaders -Method Get
@@ -286,6 +298,8 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     if($accrualPosted.estado -ne 'CONTABILIZADA' -or $debits -ne 107.1 -or $credits -ne 107.1 -or $accrualPosted.centroCostoCodigo -ne 'TALLER' -or $accrualPosted.proyectoCodigo -ne 'P6-ERP'){ throw 'El comprobante de servicios no quedo balanceado o perdio sus dimensiones.' }
     $mixedWorkflow=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/supplier-documents/$($mixedCreated.documentoProveedorId)" -Headers $adminHeaders -Method Get
     if($mixedWorkflow.estado -ne 'CONTABILIZADO' -or $mixedWorkflow.recepcionEstado -ne 'CONTABILIZADA' -or $mixedWorkflow.causacionEstado -ne 'CONTABILIZADA'){ throw 'El documento mixto no cerro ambos flujos.' }
+    $mixedPayable=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/accounts-payable?q=FV-MIXTA-P6" -Headers $adminHeaders -Method Get
+    if(@($mixedPayable.documentos).Count -ne 1 -or @($mixedPayable.documentos)[0].saldoPendiente -ne 156.65){ throw 'La factura mixta no generó una única obligación por su valor completo.' }
 
     $stock=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory/stock?q=MOTO-API" -Headers $adminHeaders -Method Get
     $kardex=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory/kardex?desde=2026-08-01&hasta=2026-08-31&q=FV" -Headers $adminHeaders -Method Get

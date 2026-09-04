@@ -77,7 +77,7 @@
             <button class="nav-subitem" type="button" data-registration-mode="goods">Registrar compra manual</button>
             <button id="savedPurchasesNav" class="nav-subitem" type="button">Documentos de compra</button>
             <button class="nav-subitem" type="button" data-registration-mode="services">Causar servicios</button>
-            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Cuentas por pagar<span class="nav-soon">Próximamente</span></button>
+            <button id="accountsPayableNav" class="nav-subitem" type="button">Cuentas por pagar</button>
             <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Anticipos a proveedores<span class="nav-soon">Próximamente</span></button>
           </div>
         </details>
@@ -211,6 +211,26 @@
             <div id="savedPurchasesTable" class="table-wrap saved-purchases-table"></div>
           </section>
           <section id="savedPurchaseDetail" class="saved-purchase-detail" hidden></section>
+        </section>
+
+        <section id="accountsPayableModule" class="saved-purchases-module" hidden>
+          <section class="module-heading saved-purchases-heading">
+            <div><p class="eyebrow">COMPRAS · CARTERA DE PROVEEDORES</p><h1>Cuentas<br>por pagar</h1><p class="lede">Consulta las obligaciones que nacieron al contabilizar completamente cada factura de compra.</p></div>
+            <div class="module-state ready"><span></span><div><small>ESTADO DE CUENTA</small><strong id="accountsPayableStatus">Consulta disponible</strong></div></div>
+          </section>
+          <div id="accountsPayableStats" class="inventory-stats"></div>
+          <section class="saved-purchases-workspace accounts-payable-workspace">
+            <div class="saved-purchases-toolbar accounts-payable-toolbar">
+              <label><span>Buscar</span><input id="accountsPayableSearch" type="search" placeholder="Factura, proveedor o NIT"></label>
+              <label><span>Proveedor</span><select id="accountsPayableSupplier"><option value="">Todos los proveedores</option></select></label>
+              <label><span>Estado</span><select id="accountsPayableState"><option value="">Todos</option><option value="PENDIENTE">Por vencer</option><option value="VENCIDA">Vencidas</option><option value="PAGADA">Pagadas</option><option value="ANULADA">Anuladas</option></select></label>
+              <label><span>Desde contabilización</span><input id="accountsPayableFrom" type="date"></label>
+              <label><span>Hasta contabilización</span><input id="accountsPayableTo" type="date"></label>
+              <button id="refreshAccountsPayable" class="button primary" type="button">Actualizar</button>
+            </div>
+            <div id="accountsPayableNotice" class="inventory-notice" hidden></div>
+            <div id="accountsPayableTable" class="table-wrap saved-purchases-table"></div>
+          </section>
         </section>
 
         <section id="inventoryModule" class="inventory-module" hidden>
