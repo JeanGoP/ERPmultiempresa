@@ -224,7 +224,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         await using var command=connection.CreateCommand();
         command.CommandText="""
             DECLARE @Hoy date=CONVERT(date,SYSUTCDATETIME());
-            SELECT TOP(500) p.DocumentoPorPagarId,p.DocumentoProveedorId,p.TerceroId,t.RazonSocial,t.NumeroIdentificacion,
+            SELECT p.DocumentoPorPagarId,p.DocumentoProveedorId,p.TerceroId,t.RazonSocial,t.NumeroIdentificacion,
                    d.TipoDocumento,d.NumeroDocumento,p.FechaDocumento,p.FechaReconocimiento,p.FechaVencimiento,d.CondicionPago,
                    p.Moneda,p.ValorOriginal,p.SaldoPendiente,
                    CASE WHEN p.Estado='ANULADA' THEN 'ANULADA' WHEN p.SaldoPendiente=0 THEN 'PAGADA'
@@ -269,6 +269,37 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             documents.Where(x=>x.Estado!="ANULADA").Sum(x=>x.SaldoPendiente),documents.Where(x=>x.Estado=="VENCIDA").Sum(x=>x.SaldoPendiente),
             documents.Where(x=>x.Estado=="PENDIENTE").Sum(x=>x.SaldoPendiente));
         return new(summary,documents);
+    }
+
+    public async Task<SupplierStatementResponse?> GetSupplierStatementAsync(long empresaId,long terceroId,long? documentoId,CancellationToken ct)
+    {
+        var account=await GetSupplierAccountsPayableAsync(empresaId,terceroId,null,null,null,null,ct);
+        var invoices=account.Documentos.Where(x=>documentoId is null||x.DocumentoProveedorId==documentoId).ToArray();
+        if(invoices.Length==0)return null;
+        await using var connection=await connections.OpenAsync(empresaId,false,ct);
+        await using var command=connection.CreateCommand();
+        command.CommandText="""
+            SELECT RazonSocial,Nit FROM core.Empresa WHERE EmpresaId=@EmpresaId;
+            SELECT m.MovimientoProveedorId,m.DocumentoPorPagarId,d.NumeroDocumento,m.TipoMovimiento,m.FechaMovimiento,
+                   m.NumeroDocumento,m.Moneda,m.Cargo,m.Abono
+            FROM cxp.MovimientoProveedor m
+            JOIN cxp.DocumentoPorPagar p ON p.EmpresaId=m.EmpresaId AND p.DocumentoPorPagarId=m.DocumentoPorPagarId
+            JOIN comp.DocumentoProveedor d ON d.EmpresaId=p.EmpresaId AND d.DocumentoProveedorId=p.DocumentoProveedorId
+            WHERE m.EmpresaId=@EmpresaId AND p.TerceroId=@TerceroId
+              AND (@DocumentoId IS NULL OR p.DocumentoProveedorId=@DocumentoId)
+            ORDER BY m.FechaMovimiento,m.MovimientoProveedorId;
+            """;
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
+        Add(command,"@TerceroId",SqlDbType.BigInt,terceroId);
+        Add(command,"@DocumentoId",SqlDbType.BigInt,documentoId);
+        await using var reader=await command.ExecuteReaderAsync(ct);
+        if(!await reader.ReadAsync(ct))return null;
+        var company=reader.GetString(0);var nit=reader.GetString(1);
+        var movements=new List<SupplierStatementMovement>();
+        await reader.NextResultAsync(ct);
+        while(await reader.ReadAsync(ct))movements.Add(new(reader.GetInt64(0),reader.GetInt64(1),reader.GetString(2),
+            reader.GetString(3),DateOnly.FromDateTime(reader.GetDateTime(4)),reader.GetString(5),reader.GetString(6),reader.GetDecimal(7),reader.GetDecimal(8)));
+        return new(company,nit,invoices[0].Proveedor,invoices[0].ProveedorIdentificacion,DateTime.UtcNow,invoices,movements);
     }
 
     public async Task<IReadOnlyList<SupplierDocumentListItemResponse>> GetDocumentsAsync(long empresaId,string? query,string? estado,CancellationToken cancellationToken)

@@ -444,6 +444,12 @@ app.MapGet("/api/v1/companies/{empresaId:long}/accounts-payable",async(long empr
     catch(ArgumentException error) { return Results.ValidationProblem(new Dictionary<string,string[]> { ["filtros"]=[error.Message] }); }
 }).RequireErpPermission("COMPRAS.DOCUMENTO.CREAR");
 
+app.MapGet("/api/v1/companies/{empresaId:long}/suppliers/{terceroId:long}/statement",async(long empresaId,long terceroId,long? documentoId,PurchasingRepository purchasing,CancellationToken ct)=>
+{
+    var result=await purchasing.GetSupplierStatementAsync(empresaId,terceroId,documentoId,ct);
+    return result is null?Results.NotFound():Results.Ok(result);
+}).RequireErpPermission("COMPRAS.DOCUMENTO.CREAR");
+
 app.MapGet("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:long}", async (long empresaId,long documentoId,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
 {
     var result=await purchasing.GetWorkflowAsync(empresaId,documentoId,cancellationToken);

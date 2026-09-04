@@ -301,6 +301,27 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     $mixedPayable=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/accounts-payable?q=FV-MIXTA-P6" -Headers $adminHeaders -Method Get
     if(@($mixedPayable.documentos).Count -ne 1 -or @($mixedPayable.documentos)[0].saldoPendiente -ne 156.65){ throw 'La factura mixta no generó una única obligación por su valor completo.' }
 
+    # Pago de prueba en la base temporal: el extracto debe atribuirlo solo a su factura.
+    $paymentSql=@"
+SET XACT_ABORT ON;
+EXEC sys.sp_set_session_context @key=N'BypassRls',@value=1;
+BEGIN TRANSACTION;
+INSERT cxp.MovimientoProveedor(EmpresaId,TerceroId,DocumentoPorPagarId,TipoMovimiento,FechaMovimiento,NumeroDocumento,Moneda,Cargo,Abono,TipoDocumentoOrigen,DocumentoOrigenId)
+SELECT EmpresaId,TerceroId,DocumentoPorPagarId,'PAGO','2026-08-25','EG-QA-001',Moneda,0,7,'EGRESO_QA',1
+FROM cxp.DocumentoPorPagar WHERE EmpresaId=$companyId AND DocumentoProveedorId=$($created.documentoProveedorId);
+UPDATE cxp.DocumentoPorPagar SET SaldoPendiente=100.1,Estado='PARCIAL'
+WHERE EmpresaId=$companyId AND DocumentoProveedorId=$($created.documentoProveedorId);
+COMMIT;
+"@
+    & sqlcmd -S $Instance -E -b -d $databaseName -Q $paymentSql
+    if($LASTEXITCODE -ne 0){throw 'Falló la preparación del pago de prueba.'}
+    $statement=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/suppliers/$($supplierSaved.id)/statement?documentoId=$($created.documentoProveedorId)" -Headers $adminHeaders
+    $payment=@($statement.movimientos|Where-Object tipoMovimiento -eq 'PAGO')
+    if(@($statement.facturas).Count -ne 1 -or @($statement.movimientos).Count -ne 2 -or $payment.Count -ne 1 -or $payment[0].abono -ne 7 -or $statement.facturas[0].saldoPendiente -ne 100.1){throw 'El extracto no atribuyó correctamente el pago y el saldo a su factura.'}
+    $mixedStatement=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/suppliers/$($supplierSaved.id)/statement?documentoId=$($mixedCreated.documentoProveedorId)" -Headers $adminHeaders
+    if(@($mixedStatement.movimientos|Where-Object tipoMovimiento -eq 'PAGO').Count -ne 0){throw 'El extracto mezcló pagos de otra factura.'}
+    Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/suppliers/999999/statement?documentoId=$($created.documentoProveedorId)" -Headers $adminHeaders } 404 'El extracto no aisló al proveedor.'
+
     $stock=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory/stock?q=MOTO-API" -Headers $adminHeaders -Method Get
     $kardex=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory/kardex?desde=2026-08-01&hasta=2026-08-31&q=FV" -Headers $adminHeaders -Method Get
     $serialSearch=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory/serialized-units?q=MOT-P4-001" -Headers $adminHeaders -Method Get
@@ -375,6 +396,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
 
     $viewerLogin=Invoke-RestMethod -Uri "$baseUrl/api/v1/auth/login" -Method Post -ContentType 'application/json' -Body (@{correo='consulta.api@qa.local';password=$viewerPassword}|ConvertTo-Json)
     $viewerHeaders=@{Authorization="Bearer $($viewerLogin.token)"}
+    Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/suppliers/$($supplierSaved.id)/statement" -Headers $viewerHeaders } 403 'El extracto no protegió el permiso de consulta.'
     $null=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory/balances" -Headers $viewerHeaders -Method Get
     Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/security/users" -Headers $viewerHeaders -Method Get } 403 'La administración de seguridad no bloqueó al usuario restringido.'
     Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/master-data/suppliers" -Headers $viewerHeaders -Method Post -ContentType 'application/json' -Body (@{tipoIdentificacion='NIT';numeroIdentificacion='1';razonSocial='Sin permiso'}|ConvertTo-Json) } 403 'El permiso de maestros no bloqueo al usuario restringido.'

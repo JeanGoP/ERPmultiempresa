@@ -5,7 +5,7 @@
   "description": "Módulo ERP para registrar mercancías y causar servicios desde XML DIAN o captura manual.",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check public/app.js && node --check public/advanced-controls.js",
+    "check": "node --check server.js && node --check public/app.js && node --check public/advanced-controls.js && node --check public/accounts-payable.js",
     "test": "node tests/parser-smoke.js",
     "api:check": "dotnet build backend/NexoERP.Api/NexoERP.Api.csproj --no-restore",
     "test:all": "npm run check && npm test && npm run api:check",
@@ -21,5 +21,8 @@
   },
   "devDependencies": {
     "@xmldom/xmldom": "^0.9.11"
+  },
+  "dependencies": {
+    "jspdf": "^4.2.1"
   }
 }

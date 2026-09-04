@@ -215,20 +215,23 @@
 
         <section id="accountsPayableModule" class="saved-purchases-module" hidden>
           <section class="module-heading saved-purchases-heading">
-            <div><p class="eyebrow">COMPRAS · CARTERA DE PROVEEDORES</p><h1>Cuentas<br>por pagar</h1><p class="lede">Consulta las obligaciones que nacieron al contabilizar completamente cada factura de compra.</p></div>
+            <div><p class="eyebrow">COMPRAS / INTELIGENCIA DE CARTERA</p><h1>Cartera de proveedores</h1><p class="lede">Anticipa tus pagos. Identifica vencimientos, concentra prioridades y consulta el detalle de cada factura.</p></div>
             <div class="module-state ready"><span></span><div><small>ESTADO DE CUENTA</small><strong id="accountsPayableStatus">Consulta disponible</strong></div></div>
           </section>
-          <div id="accountsPayableStats" class="inventory-stats"></div>
+          <div id="accountsPayableStats" class="inventory-stats payable-kpis"></div>
           <section class="saved-purchases-workspace accounts-payable-workspace">
             <div class="saved-purchases-toolbar accounts-payable-toolbar">
               <label><span>Buscar</span><input id="accountsPayableSearch" type="search" placeholder="Factura, proveedor o NIT"></label>
               <label><span>Proveedor</span><select id="accountsPayableSupplier"><option value="">Todos los proveedores</option></select></label>
               <label><span>Estado</span><select id="accountsPayableState"><option value="">Todos</option><option value="PENDIENTE">Por vencer</option><option value="VENCIDA">Vencidas</option><option value="PAGADA">Pagadas</option><option value="ANULADA">Anuladas</option></select></label>
+              <label><span>Moneda</span><select id="payableCurrency"><option value="COP">COP</option></select></label>
               <label><span>Desde contabilización</span><input id="accountsPayableFrom" type="date"></label>
               <label><span>Hasta contabilización</span><input id="accountsPayableTo" type="date"></label>
               <button id="refreshAccountsPayable" class="button primary" type="button">Actualizar</button>
             </div>
             <div id="accountsPayableNotice" class="inventory-notice" hidden></div>
+            <div id="payableDashboard" class="payable-dashboard"></div>
+            <div class="payable-table-heading"><div><h2>Detalle de obligaciones</h2><p id="payableScope">Selecciona una edad para explorar sus facturas.</p></div><button id="supplierStatementPdf" class="button secondary" type="button">Descargar extracto del proveedor</button></div>
             <div id="accountsPayableTable" class="table-wrap saved-purchases-table"></div>
           </section>
         </section>
@@ -493,7 +496,9 @@
     <form id="securityPasswordForm" class="security-form"><label><span>Nueva contraseña</span><input name="password" type="password" required minlength="10" autocomplete="new-password"></label><p id="securityPasswordError" class="login-error" hidden></p><button class="button primary dialog-submit" type="submit">Cambiar contraseña</button></form>
   </dialog>
 
+  <script src="vendor/jspdf.umd.min.js"></script>
   <script src="app.js"></script>
+  <script src="accounts-payable.js"></script>
   <script src="advanced-controls.js"></script>
 </body>
 </html>

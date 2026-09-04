@@ -33,6 +33,14 @@ npm run db:check
 
 Los comandos crean `NexoErpDev` en SQL Server LocalDB, aplican 43 migraciones idempotentes y prueban costos, inventario, compras, causaciones, cartera de proveedores, maestros, homologación, seguridad, auditoría y operación productiva.
 
+### Dashboard y extractos de proveedores
+
+La cartera presenta saldo pendiente, vencido, por vencer, concentración por proveedor y prioridades. Las edades se calculan desde el vencimiento: al día, 1–30, 31–60, 61–90 y más de 90 días. Los indicadores respetan los filtros superiores y separan las monedas; al pulsar una edad se filtra el detalle de facturas.
+
+Cada factura tiene un botón **PDF factura**. Al seleccionar un proveedor se habilita su extracto completo (sin los filtros del dashboard). El informe consulta movimientos reales, muestra fecha, soporte, cargos, abonos y saldo acumulado por factura, y repite encabezados al paginar. Los pagos se obtienen de `cxp.MovimientoProveedor`, vinculados a la obligación exacta; no se infieren del saldo ni se inventan si no existen. El registro de comprobantes de egreso sigue pendiente de desarrollo.
+
+`tests/payable-dashboard-smoke.js` valida edades, filtros, separación de monedas y genera evidencia visual/PDF en `tmp/payable-qa/`; requiere Playwright y Chrome disponibles. `npm run api:smoke` comprueba aplicaciones de pago y aislamiento por factura/proveedor en una base temporal, sin registrar pagos de prueba en remoto.
+
 La estrategia de códigos `MOT-`/`ART-`, equivalencias por proveedor y seriales está documentada en [docs/codificacion-articulos.md](docs/codificacion-articulos.md).
 
 ## API

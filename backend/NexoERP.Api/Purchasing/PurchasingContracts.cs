@@ -117,6 +117,11 @@ public sealed record SupplierAccountsPayableResponse(
     SupplierPayableSummaryResponse Resumen,
     IReadOnlyList<SupplierPayableItemResponse> Documentos);
 
+public sealed record SupplierStatementMovement(long MovimientoId,long DocumentoPorPagarId,string Factura,
+    string TipoMovimiento,DateOnly Fecha,string Soporte,string Moneda,decimal Cargo,decimal Abono);
+public sealed record SupplierStatementResponse(string Empresa,string Nit,string Proveedor,string Identificacion,
+    DateTime GeneradoEnUtc,IReadOnlyList<SupplierPayableItemResponse> Facturas,IReadOnlyList<SupplierStatementMovement> Movimientos);
+
 public sealed record SupplierDocumentListItemResponse(
     long DocumentoProveedorId,string Estado,string TipoDocumento,string NumeroDocumento,string Proveedor,
     string ProveedorIdentificacion,DateOnly FechaDocumento,DateOnly? FechaVencimiento,string CondicionPago,string Moneda,

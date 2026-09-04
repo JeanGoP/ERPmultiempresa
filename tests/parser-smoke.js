@@ -17,7 +17,7 @@ new vm.Script(appSource);
 for (const id of ['accountsPayableNav', 'accountsPayableModule', 'accountsPayableSupplier', 'accountsPayableState', 'accountsPayableFrom', 'accountsPayableTo', 'accountsPayableTable']) {
   assert(indexSource.includes(`id="${id}"`), `Falta el control visual de cartera: ${id}`);
 }
-for (const fragment of ['showAccountsPayable', 'refreshAccountsPayable', '/accounts-payable?', 'saldoVencido', 'rangoEdad']) {
+for (const fragment of ['showAccountsPayable', 'refreshAccountsPayable', '/accounts-payable?', 'renderPayableDashboard']) {
   assert(appSource.includes(fragment), `Falta la integración visual de cartera: ${fragment}`);
 }
 
