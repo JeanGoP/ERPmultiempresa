@@ -6,6 +6,43 @@ namespace NexoERP.Api.Inventory;
 
 public sealed class InventoryRepository(TenantConnectionFactory connections)
 {
+    public async Task<IReadOnlyList<InventoryAgeResponse>> GetAgingAsync(long empresaId,long? bodegaId,string? q,long? recepcionId,CancellationToken ct)
+    {
+        await using var connection=await connections.OpenAsync(empresaId,false,ct);
+        await using var command=connection.CreateCommand();
+        command.CommandText="""
+            WITH disponibles AS (
+                SELECT o.RecepcionMercanciaLineaId LineaId,s.BodegaId,SUM(s.CantidadDisponible) Cantidad
+                FROM inv.SaldoOrigenBodega s JOIN inv.OrigenInventario o ON o.EmpresaId=s.EmpresaId AND o.OrigenInventarioId=s.OrigenInventarioId
+                JOIN inv.Articulo a ON a.EmpresaId=s.EmpresaId AND a.ArticuloId=s.ArticuloId AND a.ManejaSerial=0
+                WHERE s.EmpresaId=@E AND s.CantidadDisponible>0 GROUP BY o.RecepcionMercanciaLineaId,s.BodegaId
+                UNION ALL
+                SELECT ru.RecepcionMercanciaLineaId,u.BodegaActualId,COUNT_BIG(*)
+                FROM inv.RecepcionMercanciaUnidad ru JOIN inv.UnidadSerializada u ON u.EmpresaId=ru.EmpresaId AND u.UnidadSerializadaId=ru.UnidadSerializadaId
+                WHERE ru.EmpresaId=@E AND u.Estado='DISPONIBLE' GROUP BY ru.RecepcionMercanciaLineaId,u.BodegaActualId
+            )
+            SELECT r.RecepcionMercanciaId,l.RecepcionMercanciaLineaId,r.Numero,COALESCE(d.NumeroDocumento,r.Numero),t.RazonSocial,
+                a.ArticuloId,a.Codigo,a.Descripcion,s.BodegaId,b.Nombre,r.FechaContable,
+                DATEDIFF(day,r.FechaContable,CONVERT(date,SYSDATETIMEOFFSET() AT TIME ZONE 'SA Pacific Standard Time')),s.Cantidad,a.ManejaSerial
+            FROM disponibles s JOIN inv.RecepcionMercanciaLinea l ON l.EmpresaId=@E AND l.RecepcionMercanciaLineaId=s.LineaId
+            JOIN inv.RecepcionMercancia r ON r.EmpresaId=l.EmpresaId AND r.RecepcionMercanciaId=l.RecepcionMercanciaId AND r.Estado='CONTABILIZADA'
+            LEFT JOIN comp.DocumentoProveedor d ON d.EmpresaId=r.EmpresaId AND d.DocumentoProveedorId=r.DocumentoProveedorId
+            JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
+            JOIN inv.Articulo a ON a.EmpresaId=l.EmpresaId AND a.ArticuloId=l.ArticuloId
+            JOIN inv.Bodega b ON b.EmpresaId=r.EmpresaId AND b.BodegaId=s.BodegaId AND b.EsTransito=0
+            WHERE (@B IS NULL OR s.BodegaId=@B) AND (@R IS NULL OR r.RecepcionMercanciaId=@R)
+              AND (@Q IS NULL OR a.Codigo LIKE '%'+@Q+'%' OR a.Descripcion LIKE '%'+@Q+'%' OR d.NumeroDocumento LIKE '%'+@Q+'%' OR t.RazonSocial LIKE '%'+@Q+'%')
+            ORDER BY r.FechaContable,a.Codigo,r.RecepcionMercanciaId,b.Nombre;
+            """;
+        command.Parameters.AddWithValue("@E",empresaId);
+        command.Parameters.Add(new SqlParameter("@B",SqlDbType.BigInt){Value=(object?)bodegaId??DBNull.Value});
+        command.Parameters.Add(new SqlParameter("@R",SqlDbType.BigInt){Value=(object?)recepcionId??DBNull.Value});
+        command.Parameters.Add(new SqlParameter("@Q",SqlDbType.NVarChar,200){Value=string.IsNullOrWhiteSpace(q)?DBNull.Value:q.Trim()});
+        await using var reader=await command.ExecuteReaderAsync(ct);var rows=new List<InventoryAgeResponse>();
+        while(await reader.ReadAsync(ct))rows.Add(new(reader.GetInt64(0),reader.GetInt64(1),reader.GetString(2),reader.GetString(3),reader.GetString(4),reader.GetInt64(5),reader.GetString(6),reader.GetString(7),reader.GetInt64(8),reader.GetString(9),DateOnly.FromDateTime(reader.GetDateTime(10)),reader.GetInt32(11),reader.GetDecimal(12),reader.GetBoolean(13)));
+        return rows;
+    }
+
     public async Task<IReadOnlyList<WarehouseResponse>> GetWarehousesAsync(long empresaId, CancellationToken cancellationToken)
     {
         await using var connection = await connections.OpenAsync(empresaId, false, cancellationToken);

@@ -31,7 +31,17 @@ npm run db:init
 npm run db:check
 ```
 
-Los comandos crean `NexoErpDev` en SQL Server LocalDB, aplican 43 migraciones idempotentes y prueban costos, inventario, compras, causaciones, cartera de proveedores, maestros, homologación, seguridad, auditoría y operación productiva.
+Los comandos crean `NexoErpDev` en SQL Server LocalDB, aplican 44 migraciones idempotentes y prueban costos, inventario, compras, causaciones, cartera de proveedores, maestros, homologación, seguridad, auditoría y operación productiva.
+
+### Bodegas por artículo, traslado de factura y edad de inventario
+
+Al contabilizar cualquier entrada se confirma una bodega por renglón. La bodega general permite asignarlas todas y luego modificar las excepciones. La distribución, el Kardex, los seriales y la cartera se guardan en la misma transacción; cancelar conserva el borrador.
+
+Desde **Compras → Documentos de compra → Abrir** una entrada contabilizada, **Trasladar factura completa** consolida su mercancía en la bodega destino, con fecha y periodo abiertos. Requiere permisos de despacho y recepción. Genera un traslado por bodega origen, conserva los seriales y el origen exacto de cada entrada y no modifica la cartera. Si falta alguna cantidad o unidad disponible, se rechaza toda la operación. Las existencias que ya están en el destino no se vuelven a mover. Los reintentos usan una clave de operación para evitar duplicados.
+
+**Inventarios → Edad de artículos** muestra saldos disponibles por entrada y bodega actual, ordenados de mayor a menor antigüedad, con filtros de bodega, búsqueda por artículo/factura/proveedor, rangos de edad y descarga CSV. La edad parte de `RecepcionMercancia.FechaContable`, no de la fecha del proveedor ni del traslado. Los seriales usan su ubicación y estado reales; los artículos sin serial se atribuyen por origen (FIFO para salidas ordinarias). No se inventa una fecha para saldos históricos sin recepción identificable y no se incluyen unidades en tránsito.
+
+La migración `044_receipt_warehouse_and_aging` agrega bodegas por línea y enlaces de traslado por origen. `tests/inventory-origin-api.ps1` se ejecuta dentro de `api:smoke` y prueba dos facturas con los mismos códigos, distribución individual, seriales, idempotencia, permisos, rechazo atómico y conservación de la cartera. `tests/inventory-origin-ui.js` verifica la interfaz con Playwright y Chrome, con evidencia en `tmp/origin-qa/`.
 
 ### Dashboard y extractos de proveedores
 
@@ -55,7 +65,7 @@ La API exige autenticación salvo en `/api/v1/health` y `/api/v1/auth/login`. Pa
 powershell -File database/scripts/set-local-user.ps1 -Correo admin@empresa.com -Password (Read-Host -AsSecureString) -NombreCompleto "Administrador" -EmpresaCodigo EMPRESA
 ```
 
-La prueba HTTP aislada crea una base temporal, aplica las 43 migraciones y valida autenticación, empresa, permisos, maestros, homologación, recepción, gestión de novedades, causación, cartera de proveedores y salud operativa sin modificar `NexoErpDev`:
+La prueba HTTP aislada crea una base temporal, aplica las 44 migraciones y valida autenticación, empresa, permisos, maestros, homologación, recepción, gestión de novedades, causación, cartera de proveedores, traslados de factura y edades sin modificar `NexoErpDev`:
 
 ```powershell
 npm run api:smoke

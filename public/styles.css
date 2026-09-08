@@ -805,3 +805,15 @@ footer p { margin: 0; }
   .draft-meta { grid-template-columns: 1fr 1fr; }
   footer { align-items: flex-start; flex-direction: column; gap: 8px; }
 }
+/* Recepción por renglón y traslado completo de facturas. */
+.origin-dialog{width:min(1050px,94vw);max-height:90vh;overflow:auto;padding:28px;border:1px solid #ceded7;border-radius:20px;color:#193f3b;background:#fff;box-shadow:0 24px 100px #163d3940}
+.origin-dialog::backdrop{background:#152e3480}
+.origin-dialog h2{margin:0 0 12px;font-size:26px}
+.origin-dialog p{line-height:1.6;color:#61756e}
+.origin-dialog select,.origin-dialog input{max-width:100%;min-height:44px;padding:8px;border:1px solid #cbd9d3;border-radius:8px;background:white;color:#193f3b}
+.origin-dialog .origin-scroll{overflow:auto;max-height:46vh;margin:20px 0}
+.origin-dialog table{width:100%;border-collapse:collapse}
+.origin-dialog td,.origin-dialog th{padding:12px;text-align:left;border-bottom:1px solid #e1ebe6}
+.origin-dialog th{background:#eaf2ef;position:sticky;top:0}
+.origin-dialog td select{min-width:180px}
+@media(max-width:650px){.origin-dialog{padding:18px}.origin-dialog .workflow-controls{display:grid;grid-template-columns:1fr}.origin-dialog h2{font-size:21px}}

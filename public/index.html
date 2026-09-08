@@ -101,6 +101,7 @@
             <button class="nav-subitem" type="button" data-inventory-view="operations">Movimientos entre bodegas</button>
             <button class="nav-subitem" type="button" data-inventory-view="kardex">Kardex</button>
             <button class="nav-subitem" type="button" data-inventory-view="serials">Seriales</button>
+            <button class="nav-subitem" type="button" data-inventory-view="aging">Edad de artículos</button>
             <button class="nav-subitem" type="button" data-inventory-view="expiry">Vencimientos</button>
             <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Conteos físicos<span class="nav-soon">Próximamente</span></button>
           </div>
@@ -244,6 +245,7 @@
           <div id="inventoryStats" class="inventory-stats"></div>
           <section class="inventory-workspace">
             <div class="inventory-tabs" role="tablist">
+              <button class="inventory-tab" type="button" data-inventory-view="aging">Edad de artículos</button>
               <button class="inventory-tab active" type="button" data-inventory-view="stock">Existencias</button><button class="inventory-tab" type="button" data-inventory-view="receiving">Recepción física</button><button class="inventory-tab" type="button" data-inventory-view="receipt-issues">Novedades pendientes</button><button class="inventory-tab" type="button" data-inventory-view="receipt-history">Historial recepciones</button><button class="inventory-tab" type="button" data-inventory-view="kardex">Kardex</button><button class="inventory-tab" type="button" data-inventory-view="serials">Seriales</button><button class="inventory-tab" type="button" data-inventory-view="expiry">Vencimientos</button><button class="inventory-tab" type="button" data-inventory-view="operations">Movimientos entre bodegas</button>
             </div>
             <div class="inventory-toolbar">
@@ -499,6 +501,7 @@
   <script src="vendor/jspdf.umd.min.js"></script>
   <script src="app.js"></script>
   <script src="accounts-payable.js"></script>
+  <script src="inventory-origin.js"></script>
   <script src="advanced-controls.js"></script>
 </body>
 </html>

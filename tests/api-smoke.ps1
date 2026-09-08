@@ -90,7 +90,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
         try { $health=Invoke-RestMethod -Uri "$baseUrl/api/v1/health" -Method Get; $healthy=$true; break } catch { if($apiProcess.HasExited){ break } }
     }
     if(-not $healthy){ throw "La API no inicio. $(Get-Content $errorLog -Raw -ErrorAction SilentlyContinue)" }
-    if($health.status -ne 'ok' -or $health.migrations -ne 43 -or $health.release -ne '2026.09.04.1' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
+    if($health.status -ne 'ok' -or $health.migrations -ne 44 -or $health.release -ne '2026.09.08.1' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
 
@@ -408,6 +408,7 @@ COMMIT;
     Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/inventory/entries" -Headers $viewerHeaders -Method Post -ContentType 'application/json' -Body $entryBody } 403 'El permiso de entrada no bloqueo al usuario restringido.'
     Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/999999/inventory/balances" -Headers $adminHeaders -Method Get } 403 'El aislamiento por empresa no rechazo una empresa ajena.'
 
+    . (Join-Path $PSScriptRoot 'inventory-origin-api.ps1')
     Write-Host 'QA API correcto: puntos 1 a 9, salud operativa, costos, controles e integracion Outbox sin duplicar ni editar Kardex.'
 }
 finally {

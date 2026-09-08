@@ -1,4 +1,6 @@
 namespace NexoERP.Api.Inventory;
+public sealed record InventoryAgeResponse(long RecepcionMercanciaId,long LineaId,string Entrada,string Factura,string Proveedor,
+    long ArticuloId,string Codigo,string Descripcion,long BodegaId,string Bodega,DateOnly FechaEntrada,int Dias,decimal Cantidad,bool Serializado);
 
 public sealed record WarehouseResponse(long BodegaId, string Codigo, string Nombre, bool UsaUbicaciones, bool EsTransito);
 public sealed record InventoryPeriodListResponse(long PeriodoInventarioId,string Codigo,DateOnly FechaInicio,DateOnly FechaFin,string Estado);

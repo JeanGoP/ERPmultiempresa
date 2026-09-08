@@ -165,7 +165,10 @@ public sealed record PreparedSupplierDocumentResponse(
     int LineasInventario,
     int LineasServicio);
 
-public sealed record PostReceiptRequest(long? UsuarioId, Guid? CorrelationId);
+public sealed record ReceiptWarehouseAssignment(long RecepcionMercanciaLineaId,long BodegaId);
+public sealed record ReceiptDistributionLine(long RecepcionMercanciaLineaId,int NumeroLinea,string Codigo,string Descripcion,decimal Cantidad,long BodegaId);
+public sealed record PostReceiptRequest(long? UsuarioId, Guid? CorrelationId,IReadOnlyList<ReceiptWarehouseAssignment>? Bodegas=null);
+public sealed record TransferInvoiceRequest(long BodegaDestinoId,long PeriodoInventarioId,DateOnly FechaContable,Guid OperacionGuid);
 public sealed record PostedReceiptResponse(long RecepcionMercanciaId, string Estado, int Movimientos, bool YaExistia);
 public sealed record ReceiptMovementResponse(
     long MovimientoInventarioId,int NumeroLinea,string CodigoArticulo,string Descripcion,

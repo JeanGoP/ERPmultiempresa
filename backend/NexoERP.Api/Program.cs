@@ -35,7 +35,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.04.1";
+const string ReleaseVersion="2026.09.08.1";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -491,6 +491,15 @@ app.MapPost("/api/v1/companies/{empresaId:long}/receipts/{recepcionId:long}/post
         return Results.Conflict(new { error = error.Message, code = error.Number });
     }
 }).RequireErpPermission("COMPRAS.RECEPCION.CONTABILIZAR");
+
+app.MapGet("/api/v1/companies/{empresaId:long}/inventory/aging",async(long empresaId,long? bodegaId,string? q,long? recepcionId,InventoryRepository inventory,CancellationToken ct)=>Results.Ok(await inventory.GetAgingAsync(empresaId,bodegaId,q,recepcionId,ct)));
+app.MapGet("/api/v1/companies/{empresaId:long}/receipts/{recepcionId:long}/distribution",async(long empresaId,long recepcionId,PurchasingRepository purchasing,CancellationToken ct)=>Results.Ok(await purchasing.GetReceiptDistributionAsync(empresaId,recepcionId,ct))).RequireErpPermission("COMPRAS.RECEPCION.CONTABILIZAR");
+app.MapPost("/api/v1/companies/{empresaId:long}/receipts/{recepcionId:long}/transfer",async(long empresaId,long recepcionId,TransferInvoiceRequest input,HttpContext context,PurchasingRepository purchasing,CancellationToken ct)=>
+{
+    if(input.OperacionGuid==Guid.Empty)return Results.BadRequest(new {error="Falta el identificador de operación."});
+    try{return Results.Ok(new {traslados=await purchasing.TransferInvoiceAsync(empresaId,recepcionId,input,Convert.ToInt64(context.Items["UsuarioId"]),ct)});}
+    catch(SqlException error) when(error.Number>=51000&&error.Number<52000){return Results.Conflict(new {error=error.Message});}
+}).RequireErpPermission("INVENTARIO.TRASLADO.DESPACHAR").RequireErpPermission("INVENTARIO.TRASLADO.RECIBIR");
 
 app.MapGet("/api/v1/companies/{empresaId:long}/receipts/{recepcionId:long}/movements", async (long empresaId,long recepcionId,PurchasingRepository purchasing,CancellationToken cancellationToken) =>
     Results.Ok(await purchasing.GetReceiptMovementsAsync(empresaId,recepcionId,cancellationToken)));

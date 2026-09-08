@@ -9,6 +9,36 @@ namespace NexoERP.Api.Purchasing;
 
 public sealed class PurchasingRepository(TenantConnectionFactory connections)
 {
+    public async Task<IReadOnlyList<ReceiptDistributionLine>> GetReceiptDistributionAsync(long empresaId,long recepcionId,CancellationToken ct)
+    {
+        await using var connection=await connections.OpenAsync(empresaId,false,ct);
+        await using var command=connection.CreateCommand();
+        command.CommandText="""
+            SELECT l.RecepcionMercanciaLineaId,l.NumeroLinea,a.Codigo,a.Descripcion,l.CantidadBase,COALESCE(l.BodegaId,r.BodegaId)
+            FROM inv.RecepcionMercancia r JOIN inv.RecepcionMercanciaLinea l ON l.EmpresaId=r.EmpresaId AND l.RecepcionMercanciaId=r.RecepcionMercanciaId
+            JOIN inv.Articulo a ON a.EmpresaId=l.EmpresaId AND a.ArticuloId=l.ArticuloId
+            WHERE r.EmpresaId=@E AND r.RecepcionMercanciaId=@R ORDER BY l.NumeroLinea;
+            """;
+        Add(command,"@E",SqlDbType.BigInt,empresaId);Add(command,"@R",SqlDbType.BigInt,recepcionId);
+        await using var reader=await command.ExecuteReaderAsync(ct);
+        var rows=new List<ReceiptDistributionLine>();
+        while(await reader.ReadAsync(ct))rows.Add(new(reader.GetInt64(0),reader.GetInt32(1),reader.GetString(2),reader.GetString(3),reader.GetDecimal(4),reader.GetInt64(5)));
+        return rows;
+    }
+
+    public async Task<int> TransferInvoiceAsync(long empresaId,long recepcionId,TransferInvoiceRequest input,long userId,CancellationToken ct)
+    {
+        await using var connection=await connections.OpenAsync(empresaId,false,ct);
+        await using var command=connection.CreateCommand();command.CommandTimeout=120;
+        command.CommandType=CommandType.StoredProcedure;command.CommandText="inv.usp_TrasladarFactura";
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
+        Add(command,"@BodegaDestinoId",SqlDbType.BigInt,input.BodegaDestinoId);Add(command,"@PeriodoInventarioId",SqlDbType.BigInt,input.PeriodoInventarioId);
+        Add(command,"@FechaContable",SqlDbType.Date,input.FechaContable.ToDateTime(TimeOnly.MinValue));
+        Add(command,"@OperacionGuid",SqlDbType.UniqueIdentifier,input.OperacionGuid);Add(command,"@UsuarioId",SqlDbType.BigInt,userId);
+        var count=command.Parameters.Add("@Traslados",SqlDbType.Int);count.Direction=ParameterDirection.Output;
+        await command.ExecuteNonQueryAsync(ct);return Convert.ToInt32(count.Value);
+    }
+
     private static readonly IReadOnlyDictionary<string, string> Classifications = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["inventory"] = "INVENTARIO",
@@ -879,6 +909,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         await using var command=connection.CreateCommand();
         command.CommandType=CommandType.StoredProcedure;
         command.CommandText="inv.usp_ContabilizarRecepcion";
+        Add(command,"@BodegasJson",SqlDbType.NVarChar,input.Bodegas is null?null:JsonSerializer.Serialize(input.Bodegas,new JsonSerializerOptions { PropertyNamingPolicy=JsonNamingPolicy.CamelCase }),-1);
         Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
         Add(command,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
         Add(command,"@UsuarioId",SqlDbType.BigInt,input.UsuarioId);
