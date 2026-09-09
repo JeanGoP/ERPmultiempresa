@@ -1,7 +1,9 @@
 # Relación de facturas y pagos
 
 Disponible en Informes > Relación de facturas y pagos y en Cuentas por pagar > Preparar reporte.
-Seleccionar proveedor, moneda y filtros, actualizar, escoger las facturas y descargar PDF o CSV para Excel.
+Seleccionar proveedor, moneda y filtros, actualizar, escoger las facturas y descargar PDF o Excel real (.xlsx).
+El Excel tiene hojas Facturas y Pagos y notas, encabezados inmovilizados, filas alternadas, importes numéricos, fechas nativas, fórmulas de totales y números de factura como texto. No requiere importar separadores.
+El formato se crea con Artifact Tool mediante scripts/build-payment-report-template.mjs, usando ERP_ARTIFACT_NODE_MODULES del runtime de autoría. El navegador rellena la plantilla publicada en public/assets/payment-report-template.json y empaqueta los componentes XLSX sin dependencias de servidor. Los textos del XML nunca se interpretan como fórmulas.
 Solo incluye obligaciones contabilizadas. Excluye anuladas; permite incluir pagadas para consultar sus aplicaciones.
 La descarga vuelve a consultar la API y no registra pagos ni modifica saldos. La referencia escrita no es un consecutivo contable.
 

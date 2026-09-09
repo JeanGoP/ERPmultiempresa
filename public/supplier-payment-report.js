@@ -114,7 +114,7 @@ async function openPaymentReport(){
     '<div class="table-wrap payment-report-selection"><table><thead><tr><th>Incluir</th><th>Factura</th><th>Fecha</th><th>Valor factura</th><th>Saldo actual</th></tr></thead><tbody>'+
     candidates.map(x=>'<tr><td><input type="checkbox" checked data-report-id="'+x.documentoProveedorId+'" aria-label="Incluir factura '+payableEscape(x.numeroDocumento)+'"></td><td>'+payableEscape(x.numeroDocumento)+'</td><td>'+payableEscape(x.fechaDocumento)+'</td><td>'+payableEscape(payableMoney(x.valorOriginal,currency))+'</td><td>'+payableEscape(payableMoney(x.saldoPendiente,currency))+'</td></tr>').join('')+'</tbody></table></div>'+
     '<p class="payment-report-disclosure">'+paymentReportLimitations+'</p><p role="status" data-report-status></p>'+
-    '<footer><button class="button primary" type="button" data-report-download="pdf">Descargar PDF</button><button class="button secondary" type="button" data-report-download="csv">Descargar CSV para Excel</button></footer>';
+    '<footer><button class="button secondary" type="button" data-report-download="pdf">Descargar PDF</button><button class="button primary" type="button" data-report-download="xlsx">Descargar Excel (.xlsx)</button></footer>';
   document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove());
   const selected=()=>[...dialog.querySelectorAll('[data-report-id]:checked')].map(x=>x.dataset.reportId);
   const update=()=>{const ids=selected();dialog.querySelector('[data-report-count]').textContent=ids.length+' facturas seleccionadas';dialog.querySelectorAll('[data-report-download]').forEach(x=>x.disabled=!ids.length);};
@@ -133,7 +133,11 @@ async function openPaymentReport(){
       const report=preparePaymentReport(data,ids,currency,reference);
       const filename='relacion-proveedor-'+supplierId+'-'+currency;
       if(button.dataset.reportDownload==='pdf')buildPaymentReportPdf(report).save(filename+'.pdf');
-      else download(filename+'.csv',buildPaymentReportCsv(report),'text/csv;charset=utf-8');
+      else {
+        const workbook=await buildPaymentReportXlsx(report);
+        if(!dialog.isConnected||String(state.erpSession?.company?.id)!==String(companyId))return;
+        download(filename+'.xlsx',workbook,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      }
       status.textContent='Reporte generado con '+report.rows.length+' facturas. La cartera no fue modificada.';
     }catch(error){status.textContent='No se pudo generar el reporte. '+error.message;}
     finally{controls.forEach(x=>x.disabled=false);update();}
