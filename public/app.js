@@ -1379,14 +1379,17 @@ function compatibleArticles(data,classification) {
 function buildHomologationPanel(invoice) {
   const context=getCompanyMasterData(); const data=context.data; const resolved=invoice.items.map(item=>mappingForLine(data,invoice,item)); const completed=resolved.filter(Boolean).length;
   const panel=document.createElement('section'); panel.className='homologation-panel';
-  const heading=document.createElement('div'); heading.className='homologation-heading'; const copy=document.createElement('div'); const title=document.createElement('h3'); title.textContent='Homologación con el catálogo interno';
-  const description=document.createElement('p'); description.textContent='Cada código del proveedor debe quedar relacionado antes de preparar la entrada.'; copy.append(title,description);
-  const progress=document.createElement('span'); progress.className=`homologation-progress${completed===invoice.items.length?' complete':''}`; progress.textContent=`${completed} DE ${invoice.items.length} HOMOLOGADAS`; heading.append(copy,progress);
+  const heading=document.createElement('div'); heading.className='homologation-heading'; const copy=document.createElement('div'); const title=document.createElement('h3'); title.textContent='Relacionar productos del XML';
+  const description=document.createElement('p'); description.textContent='A la izquierda está el producto del proveedor. A la derecha, elige el artículo que le corresponde en tu sistema.'; copy.append(title,description);
+  const progress=document.createElement('span'); progress.className=`homologation-progress${completed===invoice.items.length?' complete':''}`; progress.textContent=`${completed} de ${invoice.items.length} relacionados`; heading.append(copy,progress);
   const wrap=document.createElement('div'); wrap.className='homologation-table'; const table=document.createElement('table'); const head=table.createTHead().insertRow();
-  ['Línea','Código proveedor','Descripción XML','Clasificación','Artículo interno','Estado'].forEach(text=>{const th=document.createElement('th');th.textContent=text;head.append(th);});
+  ['Producto del proveedor (XML)','Artículo correspondiente en el sistema'].forEach(text=>{const th=document.createElement('th');th.scope='col';th.textContent=text;head.append(th);});
   const body=table.createTBody(); invoice.items.forEach((item,index)=>{
-    const row=body.insertRow(); [item.line,item.code||'Sin código',item.description,classificationLabels[item.classification]].forEach(value=>{const cell=row.insertCell();cell.textContent=value||'';});
-    const selectCell=row.insertCell(); const select=document.createElement('select'); const empty=document.createElement('option'); empty.value=''; empty.textContent='Seleccionar artículo interno…'; select.append(empty);
+    const row=body.insertRow();const source=row.insertCell();source.dataset.label='Producto del proveedor (XML)';
+    const code=document.createElement('strong');code.textContent=`Línea ${item.line} · Código ${item.code||'sin código'}`;
+    const product=document.createElement('p');product.textContent=item.description;
+    const classification=document.createElement('small');classification.textContent=classificationLabels[item.classification]||'';source.append(code,product,classification);
+    const selectCell=row.insertCell();selectCell.dataset.label='Artículo en el sistema'; const select=document.createElement('select');select.setAttribute('aria-label',`Artículo del sistema para línea ${item.line}, ${item.code||item.description}`); const empty=document.createElement('option'); empty.value=''; empty.textContent='Elige el artículo del sistema…'; select.append(empty);
     const candidates=compatibleArticles(data,item.classification); const current=resolved[index];
     candidates.forEach(article=>{const option=document.createElement('option');option.value=article.id;option.textContent=`${article.code} · ${article.description}`;option.selected=current?.articleId===article.id;select.append(option);});
     if(current&&!candidates.some(x=>x.id===current.articleId)){const article=findById(data.articles,current.articleId);if(article){const option=document.createElement('option');option.value=article.id;option.textContent=`${article.code} · ${article.description}`;option.selected=true;select.append(option);}}
@@ -1398,7 +1401,8 @@ function buildHomologationPanel(invoice) {
         await loadApiCompanyContext();
       } catch(error) { showError(`No fue posible guardar la homologación. ${error.message}`); renderInvoice(); }
     }); selectCell.append(select);
-    const statusCell=row.insertCell(); const status=document.createElement('span'); status.className=`mapping-status ${current?'':'pending'}`; status.textContent=current?'Homologada':'Pendiente'; statusCell.append(status);
+    const selectedDescription=document.createElement('p');selectedDescription.className='homologation-selected';selectedDescription.textContent=select.value?select.selectedOptions[0].textContent:candidates.length?'Selecciona el mismo producto, aunque su código sea diferente al del proveedor.':'No hay artículos compatibles. Revisa el maestro de artículos y la clasificación del producto.';selectCell.append(selectedDescription);
+    const status=document.createElement('span'); status.className=`mapping-status ${current?'':'pending'}`; status.textContent=current?'Relacionado':'Falta seleccionar'; selectCell.append(status);
   });
   wrap.append(table); panel.append(heading,wrap); return panel;
 }

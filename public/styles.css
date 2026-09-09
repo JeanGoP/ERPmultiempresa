@@ -492,9 +492,23 @@ footer p { margin: 0; }
 .homologation-progress { padding: 7px 10px; border-radius: 7px; color: #8a4d30; background: var(--orange-soft); font-size: 9px; font-weight: 900; }
 .homologation-progress.complete { color: #276349; background: var(--green-soft); }
 .homologation-table { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
-.homologation-table table { min-width: 980px; }
-.homologation-table td:first-child { font-family: inherit; font-size: 11px; }
-.homologation-table select { min-width: 250px; min-height: 36px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: white; }
+.homologation-table table { min-width: 0; width: 100%; table-layout: fixed; }
+.homologation-table th:first-child { width: 44%; }
+.homologation-table th { white-space: normal; line-height: 1.5; }
+.homologation-panel .homologation-table td { max-width: none; white-space: normal; padding: 16px; }
+.homologation-table td:first-child { font-family: inherit; font-size: 12px; color: var(--ink); }
+.homologation-table td p { margin: 8px 0; line-height: 1.55; overflow-wrap: anywhere; }
+.homologation-table td small,.homologation-selected { color: var(--muted); font-size: 11px; }
+.homologation-table select { display: block; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 42px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: white; color: var(--ink); font: inherit; }
+.homologation-table .mapping-status { font-size: 10px; letter-spacing: 0; }
+@media(max-width:700px){
+  .homologation-table thead { display: none; }
+  .homologation-table table,.homologation-table tbody,.homologation-table tr,.homologation-table td { display: block; width: 100%; box-sizing: border-box; }
+  .homologation-table tr+tr { border-top: 2px solid var(--line); }
+  .homologation-table td { border-top: 0; }
+  .homologation-table td+td { padding-top: 0; }
+  .homologation-table td::before { content: attr(data-label); display: block; margin-bottom: 9px; color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+}
 .purchase-workflow-panel { margin: 18px 0 24px; padding: 24px; border: 1px solid #bdd9cb; border-radius: 15px; background: linear-gradient(145deg,#f8fcfa,#eef8f3); box-shadow: 0 14px 34px rgba(35,86,63,.08); }
 .purchase-workflow-heading span { color: var(--green); font-size: 9px; font-weight: 900; letter-spacing: .13em; }
 .purchase-workflow-heading h3 { margin: 5px 0; font-size: 20px; }
