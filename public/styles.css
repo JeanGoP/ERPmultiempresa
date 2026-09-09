@@ -820,6 +820,18 @@ footer p { margin: 0; }
   footer { align-items: flex-start; flex-direction: column; gap: 8px; }
 }
 /* Recepción por renglón y traslado completo de facturas. */
+.payment-report-entry{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:22px;margin:20px;border:1px solid #c9ded4;border-radius:12px;background:#f1f7f4}
+.payment-report-entry h2{margin:0;font-size:20px}.payment-report-entry p{margin:8px 0 0;color:#526b61;line-height:1.5;max-width:700px}.payment-report-entry .button{flex-shrink:0}
+.payment-report-dialog{width:min(1100px,94vw);max-height:90vh;overflow:auto;padding:26px;border:1px solid #c9ded4;border-radius:16px;background:white;color:#173f37}
+.payment-report-dialog::backdrop{background:#152e3480}
+.payment-report-dialog header,.payment-report-actions,.payment-report-dialog footer{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.payment-report-dialog h2{margin:0;font-size:24px}.payment-report-dialog p{line-height:1.5}.payment-report-dialog label{display:grid;gap:8px}
+.payment-report-dialog input:not([type=checkbox]){padding:12px;border:1px solid #c9ded4;border-radius:8px;font:inherit;width:min(100%,400px)}
+.payment-report-dialog input[type=checkbox]{width:20px;height:20px;accent-color:#17694f}
+.payment-report-actions{margin:18px 0}.payment-report-selection{max-height:40vh;overflow:auto}.payment-report-selection table{width:100%;border-collapse:collapse}
+.payment-report-selection th,.payment-report-selection td{padding:12px;border-bottom:1px solid #e0eae5;text-align:left}.payment-report-selection th{background:#edf4f0;position:sticky;top:0}.payment-report-disclosure{font-size:13px;color:#586d64;background:#f5f6f3;padding:12px;border-radius:8px}
+.payment-report-dialog footer{justify-content:flex-end}.payment-report-dialog [data-report-status]{font-weight:600}
+@media(max-width:650px){.payment-report-entry{flex-direction:column;align-items:stretch;margin:12px;padding:16px}.payment-report-dialog{padding:16px}.payment-report-dialog h2{font-size:21px}.payment-report-selection table{min-width:680px}}
 .origin-dialog{width:min(1050px,94vw);max-height:90vh;overflow:auto;padding:28px;border:1px solid #ceded7;border-radius:20px;color:#193f3b;background:#fff;box-shadow:0 24px 100px #163d3940}
 .origin-dialog::backdrop{background:#152e3480}
 .origin-dialog h2{margin:0 0 12px;font-size:26px}

@@ -111,7 +111,11 @@ public sealed record SupplierPayableItemResponse(
     decimal SaldoPendiente,
     string Estado,
     int DiasVencida,
-    string RangoEdad);
+    string RangoEdad,
+    decimal SubtotalBruto,
+    decimal DescuentoTotal,
+    decimal ImpuestoTotal,
+    decimal CargoTotal);
 
 public sealed record SupplierAccountsPayableResponse(
     SupplierPayableSummaryResponse Resumen,

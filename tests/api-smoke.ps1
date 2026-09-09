@@ -90,7 +90,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
         try { $health=Invoke-RestMethod -Uri "$baseUrl/api/v1/health" -Method Get; $healthy=$true; break } catch { if($apiProcess.HasExited){ break } }
     }
     if(-not $healthy){ throw "La API no inicio. $(Get-Content $errorLog -Raw -ErrorAction SilentlyContinue)" }
-    if($health.status -ne 'ok' -or $health.migrations -ne 44 -or $health.release -ne '2026.09.08.1' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
+    if($health.status -ne 'ok' -or $health.migrations -ne 44 -or $health.release -ne '2026.09.09.1' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
 
@@ -317,6 +317,8 @@ COMMIT;
     if($LASTEXITCODE -ne 0){throw 'Falló la preparación del pago de prueba.'}
     $statement=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/suppliers/$($supplierSaved.id)/statement?documentoId=$($created.documentoProveedorId)" -Headers $adminHeaders
     $payment=@($statement.movimientos|Where-Object tipoMovimiento -eq 'PAGO')
+    $reportInvoice=$statement.facturas[0]
+    if($reportInvoice.subtotalBruto -ne 100 -or $reportInvoice.descuentoTotal -ne 10 -or $reportInvoice.impuestoTotal -ne 17.1 -or $reportInvoice.cargoTotal -ne 0){throw 'La relación no conserva el desglose financiero original de la factura.'}
     if(@($statement.facturas).Count -ne 1 -or @($statement.movimientos).Count -ne 2 -or $payment.Count -ne 1 -or $payment[0].abono -ne 7 -or $statement.facturas[0].saldoPendiente -ne 100.1){throw 'El extracto no atribuyó correctamente el pago y el saldo a su factura.'}
     $mixedStatement=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/suppliers/$($supplierSaved.id)/statement?documentoId=$($mixedCreated.documentoProveedorId)" -Headers $adminHeaders
     if(@($mixedStatement.movimientos|Where-Object tipoMovimiento -eq 'PAGO').Count -ne 0){throw 'El extracto mezcló pagos de otra factura.'}

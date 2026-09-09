@@ -265,7 +265,8 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
                         WHEN DATEDIFF(day,p.FechaVencimiento,@Hoy)<=30 THEN '1 a 30 dias'
                         WHEN DATEDIFF(day,p.FechaVencimiento,@Hoy)<=60 THEN '31 a 60 dias'
                         WHEN DATEDIFF(day,p.FechaVencimiento,@Hoy)<=90 THEN '61 a 90 dias'
-                        ELSE 'Mas de 90 dias' END RangoEdad
+                        ELSE 'Mas de 90 dias' END RangoEdad,
+                   d.SubtotalBruto,d.DescuentoTotal,d.ImpuestoTotal,d.CargoTotal
             FROM cxp.DocumentoPorPagar p
             JOIN comp.DocumentoProveedor d ON d.EmpresaId=p.EmpresaId AND d.DocumentoProveedorId=p.DocumentoProveedorId
             JOIN ter.Tercero t ON t.EmpresaId=p.EmpresaId AND t.TerceroId=p.TerceroId
@@ -293,7 +294,8 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         while(await reader.ReadAsync(cancellationToken)) documents.Add(new(
             reader.GetInt64(0),reader.GetInt64(1),reader.GetInt64(2),reader.GetString(3),reader.GetString(4),reader.GetString(5),reader.GetString(6),
             DateOnly.FromDateTime(reader.GetDateTime(7)),DateOnly.FromDateTime(reader.GetDateTime(8)),DateOnly.FromDateTime(reader.GetDateTime(9)),
-            reader.GetString(10),reader.GetString(11),reader.GetDecimal(12),reader.GetDecimal(13),reader.GetString(14),reader.GetInt32(15),reader.GetString(16)));
+            reader.GetString(10),reader.GetString(11),reader.GetDecimal(12),reader.GetDecimal(13),reader.GetString(14),reader.GetInt32(15),reader.GetString(16),
+            reader.GetDecimal(17),reader.GetDecimal(18),reader.GetDecimal(19),reader.GetDecimal(20)));
         var summary=new SupplierPayableSummaryResponse(
             documents.Count(x=>x.SaldoPendiente>0&&x.Estado!="ANULADA"),documents.Count(x=>x.Estado=="VENCIDA"),
             documents.Where(x=>x.Estado!="ANULADA").Sum(x=>x.SaldoPendiente),documents.Where(x=>x.Estado=="VENCIDA").Sum(x=>x.SaldoPendiente),

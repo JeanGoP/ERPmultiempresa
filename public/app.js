@@ -223,6 +223,7 @@ function applyAccessControls() {
   setVisible(elements.securityAdminNav, canSecurity);
   setVisible(elements.savedPurchasesNav, canUseSavedPurchases());
   setVisible(elements.accountsPayableNav, canUseAccountsPayable());
+  setVisible($('#supplierPaymentReportNav'), canUseAccountsPayable());
   setVisible(elements.inventoryNav, canInventory);
   if (elements.inventoryNav && !elements.inventoryNav.dataset.inventoryView) elements.inventoryNav.textContent = canReceiving && !canUseInventoryReports() && !canUseInventoryOperations() ? 'Recepción física' : 'Operación diaria';
 
@@ -575,10 +576,15 @@ function populateAccountsPayableSuppliers(){
   if([...elements.accountsPayableSupplier.options].some(x=>x.value===selected))elements.accountsPayableSupplier.value=selected;
 }
 function renderAccountsPayable(){ renderPayableDashboard(); }
+let accountsPayableRequest=0;
 async function refreshAccountsPayable(){
+  const request=++accountsPayableRequest,companyId=state.erpSession?.company?.id;
+  const isCurrent=()=>request===accountsPayableRequest&&String(state.erpSession?.company?.id)===String(companyId);
   elements.accountsPayableStatus.textContent='Consultando cartera…';elements.accountsPayableNotice.hidden=true;
-  try{if(state.runtimeMode!=='api'||!state.erpSession?.api)throw new Error('La cartera de proveedores requiere el modo API ERP.');const params=new URLSearchParams();if(elements.accountsPayableSupplier.value)params.set('terceroId',elements.accountsPayableSupplier.value);if(elements.accountsPayableSearch.value.trim())params.set('q',elements.accountsPayableSearch.value.trim());if(elements.accountsPayableState.value)params.set('estado',elements.accountsPayableState.value);if(elements.accountsPayableFrom.value)params.set('desde',elements.accountsPayableFrom.value);if(elements.accountsPayableTo.value)params.set('hasta',elements.accountsPayableTo.value);state.accountsPayable=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/accounts-payable?${params}`);renderAccountsPayable();}
-  catch(error){state.accountsPayable=null;renderAccountsPayable();elements.accountsPayableStatus.textContent='No fue posible consultar';elements.accountsPayableNotice.textContent=error.message;elements.accountsPayableNotice.hidden=false;}
+  $('#openPaymentReport').disabled=true;
+  try{if(state.runtimeMode!=='api'||!state.erpSession?.api)throw new Error('La cartera de proveedores requiere el modo API ERP.');const params=new URLSearchParams();if(elements.accountsPayableSupplier.value)params.set('terceroId',elements.accountsPayableSupplier.value);if(elements.accountsPayableSearch.value.trim())params.set('q',elements.accountsPayableSearch.value.trim());if(elements.accountsPayableState.value)params.set('estado',elements.accountsPayableState.value);if(elements.accountsPayableFrom.value)params.set('desde',elements.accountsPayableFrom.value);if(elements.accountsPayableTo.value)params.set('hasta',elements.accountsPayableTo.value);const data=await apiRequest(`/api/v1/companies/${companyId}/accounts-payable?${params}`);if(!isCurrent())return false;state.accountsPayable=data;renderAccountsPayable();return true;}
+  catch(error){if(!isCurrent())return false;state.accountsPayable=null;renderAccountsPayable();elements.accountsPayableStatus.textContent='No fue posible consultar';elements.accountsPayableNotice.textContent=error.message;elements.accountsPayableNotice.hidden=false;return false;}
+  finally{if(isCurrent())$('#openPaymentReport').disabled=false;}
 }
 function showAccountsPayable(){
   if(!canUseAccountsPayable()){routeToDefaultWorkspace(true);return;}hideWorkspaces();elements.accountsPayableModule.hidden=false;elements.savedPurchasesNav.classList.remove('active');elements.accountsPayableNav.classList.add('active');elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');document.querySelector('.breadcrumb span').textContent='Compras';elements.breadcrumbCurrent.textContent='Cuentas por pagar';document.querySelectorAll('[data-registration-mode],[data-master-view],[data-inventory-view]').forEach(x=>x.classList.remove('active'));populateAccountsPayableSuppliers();void refreshAccountsPayable();window.scrollTo({top:0,behavior:'smooth'});

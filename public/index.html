@@ -122,11 +122,11 @@
             <button id="controlsNav" class="nav-subitem" type="button">Controles avanzados</button>
           </div>
         </details>
-        <details class="nav-group nav-group-future" data-nav-group="reports">
-          <summary class="nav-item parent"><span class="nav-icon">≡</span><span>Informes</span><span class="nav-soon">Próximamente</span><span class="chevron">⌄</span></summary>
+        <details class="nav-group" data-nav-group="reports">
+          <summary class="nav-item parent"><span class="nav-icon">≡</span><span>Informes</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
             <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Ventas y cartera</button>
-            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Compras y proveedores</button>
+            <button id="supplierPaymentReportNav" class="nav-subitem" type="button">Relación de facturas y pagos</button>
             <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Tesorería</button>
             <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Inventarios</button>
             <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Contabilidad</button>
@@ -231,6 +231,10 @@
               <button id="refreshAccountsPayable" class="button primary" type="button">Actualizar</button>
             </div>
             <div id="accountsPayableNotice" class="inventory-notice" hidden></div>
+            <section class="payment-report-entry">
+              <div><h2>Relación de facturas y pagos</h2><p>Selecciona un proveedor y una moneda. El reporte permite escoger facturas de los filtros actuales y muestra sus movimientos registrados.</p></div>
+              <button id="openPaymentReport" class="button primary" type="button">Preparar reporte</button>
+            </section>
             <div id="payableDashboard" class="payable-dashboard"></div>
             <div class="payable-table-heading"><div><h2>Detalle de obligaciones</h2><p id="payableScope">Selecciona una edad para explorar sus facturas.</p></div><button id="supplierStatementPdf" class="button secondary" type="button">Descargar extracto del proveedor</button></div>
             <div id="accountsPayableTable" class="table-wrap saved-purchases-table"></div>
@@ -501,6 +505,7 @@
   <script src="vendor/jspdf.umd.min.js"></script>
   <script src="app.js"></script>
   <script src="accounts-payable.js"></script>
+  <script src="supplier-payment-report.js"></script>
   <script src="inventory-origin.js"></script>
   <script src="advanced-controls.js"></script>
 </body>
