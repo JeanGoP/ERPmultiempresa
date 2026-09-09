@@ -763,9 +763,9 @@ const exampleXml = `<?xml version="1.0" encoding="UTF-8"?>
 </Factura>`;
 
 function localName(node) { return node.localName || node.nodeName.replace(/^.*:/, ''); }
-function elementChildren(node) { return Array.from(node.children || []); }
+function elementChildren(node) { return Array.from(node?.children || []); }
 function directText(node) {
-  return Array.from(node.childNodes || []).filter((child) => child.nodeType === Node.TEXT_NODE || child.nodeType === Node.CDATA_SECTION_NODE)
+  return Array.from(node?.childNodes || []).filter((child) => child.nodeType === Node.TEXT_NODE || child.nodeType === Node.CDATA_SECTION_NODE)
     .map((child) => child.nodeValue.trim()).filter(Boolean).join(' ');
 }
 function childrenByLocal(node, name) { return elementChildren(node).filter((child) => localName(child) === name); }

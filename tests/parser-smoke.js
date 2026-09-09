@@ -34,6 +34,26 @@ this.parseInvoiceForTest = (source) => {
   return extractInvoiceData(embedded || container);
 };`, parserContext);
 
+// UBL parties may omit commercial name, legal entity or postal address.
+const optionalPartyFixture = `<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+<cbc:ID>QA-OPTIONAL-PARTY</cbc:ID><cbc:IssueDate>2026-09-08</cbc:IssueDate>
+<cac:AccountingSupplierParty><cac:Party><cac:PartyTaxScheme><cbc:RegistrationName>Proveedor de prueba</cbc:RegistrationName><cbc:CompanyID>900000001</cbc:CompanyID></cac:PartyTaxScheme></cac:Party></cac:AccountingSupplierParty>
+<cac:AccountingCustomerParty><cac:Party/></cac:AccountingCustomerParty>
+<cac:InvoiceLine><cbc:ID>1</cbc:ID><cbc:InvoicedQuantity unitCode="94">2</cbc:InvoicedQuantity><cac:Item><cbc:Description>Artículo QA</cbc:Description></cac:Item><cac:Price><cbc:PriceAmount>100</cbc:PriceAmount></cac:Price></cac:InvoiceLine>
+</Invoice>`;
+for(const source of [optionalPartyFixture,`<AttachedDocument><Attachment><Description><![CDATA[${optionalPartyFixture}]]></Description></Attachment></AttachedDocument>`]){
+  const invoice=parserContext.parseInvoiceForTest(source);
+  assert.strictEqual(invoice.supplier.name,'Proveedor de prueba');
+  assert.strictEqual(invoice.supplier.identification,'900000001');
+  assert.strictEqual(invoice.supplier.commercialName,'');
+  assert.strictEqual(invoice.supplier.address,'');
+  assert.strictEqual(invoice.customer.identification,'');
+  assert.strictEqual(invoice.items.length,1);
+  assert.strictEqual(invoice.items[0].quantity,2);
+}
+assert.strictEqual(vm.runInContext('directText(null)',parserContext),'');
+assert.strictEqual(vm.runInContext('directText(undefined)',parserContext),'');
+
 const variantsFixture = `<?xml version="1.0" encoding="UTF-8"?>
 <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
  xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
