@@ -42,7 +42,7 @@ public sealed class MasterDataRepository(TenantConnectionFactory connections)
         command.CommandText="""
             SELECT a.ArticuloId,a.Codigo,a.Descripcion,a.Tipo,a.ManejaInventario,a.UnidadBaseId,u.Codigo,a.ManejaLote,a.ManejaSerial,a.RequiereVencimiento,a.PesoBaseKg,a.VolumenBaseM3,a.Activo,m.Marca
             FROM inv.Articulo a JOIN inv.UnidadMedida u ON u.EmpresaId=a.EmpresaId AND u.UnidadMedidaId=a.UnidadBaseId
-            OUTER APPLY inv.fn_MarcaPorDescripcion(a.EmpresaId,a.Descripcion) m
+            OUTER APPLY inv.fn_MarcaPorReferenciaDescripcion(a.EmpresaId,a.Codigo,a.Descripcion) m
             WHERE a.EmpresaId=@EmpresaId ORDER BY a.Codigo;
             """; Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
         await using var reader=await command.ExecuteReaderAsync(ct); var result=new List<ArticleResponse>();

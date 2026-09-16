@@ -36,7 +36,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.15.2";
+const string ReleaseVersion="2026.09.16.1";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -214,7 +214,9 @@ app.MapPost("/api/v1/companies/{empresaId:long}/master-data/brands/recognize",as
 {
     if(input.Descripciones is null || input.Descripciones.Length>1000 || input.Descripciones.Any(x=>x is null || x.Length>300))
         return Results.BadRequest(new {error="Envía hasta 1000 descripciones, de máximo 300 caracteres cada una."});
-    return Results.Ok(await brands.RecognizeAsync(empresaId,input.Descripciones,ct));
+    if(input.Codigos is not null && (input.Codigos.Length!=input.Descripciones.Length || input.Codigos.Any(x=>x?.Length>100)))
+        return Results.BadRequest(new {error="Envía un código por descripción, de máximo 100 caracteres."});
+    return Results.Ok(await brands.RecognizeAsync(empresaId,input.Descripciones,input.Codigos,ct));
 });
 app.MapPost("/api/v1/companies/{empresaId:long}/master-data/brands",async(long empresaId,SaveBrandRequest input,HttpContext context,BrandCatalogRepository brands,CancellationToken ct)=>
 {

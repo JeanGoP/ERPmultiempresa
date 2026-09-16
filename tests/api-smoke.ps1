@@ -39,6 +39,8 @@ try {
     if($LASTEXITCODE -ne 0){throw 'La migración de marcas no es idempotente.'}
     & sqlcmd -S $Instance -E -b -f 65001 -d $databaseName -i (Join-Path $projectRoot 'database\migrations\046_brand_master.sql')
     if($LASTEXITCODE -ne 0){throw 'El maestro de marcas no es idempotente.'}
+    & sqlcmd -S $Instance -E -b -f 65001 -d $databaseName -i (Join-Path $projectRoot 'database\migrations\047_brand_reference_recognition.sql')
+    if($LASTEXITCODE -ne 0){throw 'El reconocimiento por referencia no es idempotente.'}
     & sqlcmd -S $Instance -E -b -f 65001 -d $databaseName -i (Join-Path $PSScriptRoot 'brand-catalog.sql')
     if($LASTEXITCODE -ne 0){throw 'Fallaron las pruebas SQL del catálogo de marcas.'}
     $setupSql=@"
@@ -101,7 +103,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
         try { $health=Invoke-RestMethod -Uri "$baseUrl/api/v1/health" -Method Get; $healthy=$true; break } catch { if($apiProcess.HasExited){ break } }
     }
     if(-not $healthy){ throw "La API no inicio. $(Get-Content $errorLog -Raw -ErrorAction SilentlyContinue)" }
-    if($health.status -ne 'ok' -or $health.migrations -ne 46 -or $health.release -ne '2026.09.15.2' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
+    if($health.status -ne 'ok' -or $health.migrations -ne 47 -or $health.release -ne '2026.09.16.1' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
 

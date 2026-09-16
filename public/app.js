@@ -1410,7 +1410,8 @@ async function recognizeXmlBrands(invoice) {
   const companyId=String(state.erpSession?.company?.id||'');
   if(!companyId||!apiToken())return;
   const descriptions=invoice.items.map(x=>x.description||'');
-  const signature=JSON.stringify(descriptions);
+  const codes=invoice.items.map(x=>String(x.code||'').trim());
+  const signature=JSON.stringify([descriptions,codes]);
   if(invoice.brandRecognition?.companyId===companyId&&invoice.brandRecognition.signature===signature)return;
   const recognition={companyId,signature,status:'loading',brands:[]};invoice.brandRecognition=recognition;
   await Promise.resolve();
@@ -1419,7 +1420,7 @@ async function recognizeXmlBrands(invoice) {
     for(let start=0;start<descriptions.length;start+=1000){
       const batch=descriptions.slice(start,start+1000);const valid=batch.map((description,index)=>({description,index})).filter(x=>x.description.length<=300);
       if(!valid.length)continue;
-      const matches=await apiRequest(`/api/v1/companies/${companyId}/master-data/brands/recognize`,{method:'POST',body:JSON.stringify({descripciones:valid.map(x=>x.description)})});
+      const matches=await apiRequest(`/api/v1/companies/${companyId}/master-data/brands/recognize`,{method:'POST',body:JSON.stringify({descripciones:valid.map(x=>x.description),codigos:valid.map(x=>codes[start+x.index].length<=100?codes[start+x.index]:null)})});
       matches.forEach(x=>{if(valid[x.indice])recognition.brands[start+valid[x.indice].index]=x.marca;});
     }
     recognition.status='ready';

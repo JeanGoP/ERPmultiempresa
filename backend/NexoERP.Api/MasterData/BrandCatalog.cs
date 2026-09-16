@@ -7,7 +7,7 @@ namespace NexoERP.Api.MasterData;
 
 public sealed record BrandResponse(long Id,string Nombre,bool Activa,int Referencias);
 public sealed record SaveBrandRequest(string Nombre,bool Activa);
-public sealed record RecognizeBrandsRequest(string[] Descripciones);
+public sealed record RecognizeBrandsRequest(string[] Descripciones,string?[]? Codigos=null);
 public sealed record RecognizedBrandResponse(int Indice,string? Marca);
 
 public sealed class BrandCatalogRepository(TenantConnectionFactory connections)
@@ -56,16 +56,18 @@ public sealed class BrandCatalogRepository(TenantConnectionFactory connections)
         return Convert.ToInt64(await command.ExecuteScalarAsync(ct));
     }
 
-    public async Task<List<RecognizedBrandResponse>> RecognizeAsync(long empresaId,string[] descriptions,CancellationToken ct)
+    public async Task<List<RecognizedBrandResponse>> RecognizeAsync(long empresaId,string[] descriptions,string?[]? codes,CancellationToken ct)
     {
         await using var connection=await connections.OpenAsync(empresaId,false,ct);
         await using var command=connection.CreateCommand();
         command.CommandText="""
             SELECT CONVERT(int,j.[key]),m.Marca FROM OPENJSON(@Json) j
-            OUTER APPLY inv.fn_MarcaPorDescripcion(@EmpresaId,CONVERT(nvarchar(300),j.value)) m ORDER BY CONVERT(int,j.[key]);
+            LEFT JOIN OPENJSON(@Codigos) c ON c.[key]=j.[key]
+            OUTER APPLY inv.fn_MarcaPorReferenciaDescripcion(@EmpresaId,CONVERT(nvarchar(100),c.value),CONVERT(nvarchar(300),j.value)) m ORDER BY CONVERT(int,j.[key]);
             """;
         command.Parameters.Add("@EmpresaId",SqlDbType.BigInt).Value=empresaId;
         command.Parameters.Add("@Json",SqlDbType.NVarChar,-1).Value=JsonSerializer.Serialize(descriptions);
+        command.Parameters.Add("@Codigos",SqlDbType.NVarChar,-1).Value=JsonSerializer.Serialize(codes??[]);
         await using var reader=await command.ExecuteReaderAsync(ct);
         var result=new List<RecognizedBrandResponse>();
         while(await reader.ReadAsync(ct))result.Add(new(reader.GetInt32(0),reader.IsDBNull(1)?null:reader.GetString(1)));

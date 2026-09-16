@@ -1,5 +1,7 @@
 # Reconocimiento de marcas por empresa
 
+Desde la migración 047 se consulta primero la referencia/código exacto dentro de la empresa. Si existe y está confirmada con marca activa, se usa esa marca aunque la descripción venga abreviada. Si el código no existe o no se envió, se conserva la comparación de descripción normalizada. Un código existente pero pendiente o inactivo no recurre a otra marca por descripción. No se convierten códigos a números ni se eliminan ceros iniciales. La misma regla se aplica al maestro de artículos. El endpoint admite peticiones anteriores sin códigos.
+
 La migración 046 agrega `inv.Marca`, un maestro único por empresa vinculado a las referencias importadas. En **Datos maestros → Marcas** se pueden crear y editar nombres, activar/desactivar y consultar cuántas referencias tiene cada marca. Crear una marca sin referencias no permite inferir qué descripciones le corresponden. Las marcas dudosas del archivo permanecen pendientes, sin convertirlas en marcas confirmadas.
 
 Al leer un XML, las tablas de clasificación y homologación muestran **Marca**, consultada por descripción directamente en SQL antes de crear artículos. La consulta es por lotes, conserva el orden de líneas y no reutiliza resultados entre empresas. Las marcas desactivadas, referencias ambiguas o textos sin coincidencia muestran **Sin reconocer**; un fallo de API muestra un error de consulta con opción de reintentar. La marca presentada no modifica el XML original ni guarda una instantánea histórica de la factura.
