@@ -335,7 +335,7 @@ async function loadApiCompanyContext() {
     state.apiContext={ warehouses,periods,accountingPeriods,accounts,permissions,permissionCodes:new Set(permissions.map(permissionCode)),masterData:{
       suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,active:x.activo})),
       units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
-      articles:articles.map(x=>({id:x.articuloId,code:x.codigo,description:x.descripcion,type:x.tipo,unitId:x.unidadBaseId,inventory:x.manejaInventario,lot:x.manejaLote,serial:x.manejaSerial,expiry:x.requiereVencimiento,active:x.activo})),
+      articles:articles.map(x=>({id:x.articuloId,code:x.codigo,description:x.descripcion,brand:x.marca,type:x.tipo,unitId:x.unidadBaseId,inventory:x.manejaInventario,lot:x.manejaLote,serial:x.manejaSerial,expiry:x.requiereVencimiento,active:x.activo})),
       warehouses:warehouses.map(x=>({id:x.bodegaId,code:x.codigo,name:x.nombre,locations:x.usaUbicaciones,transit:x.esTransito,active:true})),
       mappings:mappings.map(x=>({id:x.homologacionArticuloProveedorId,supplierId:x.terceroId,externalCode:x.codigoExterno,externalDescription:x.descripcionExterna||'',articleId:x.articuloId,unitId:null,factor:x.factorAUnidadBase,active:x.activa})),
     }};
@@ -421,18 +421,18 @@ function masterActionButton(label,action,id,danger=false) {
 function renderArticleMasterTable(data,query) {
   const articles=data.articles.filter((article)=>{
     const unit=findById(data.units,article.unitId)?.code||'';
-    return !query||[article.code,article.description,article.type,unit,activeLabel(article.active)].join(' ').toLocaleLowerCase('es-CO').includes(query);
+    return !query||[article.code,article.description,article.brand,article.type,unit,activeLabel(article.active)].join(' ').toLocaleLowerCase('es-CO').includes(query);
   });
   const table=document.createElement('table'); const head=document.createElement('thead');
-  head.innerHTML='<tr><th>Código</th><th>Descripción</th><th>Tipo</th><th>Unidad base</th><th>Controles</th><th>Estado</th><th>Acciones</th></tr>';
+  head.innerHTML='<tr><th>Código</th><th>Descripción</th><th>Marca reconocida</th><th>Tipo</th><th>Unidad base</th><th>Controles</th><th>Estado</th><th>Acciones</th></tr>';
   const body=document.createElement('tbody');
   articles.forEach((article)=>{
     const row=document.createElement('tr');
-    const values=[article.code,article.description,article.type,findById(data.units,article.unitId)?.code||'—',[article.inventory?'Inventario':'Sin inventario',article.serial?'Serial / motor / chasis':'',article.lot?'Lote':'',article.expiry?'Vencimiento':''].filter(Boolean).join(' · '),activeLabel(article.active)];
+    const values=[article.code,article.description,article.brand||'Sin coincidencia confirmada',article.type,findById(data.units,article.unitId)?.code||'—',[article.inventory?'Inventario':'Sin inventario',article.serial?'Serial / motor / chasis':'',article.lot?'Lote':'',article.expiry?'Vencimiento':''].filter(Boolean).join(' · '),activeLabel(article.active)];
     values.forEach((value)=>{const cell=document.createElement('td');cell.textContent=value;row.append(cell);});
     const actions=document.createElement('td'); actions.className='master-row-actions'; actions.append(masterActionButton('Editar','edit',article.id),masterActionButton('Eliminar','delete',article.id,true)); row.append(actions); body.append(row);
   });
-  if(!articles.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=7;cell.className='empty';cell.textContent='No hay artículos que coincidan con la búsqueda.';row.append(cell);body.append(row);}
+  if(!articles.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=8;cell.className='empty';cell.textContent='No hay artículos que coincidan con la búsqueda.';row.append(cell);body.append(row);}
   table.append(head,body); elements.masterTable.replaceChildren(table); return articles.length;
 }
 

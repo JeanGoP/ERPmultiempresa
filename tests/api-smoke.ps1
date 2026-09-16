@@ -35,12 +35,19 @@ function New-TestSecureString([string]$Value) {
 
 try {
     & (Join-Path $projectRoot 'database\scripts\init-localdb.ps1') -DatabaseName $databaseName -Instance $Instance
+    & sqlcmd -S $Instance -E -b -d $databaseName -i (Join-Path $projectRoot 'database\migrations\045_company_brand_catalog.sql')
+    if($LASTEXITCODE -ne 0){throw 'La migración de marcas no es idempotente.'}
+    & sqlcmd -S $Instance -E -b -f 65001 -d $databaseName -i (Join-Path $PSScriptRoot 'brand-catalog.sql')
+    if($LASTEXITCODE -ne 0){throw 'Fallaron las pruebas SQL del catálogo de marcas.'}
     $setupSql=@"
+SET QUOTED_IDENTIFIER ON;
 SET XACT_ABORT ON;
 EXEC sys.sp_set_session_context @key=N'BypassRls',@value=1;
 BEGIN TRANSACTION;
 INSERT core.Empresa(Codigo,Nit,RazonSocial) VALUES('APIQA','900777001',N'Empresa QA API');
 DECLARE @EmpresaId bigint=SCOPE_IDENTITY();
+INSERT inv.CatalogoMarcaDescripcion(EmpresaId,Referencia,Descripcion,Marca,Habilitada,ArchivoOrigen,ArchivoSha256,FilaOrigen)
+VALUES(@EmpresaId,'QA-XML',N'Motocicleta creada desde XML','MARCA XML QA',1,'qa',REPLICATE('0',64),2);
 INSERT core.EmpresaConfiguracion(EmpresaId) VALUES(@EmpresaId);
 UPDATE core.EmpresaConfiguracion SET PermiteInventarioNegativo=1 WHERE EmpresaId=@EmpresaId;
 INSERT inv.UnidadMedida(EmpresaId,Codigo,Nombre,Simbolo) VALUES(@EmpresaId,'UND',N'Unidad','und');
@@ -90,7 +97,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
         try { $health=Invoke-RestMethod -Uri "$baseUrl/api/v1/health" -Method Get; $healthy=$true; break } catch { if($apiProcess.HasExited){ break } }
     }
     if(-not $healthy){ throw "La API no inicio. $(Get-Content $errorLog -Raw -ErrorAction SilentlyContinue)" }
-    if($health.status -ne 'ok' -or $health.migrations -ne 44 -or $health.release -ne '2026.09.09.1' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
+    if($health.status -ne 'ok' -or $health.migrations -ne 45 -or $health.release -ne '2026.09.15.1' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
 
@@ -182,6 +189,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
     $autoSecond=@{}+$autoBody;$autoSecond.numeroDocumento='FV-AUTO-ITEM-2';$autoSecond.cufeCude='CUFE-AUTO-ITEM-2';$autoSecond.xmlOriginal='<Invoice><ID>FV-AUTO-ITEM-2</ID></Invoice>';$autoSecond.documentoGuid=[guid]::NewGuid()
     $autoReused=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/supplier-documents" -Headers $adminHeaders -Method Post -ContentType 'application/json' -Body ($autoSecond|ConvertTo-Json -Depth 8)
     $articlesAfterAuto=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/master-data/articles" -Headers $adminHeaders -Method Get
+    if((@($articlesAfterAuto)|Where-Object codigo -eq 'MOTO-AUTO-EXT').marca -ne 'MARCA XML QA'){throw 'El artículo creado desde XML no reconoció la marca del catálogo de su empresa.'}
     if($autoCreated.articulosCreados -ne 1 -or $autoReused.articulosCreados -ne 0 -or -not (@($articlesAfterAuto)|Where-Object codigo -eq 'MOTO-AUTO-EXT')){ throw 'La API no creó el artículo con el código del proveedor o no lo reutilizó correctamente.' }
     $suppliersAfterXml=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/master-data/suppliers" -Headers $adminHeaders -Method Get
     $supplierAfterXml=$null

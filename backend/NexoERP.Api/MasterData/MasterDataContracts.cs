@@ -6,7 +6,7 @@ public sealed record SupplierResponse(
     string? Direccion,string? CiudadCodigo,string? Ciudad,string? DepartamentoCodigo,string? Departamento,string? CodigoPostal,
     string? PaisCodigo,string? Pais,string? ContactoNombre,string? Telefono,string? Correo,string? SitioWeb,string? DatosXmlJson,bool Activo);
 public sealed record UnitOfMeasureResponse(long UnidadMedidaId,string Codigo,string Nombre,string Simbolo,bool Activa);
-public sealed record ArticleResponse(long ArticuloId,string Codigo,string Descripcion,string Tipo,bool ManejaInventario,long UnidadBaseId,string UnidadBase,bool ManejaLote,bool ManejaSerial,bool RequiereVencimiento,decimal? PesoBaseKg,decimal? VolumenBaseM3,bool Activo);
+public sealed record ArticleResponse(long ArticuloId,string Codigo,string Descripcion,string Tipo,bool ManejaInventario,long UnidadBaseId,string UnidadBase,bool ManejaLote,bool ManejaSerial,bool RequiereVencimiento,decimal? PesoBaseKg,decimal? VolumenBaseM3,bool Activo,string? Marca);
 public sealed record ItemMappingResponse(long HomologacionArticuloProveedorId,long TerceroId,string ProveedorIdentificacion,string Proveedor,string CodigoExterno,string? DescripcionExterna,long ArticuloId,string ArticuloCodigo,string Articulo,string? UnidadCodigo,decimal FactorAUnidadBase,bool Activa);
 public sealed record MasterSaveResponse(long Id,bool Creado);
 

@@ -40,12 +40,13 @@ public sealed class MasterDataRepository(TenantConnectionFactory connections)
     {
         await using var connection=await connections.OpenAsync(empresaId,false,ct); await using var command=connection.CreateCommand();
         command.CommandText="""
-            SELECT a.ArticuloId,a.Codigo,a.Descripcion,a.Tipo,a.ManejaInventario,a.UnidadBaseId,u.Codigo,a.ManejaLote,a.ManejaSerial,a.RequiereVencimiento,a.PesoBaseKg,a.VolumenBaseM3,a.Activo
+            SELECT a.ArticuloId,a.Codigo,a.Descripcion,a.Tipo,a.ManejaInventario,a.UnidadBaseId,u.Codigo,a.ManejaLote,a.ManejaSerial,a.RequiereVencimiento,a.PesoBaseKg,a.VolumenBaseM3,a.Activo,m.Marca
             FROM inv.Articulo a JOIN inv.UnidadMedida u ON u.EmpresaId=a.EmpresaId AND u.UnidadMedidaId=a.UnidadBaseId
+            OUTER APPLY inv.fn_MarcaPorDescripcion(a.EmpresaId,a.Descripcion) m
             WHERE a.EmpresaId=@EmpresaId ORDER BY a.Codigo;
             """; Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
         await using var reader=await command.ExecuteReaderAsync(ct); var result=new List<ArticleResponse>();
-        while(await reader.ReadAsync(ct)) result.Add(new(reader.GetInt64(0),reader.GetString(1),reader.GetString(2),reader.GetString(3),reader.GetBoolean(4),reader.GetInt64(5),reader.GetString(6),reader.GetBoolean(7),reader.GetBoolean(8),reader.GetBoolean(9),reader.IsDBNull(10)?null:reader.GetDecimal(10),reader.IsDBNull(11)?null:reader.GetDecimal(11),reader.GetBoolean(12))); return result;
+        while(await reader.ReadAsync(ct)) result.Add(new(reader.GetInt64(0),reader.GetString(1),reader.GetString(2),reader.GetString(3),reader.GetBoolean(4),reader.GetInt64(5),reader.GetString(6),reader.GetBoolean(7),reader.GetBoolean(8),reader.GetBoolean(9),reader.IsDBNull(10)?null:reader.GetDecimal(10),reader.IsDBNull(11)?null:reader.GetDecimal(11),reader.GetBoolean(12),reader.IsDBNull(13)?null:reader.GetString(13))); return result;
     }
 
     public async Task<IReadOnlyList<ItemMappingResponse>> GetMappingsAsync(long empresaId,long? terceroId,CancellationToken ct)
