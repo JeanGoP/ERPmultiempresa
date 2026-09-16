@@ -144,7 +144,7 @@ function canUseInventoryOperations() { return hasAnyPermission(ACCESS.inventoryO
 function canUseSavedPurchases() { return hasPermission('COMPRAS.DOCUMENTO.CREAR'); }
 function canUseAccountsPayable() { return hasPermission('COMPRAS.DOCUMENTO.CREAR'); }
 function isMasterViewAllowed(view) {
-  const required = { suppliers: 'MAESTROS.PROVEEDOR.ADMINISTRAR', articles: 'MAESTROS.ARTICULO.ADMINISTRAR', units: 'MAESTROS.INVENTARIO.ADMINISTRAR', warehouses: 'MAESTROS.INVENTARIO.ADMINISTRAR', mappings: 'COMPRAS.HOMOLOGACION.ADMINISTRAR' }[view];
+  const required = { suppliers: 'MAESTROS.PROVEEDOR.ADMINISTRAR', articles: 'MAESTROS.ARTICULO.ADMINISTRAR', brands: 'MAESTROS.ARTICULO.ADMINISTRAR', units: 'MAESTROS.INVENTARIO.ADMINISTRAR', warehouses: 'MAESTROS.INVENTARIO.ADMINISTRAR', mappings: 'COMPRAS.HOMOLOGACION.ADMINISTRAR' }[view];
   return Boolean(required && hasPermission(required));
 }
 function isInventoryViewAllowed(view) {
@@ -302,6 +302,7 @@ function setupCollapsibleNavigation() {
 const masterViewConfig = {
   suppliers: ['Proveedores', 'Terceros habilitados para compras.', 'proveedores'],
   articles: ['Artículos y servicios', 'Catálogo interno y controles de inventario.', 'artículos y servicios'],
+  brands: ['Marcas', 'Marcas de esta empresa. Las referencias del catálogo permiten reconocerlas al leer el XML.', 'marcas'],
   units: ['Unidades de medida', 'Unidades base, de compra y de venta.', 'unidades'],
   warehouses: ['Bodegas', 'Depósitos y uso opcional de ubicaciones.', 'bodegas'],
   mappings: ['Homologación XML', 'Relación entre códigos del proveedor y artículos internos.', 'homologaciones'],
@@ -310,7 +311,7 @@ const masterViewConfig = {
 const pendingApiMasterData = {};
 function pendingApiMasterDataFor(companyId) {
   const key=String(companyId||'sin-empresa');
-  if(!pendingApiMasterData[key])pendingApiMasterData[key]={suppliers:[],units:[],articles:[],warehouses:[],mappings:[]};
+  if(!pendingApiMasterData[key])pendingApiMasterData[key]={suppliers:[],units:[],articles:[],brands:[],warehouses:[],mappings:[]};
   return pendingApiMasterData[key];
 }
 
@@ -326,13 +327,15 @@ async function loadApiCompanyContext() {
   if(state.runtimeMode!=='api'||!state.erpSession?.company?.id||!apiToken()) return;
   const companyId=state.erpSession.company.id; const base=`/api/v1/companies/${companyId}`;
   try {
-    const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies,permissions]=await Promise.all([
+    const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies,permissions,brands]=await Promise.all([
       apiRequest(`${base}/master-data/suppliers`),apiRequest(`${base}/master-data/units`),apiRequest(`${base}/master-data/articles`),
       apiRequest(`${base}/master-data/item-mappings`),apiRequest(`${base}/warehouses`),apiRequest(`${base}/inventory-periods`),
       apiRequest(`${base}/accounting-periods`),apiRequest(`${base}/accounting-accounts`),apiRequest('/api/v1/companies'),apiRequest(`${base}/permissions`),
+      apiRequest(`${base}/master-data/brands`).then(rows=>({rows,error:null})).catch(error=>({rows:[],error:error.message})),
     ]);
     renderCompanyOptions(companies);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);
     state.apiContext={ warehouses,periods,accountingPeriods,accounts,permissions,permissionCodes:new Set(permissions.map(permissionCode)),masterData:{
+      brands:brands.rows,brandsError:brands.error,
       suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,active:x.activo})),
       units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
       articles:articles.map(x=>({id:x.articuloId,code:x.codigo,description:x.descripcion,brand:x.marca,type:x.tipo,unitId:x.unidadBaseId,inventory:x.manejaInventario,lot:x.manejaLote,serial:x.manejaSerial,expiry:x.requiereVencimiento,active:x.activo})),
@@ -345,7 +348,7 @@ async function loadApiCompanyContext() {
     elements.manualLines.querySelectorAll('[data-manual-line]').forEach(row=>{const classification=row.querySelector('[data-field="classification"]')?.value;const select=row.querySelector('[data-field="articleId"]');if(select)populateManualArticleOptions(select,classification,select.value);});
     if(!elements.masterDataModule.hidden) renderMasterView();
     if(!elements.inventoryModule.hidden){populateInventoryWarehouses();void refreshInventory();}
-    if(state.invoice) renderInvoice();
+    if(state.invoice){state.invoice.brandRecognition=null;renderInvoice();}
   } catch(error) { showError(`No fue posible cargar los datos de la empresa. ${error.message}`); }
 }
 
@@ -455,10 +458,18 @@ function showMasterNotice(message,isError=false) {
 function renderMasterView() {
   const context=getCompanyMasterData(); const data=context.data; const config=masterViewConfig[state.masterView];
   elements.masterViewTitle.textContent=config[0]; elements.masterViewSubtitle.textContent=config[1]; elements.addMasterRecord.textContent=state.masterView==='mappings'?'＋ Nueva homologación':'＋ Nuevo registro';
+  elements.addMasterRecord.disabled=state.masterView==='brands'&&Boolean(data.brandsError);
   renderMasterStats(data);
   const query=elements.masterSearch.value.trim().toLocaleLowerCase('es-CO');
   if(state.masterView==='suppliers'){const count=renderSupplierMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
   if(state.masterView==='articles'){const count=renderArticleMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
+  if(state.masterView==='brands'){
+    if(data.brandsError){elements.masterTable.replaceChildren(emptyMessage(`No se pudo cargar el catálogo de marcas. Si acabas de actualizar, publica el backend preparado. ${data.brandsError}`));elements.masterCount.textContent='Consulta no disponible';return;}
+    const brands=(data.brands||[]).filter(x=>!query||`${x.nombre} ${activeLabel(x.activa)}`.toLocaleLowerCase('es-CO').includes(query));
+    const table=buildDataTable(['Marca','Referencias para reconocimiento','Estado','Acciones'],brands.map(x=>[x.nombre,x.referencias,activeLabel(x.activa),'']));
+    table.querySelectorAll('tbody tr').forEach((row,index)=>{const brand=brands[index];if(!brand)return;const button=document.createElement('button');button.type='button';button.className='button secondary';button.textContent='Editar';button.addEventListener('click',()=>openMasterForm(brand));row.lastElementChild.append(button);});
+    elements.masterTable.replaceChildren(table);elements.masterCount.textContent=`${brands.length} marcas`;return;
+  }
   const source=masterRows(state.masterView,data); const rows=query?source.rows.filter(row=>row.join(' ').toLocaleLowerCase('es-CO').includes(query)):source.rows;
   elements.masterTable.replaceChildren(buildDataTable(source.headers,rows)); elements.masterCount.textContent=`${rows.length} ${config[2]}`;
 }
@@ -699,7 +710,7 @@ function addMasterCheck(labelText,name,checked=false) {
 }
 
 function openMasterForm(record=null) {
-  const data=getCompanyMasterData().data; const editingArticle=state.masterView==='articles'&&record?.id!=null?record:null;const editingSupplier=state.masterView==='suppliers'&&record?.id!=null?record:null;state.masterEditingArticleId=editingArticle?.id||null;state.masterEditingSupplierId=editingSupplier?.id||null;
+  const data=getCompanyMasterData().data; const editingArticle=state.masterView==='articles'&&record?.id!=null?record:null;const editingSupplier=state.masterView==='suppliers'&&record?.id!=null?record:null;state.masterEditingArticleId=editingArticle?.id||null;state.masterEditingSupplierId=editingSupplier?.id||null;state.masterEditingBrandId=state.masterView==='brands'?record?.id||null:null;
   elements.masterFormFields.replaceChildren(); elements.masterFormError.hidden=true;
   elements.masterDialogTitle.textContent=editingArticle?'Editar artículo':editingSupplier?'Editar proveedor':`Nuevo: ${masterViewConfig[state.masterView][0]}`;
   elements.masterDialogSubtitle.textContent=editingArticle?'Actualiza la información permitida del artículo.':editingSupplier?'Corrige o completa los datos fiscales, de ubicación y contacto del proveedor.':'Completa la información requerida.';
@@ -709,6 +720,7 @@ function openMasterForm(record=null) {
     addMasterField('Código de ciudad','cityCode','text',null,false,false);addMasterField('Ciudad','city','text',null,false,false);addMasterField('Código de departamento','departmentCode','text',null,false,false);addMasterField('Departamento','department','text',null,false,false);addMasterField('Código postal','postalCode','text',null,false,false);addMasterField('Código de país','countryCode','text',null,false,false);addMasterField('País','country','text',null,false,false);
     addMasterField('Persona de contacto','contactName','text',null,false,false);addMasterField('Teléfono','phone','tel',null,false,false);addMasterField('Correo','email','email',null,false,false);addMasterField('Sitio web','website','url',null,true,false);
   }
+  else if(state.masterView==='brands') { const name=addMasterField('Nombre de la marca *','name','text',null,true);name.maxLength=100;name.value=record?.nombre||'';addMasterCheck('Activa para reconocimiento','active',record?.activa??true);if(record?.id)elements.masterDialogTitle.textContent='Editar marca'; }
   else if(state.masterView==='units') { addMasterField('Código *','code'); addMasterField('Símbolo *','symbol'); addMasterField('Nombre *','name','text',null,true); }
   else if(state.masterView==='articles') { addMasterField('Código interno *','code'); addMasterField('Tipo *','type','text',[['INVENTARIO','Artículo inventariable'],['SERVICIO','Servicio'],['ACTIVO_FIJO','Activo fijo'],['CONCEPTO','Concepto de costo']]); addMasterField('Descripción *','description','text',null,true); addMasterField('Unidad base *','unitId','text',data.units.map(x=>[x.id,`${x.code} · ${x.name}`])); addMasterField('Unidad de compra','purchaseUnitId','text',[['','Igual a la unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const purchaseFactor=addMasterField('Factor a unidad base','purchaseFactor','number',null,false,false); purchaseFactor.min='0.0000000001'; purchaseFactor.step='0.0000000001'; purchaseFactor.value='1'; addMasterCheck('Maneja inventario','inventory',true); addMasterCheck('Maneja serial / motor / chasis','serial'); addMasterCheck('Maneja lote','lot'); addMasterCheck('Requiere vencimiento','expiry'); }
   else if(state.masterView==='warehouses') { addMasterField('Código *','code'); addMasterField('Nombre *','name'); addMasterCheck('Usa ubicaciones','locations'); addMasterCheck('Es bodega de tránsito','transit'); }
@@ -730,6 +742,11 @@ async function saveMasterRecord(event) {
   const checkbox=(name)=>elements.masterRecordForm.elements[name]?.checked||false;
   try {
     const base=`/api/v1/companies/${state.erpSession.company.id}/master-data`;let path;let payload;
+    if(state.masterView==='brands'){
+      const id=state.masterEditingBrandId;
+      await apiRequest(`${base}/brands${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify({nombre:values.name.trim(),activa:checkbox('active')})});
+      state.masterEditingBrandId=null;await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice('Marca guardada correctamente.');return;
+    }
     if(state.masterView==='suppliers'){const current=findById(data.suppliers,state.masterEditingSupplierId);path='suppliers';payload=supplierApiPayload({identificationType:values.identificationType,identification:values.identification,name:values.name,verificationDigit:values.verificationDigit,commercialName:values.commercialName,taxResponsibility:values.taxResponsibility,taxSchemeCode:values.taxSchemeCode,taxSchemeName:values.taxSchemeName,address:values.address,cityCode:values.cityCode,city:values.city,departmentCode:values.departmentCode,department:values.department,postalCode:values.postalCode,countryCode:values.countryCode,country:values.country,contactName:values.contactName,phone:values.phone,email:values.email,website:values.website,xmlData:current?.xmlData||null});}
     else if(state.masterView==='units'){path='units';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),simbolo:values.symbol.trim()};}
     else if(state.masterView==='articles'){path='articles';payload={codigo:values.code.trim().toUpperCase(),descripcion:values.description.trim(),tipo:values.type,unidadBaseId:Number(values.unitId),manejaInventario:values.type==='SERVICIO'?false:checkbox('inventory'),manejaLote:checkbox('lot'),manejaSerial:checkbox('serial'),requiereVencimiento:checkbox('expiry'),pesoBaseKg:null,volumenBaseM3:null};}
@@ -1382,19 +1399,49 @@ function compatibleArticles(data,classification) {
   return data.articles.filter(x=>x.active&&(x.type==='CONCEPTO'||x.type==='SERVICIO'));
 }
 
+function xmlBrandLabel(invoice,index) {
+  const recognition=invoice.brandRecognition;
+  if(!recognition||recognition.companyId!==String(state.erpSession?.company?.id))return 'Consultando…';
+  if(recognition.status==='error')return 'No se pudo consultar';
+  return recognition.status==='loading'?'Consultando…':recognition.brands[index]||'Sin reconocer';
+}
+
+async function recognizeXmlBrands(invoice) {
+  const companyId=String(state.erpSession?.company?.id||'');
+  if(!companyId||!apiToken())return;
+  const descriptions=invoice.items.map(x=>x.description||'');
+  const signature=JSON.stringify(descriptions);
+  if(invoice.brandRecognition?.companyId===companyId&&invoice.brandRecognition.signature===signature)return;
+  const recognition={companyId,signature,status:'loading',brands:[]};invoice.brandRecognition=recognition;
+  await Promise.resolve();
+  try {
+    // Batch large documents without truncating descriptions or confusing row indexes.
+    for(let start=0;start<descriptions.length;start+=1000){
+      const batch=descriptions.slice(start,start+1000);const valid=batch.map((description,index)=>({description,index})).filter(x=>x.description.length<=300);
+      if(!valid.length)continue;
+      const matches=await apiRequest(`/api/v1/companies/${companyId}/master-data/brands/recognize`,{method:'POST',body:JSON.stringify({descripciones:valid.map(x=>x.description)})});
+      matches.forEach(x=>{if(valid[x.indice])recognition.brands[start+valid[x.indice].index]=x.marca;});
+    }
+    recognition.status='ready';
+  }catch{recognition.status='error';}
+  if(state.invoice===invoice&&invoice.brandRecognition===recognition&&String(state.erpSession?.company?.id)===companyId)renderInvoice();
+}
+
 function buildHomologationPanel(invoice) {
   const context=getCompanyMasterData(); const data=context.data; const resolved=invoice.items.map(item=>mappingForLine(data,invoice,item)); const completed=resolved.filter(Boolean).length;
   const panel=document.createElement('section'); panel.className='homologation-panel';
   const heading=document.createElement('div'); heading.className='homologation-heading'; const copy=document.createElement('div'); const title=document.createElement('h3'); title.textContent='Relacionar productos del XML';
   const description=document.createElement('p'); description.textContent='A la izquierda está el producto del proveedor. A la derecha, elige el artículo que le corresponde en tu sistema.'; copy.append(title,description);
   const progress=document.createElement('span'); progress.className=`homologation-progress${completed===invoice.items.length?' complete':''}`; progress.textContent=`${completed} de ${invoice.items.length} relacionados`; heading.append(copy,progress);
+  if(invoice.brandRecognition?.status==='error'){const retry=document.createElement('button');retry.type='button';retry.className='button secondary';retry.textContent='Reintentar marcas';retry.addEventListener('click',()=>{invoice.brandRecognition=null;renderInvoice();});heading.append(retry);}
   const wrap=document.createElement('div'); wrap.className='homologation-table'; const table=document.createElement('table'); const head=table.createTHead().insertRow();
-  ['Producto del proveedor (XML)','Artículo correspondiente en el sistema'].forEach(text=>{const th=document.createElement('th');th.scope='col';th.textContent=text;head.append(th);});
+  ['Producto del proveedor (XML)','Marca','Artículo correspondiente en el sistema'].forEach(text=>{const th=document.createElement('th');th.scope='col';th.textContent=text;head.append(th);});
   const body=table.createTBody(); invoice.items.forEach((item,index)=>{
     const row=body.insertRow();const source=row.insertCell();source.dataset.label='Producto del proveedor (XML)';
     const code=document.createElement('strong');code.textContent=`Línea ${item.line} · Código ${item.code||'sin código'}`;
     const product=document.createElement('p');product.textContent=item.description;
     const classification=document.createElement('small');classification.textContent=classificationLabels[item.classification]||'';source.append(code,product,classification);
+    const brandCell=row.insertCell();brandCell.dataset.label='Marca';brandCell.textContent=xmlBrandLabel(invoice,index);
     const selectCell=row.insertCell();selectCell.dataset.label='Artículo en el sistema'; const select=document.createElement('select');select.setAttribute('aria-label',`Artículo del sistema para línea ${item.line}, ${item.code||item.description}`); const empty=document.createElement('option'); empty.value=''; empty.textContent='Elige el artículo del sistema…'; select.append(empty);
     const candidates=compatibleArticles(data,item.classification); const current=resolved[index];
     candidates.forEach(article=>{const option=document.createElement('option');option.value=article.id;option.textContent=`${article.code} · ${article.description}`;option.selected=current?.articleId===article.id;select.append(option);});
@@ -1417,7 +1464,7 @@ function buildInvoiceClassificationTable(invoice) {
   if (!invoice.items.length) return emptyMessage('No se encontraron líneas en la factura.');
   const table = document.createElement('table');
   table.className = 'classification-table';
-  const headers = ['Clasificación', 'Línea', 'Código', 'Descripción', 'Cantidad', 'Unidad', 'Precio unitario', 'Subtotal bruto', 'Descuento', 'Descuento %', 'Impuesto', 'Retención', 'Total neto'];
+  const headers = ['Clasificación', 'Línea', 'Código', 'Descripción', 'Marca', 'Cantidad', 'Unidad', 'Precio unitario', 'Subtotal bruto', 'Descuento', 'Descuento %', 'Impuesto', 'Retención', 'Total neto'];
   const head = table.createTHead().insertRow();
   headers.forEach((header) => { const th = document.createElement('th'); th.textContent = header; head.append(th); });
   const body = table.createTBody();
@@ -1439,7 +1486,7 @@ function buildInvoiceClassificationTable(invoice) {
       renderInvoice();
     });
     classificationCell.append(select);
-    [item.line, item.code, item.description, item.quantity, item.unit, formatCurrency(item.unitPrice, invoice.currency), formatCurrency(item.grossTotal, invoice.currency), formatCurrency(item.discount, invoice.currency), formatPercentage(item.discountRate), formatCurrency(item.tax, invoice.currency), formatCurrency(item.retention, invoice.currency), formatCurrency(item.lineTotal, invoice.currency)]
+    [item.line, item.code, item.description, xmlBrandLabel(invoice,index), item.quantity, item.unit, formatCurrency(item.unitPrice, invoice.currency), formatCurrency(item.grossTotal, invoice.currency), formatCurrency(item.discount, invoice.currency), formatPercentage(item.discountRate), formatCurrency(item.tax, invoice.currency), formatCurrency(item.retention, invoice.currency), formatCurrency(item.lineTotal, invoice.currency)]
       .forEach((value) => { const cell = row.insertCell(); cell.textContent = value ?? ''; });
   });
   return table;
@@ -1549,6 +1596,7 @@ function renderInvoice() {
   elements.invoicePanel.replaceChildren();
   const invoice = state.invoice;
   if (!invoice) { elements.invoicePanel.hidden = true; return; }
+  void recognizeXmlBrands(invoice);
   elements.invoicePanel.hidden = false;
   const hero = document.createElement('div'); hero.className = 'invoice-hero';
   const eyebrow = document.createElement('p'); eyebrow.className = 'eyebrow'; eyebrow.textContent = 'FACTURA ELECTRÓNICA DIAN';

@@ -37,6 +37,8 @@ try {
     & (Join-Path $projectRoot 'database\scripts\init-localdb.ps1') -DatabaseName $databaseName -Instance $Instance
     & sqlcmd -S $Instance -E -b -d $databaseName -i (Join-Path $projectRoot 'database\migrations\045_company_brand_catalog.sql')
     if($LASTEXITCODE -ne 0){throw 'La migración de marcas no es idempotente.'}
+    & sqlcmd -S $Instance -E -b -f 65001 -d $databaseName -i (Join-Path $projectRoot 'database\migrations\046_brand_master.sql')
+    if($LASTEXITCODE -ne 0){throw 'El maestro de marcas no es idempotente.'}
     & sqlcmd -S $Instance -E -b -f 65001 -d $databaseName -i (Join-Path $PSScriptRoot 'brand-catalog.sql')
     if($LASTEXITCODE -ne 0){throw 'Fallaron las pruebas SQL del catálogo de marcas.'}
     $setupSql=@"
@@ -48,6 +50,8 @@ INSERT core.Empresa(Codigo,Nit,RazonSocial) VALUES('APIQA','900777001',N'Empresa
 DECLARE @EmpresaId bigint=SCOPE_IDENTITY();
 INSERT inv.CatalogoMarcaDescripcion(EmpresaId,Referencia,Descripcion,Marca,Habilitada,ArchivoOrigen,ArchivoSha256,FilaOrigen)
 VALUES(@EmpresaId,'QA-XML',N'Motocicleta creada desde XML','MARCA XML QA',1,'qa',REPLICATE('0',64),2);
+INSERT inv.Marca(EmpresaId,Nombre) VALUES(@EmpresaId,'MARCA XML QA');
+UPDATE inv.CatalogoMarcaDescripcion SET MarcaId=SCOPE_IDENTITY() WHERE EmpresaId=@EmpresaId;
 INSERT core.EmpresaConfiguracion(EmpresaId) VALUES(@EmpresaId);
 UPDATE core.EmpresaConfiguracion SET PermiteInventarioNegativo=1 WHERE EmpresaId=@EmpresaId;
 INSERT inv.UnidadMedida(EmpresaId,Codigo,Nombre,Simbolo) VALUES(@EmpresaId,'UND',N'Unidad','und');
@@ -97,7 +101,7 @@ DELETE FROM seg.UsuarioEmpresaRol WHERE UsuarioId=(SELECT UsuarioId FROM seg.Usu
         try { $health=Invoke-RestMethod -Uri "$baseUrl/api/v1/health" -Method Get; $healthy=$true; break } catch { if($apiProcess.HasExited){ break } }
     }
     if(-not $healthy){ throw "La API no inicio. $(Get-Content $errorLog -Raw -ErrorAction SilentlyContinue)" }
-    if($health.status -ne 'ok' -or $health.migrations -ne 45 -or $health.release -ne '2026.09.15.1' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
+    if($health.status -ne 'ok' -or $health.migrations -ne 46 -or $health.release -ne '2026.09.15.2' -or $health.databaseMode -ne 'localdb' -or [string]::IsNullOrWhiteSpace($health.databaseFingerprint)){ throw 'La salud de la API no reportó versión, conexión y migraciones esperadas.' }
     $ready=Invoke-RestMethod -Uri "$baseUrl/api/v1/health/ready" -Method Get
     if($ready.status -ne 'ready' -or $ready.discardedOutbox -ne 0){ throw 'La comprobacion de disponibilidad operativa no quedo lista.' }
 
@@ -406,6 +410,7 @@ COMMIT;
 
     $viewerLogin=Invoke-RestMethod -Uri "$baseUrl/api/v1/auth/login" -Method Post -ContentType 'application/json' -Body (@{correo='consulta.api@qa.local';password=$viewerPassword}|ConvertTo-Json)
     $viewerHeaders=@{Authorization="Bearer $($viewerLogin.token)"}
+    . (Join-Path $PSScriptRoot 'brand-master-api.ps1')
     Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/suppliers/$($supplierSaved.id)/statement" -Headers $viewerHeaders } 403 'El extracto no protegió el permiso de consulta.'
     $null=Invoke-RestMethod -Uri "$baseUrl/api/v1/companies/$companyId/inventory/balances" -Headers $viewerHeaders -Method Get
     Assert-Status { Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/v1/companies/$companyId/security/users" -Headers $viewerHeaders -Method Get } 403 'La administración de seguridad no bloqueó al usuario restringido.'

@@ -47,6 +47,15 @@ SELECT @EmpresaId,f.Referencia,f.Descripcion,f.Marca,f.Linea,f.Categoria,f.Habil
 FROM @Filas f WHERE NOT EXISTS(SELECT 1 FROM inv.CatalogoMarcaDescripcion c WHERE c.EmpresaId=@EmpresaId AND c.Referencia=f.Referencia);
 IF (SELECT COUNT(*) FROM inv.CatalogoMarcaDescripcion c JOIN @Filas f ON f.Referencia=c.Referencia WHERE c.EmpresaId=@EmpresaId AND c.ArchivoSha256=JSON_VALUE(@Json,'$.sha256'))<>(SELECT COUNT(*) FROM @Filas)
     THROW 51601,'No se pudo verificar la totalidad de la carga.',1;
+-- Extend the normalized brand master without changing an existing manual rename.
+INSERT inv.Marca(EmpresaId,Nombre)
+SELECT @EmpresaId,MIN(c.Marca) FROM inv.CatalogoMarcaDescripcion c
+WHERE c.EmpresaId=@EmpresaId AND c.Habilitada=1 AND c.MarcaId IS NULL
+    AND NOT EXISTS(SELECT 1 FROM inv.Marca m WHERE m.EmpresaId=@EmpresaId AND m.Nombre=c.Marca COLLATE Latin1_General_100_CI_AI)
+GROUP BY c.Marca COLLATE Latin1_General_100_CI_AI;
+UPDATE c SET MarcaId=m.MarcaId FROM inv.CatalogoMarcaDescripcion c
+JOIN inv.Marca m ON m.EmpresaId=c.EmpresaId AND m.Nombre=c.Marca COLLATE Latin1_General_100_CI_AI
+WHERE c.EmpresaId=@EmpresaId AND c.Habilitada=1 AND c.MarcaId IS NULL;
 COMMIT;
 SELECT COUNT(*) AS Total,SUM(CASE WHEN Habilitada=1 THEN 1 ELSE 0 END) AS Habilitadas,
     SUM(CASE WHEN Habilitada=0 THEN 1 ELSE 0 END) AS Pendientes

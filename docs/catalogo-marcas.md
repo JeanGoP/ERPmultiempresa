@@ -1,5 +1,9 @@
 # Reconocimiento de marcas por empresa
 
+La migración 046 agrega `inv.Marca`, un maestro único por empresa vinculado a las referencias importadas. En **Datos maestros → Marcas** se pueden crear y editar nombres, activar/desactivar y consultar cuántas referencias tiene cada marca. Crear una marca sin referencias no permite inferir qué descripciones le corresponden. Las marcas dudosas del archivo permanecen pendientes, sin convertirlas en marcas confirmadas.
+
+Al leer un XML, las tablas de clasificación y homologación muestran **Marca**, consultada por descripción directamente en SQL antes de crear artículos. La consulta es por lotes, conserva el orden de líneas y no reutiliza resultados entre empresas. Las marcas desactivadas, referencias ambiguas o textos sin coincidencia muestran **Sin reconocer**; un fallo de API muestra un error de consulta con opción de reintentar. La marca presentada no modifica el XML original ni guarda una instantánea histórica de la factura.
+
 La migración 045 crea `inv.CatalogoMarcaDescripcion`, protegida por RLS. Guarda referencia, descripción, marca, línea, categoría y procedencia (archivo, SHA-256 y fila). No importa precios, existencias ni crea artículos.
 
 `inv.fn_MarcaPorDescripcion` compara la descripción completa sin distinguir mayúsculas, tildes ni espacios repetidos. Conserva números y puntuación: no realiza coincidencias aproximadas. Si hay marcas contradictorias o alguna referencia pendiente para esa descripción, devuelve NULL. Referencias repetidas con la misma descripción/marca no generan ambigüedad.

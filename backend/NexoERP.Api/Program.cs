@@ -24,6 +24,7 @@ builder.Services.AddScoped<InventoryRepository>();
 builder.Services.AddScoped<InventoryOperationsRepository>();
 builder.Services.AddScoped<AdvancedControlsRepository>();
 builder.Services.AddScoped<MasterDataRepository>();
+builder.Services.AddScoped<BrandCatalogRepository>();
 builder.Services.AddScoped<PurchasingRepository>();
 builder.Services.AddScoped<AuthRepository>();
 builder.Services.AddScoped<SecurityAdminRepository>();
@@ -35,7 +36,7 @@ builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.15.1";
+const string ReleaseVersion="2026.09.15.2";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -208,6 +209,26 @@ app.MapGet("/api/v1/companies/{empresaId:long}/accounting-accounts", async (long
 app.MapGet("/api/v1/companies/{empresaId:long}/master-data/suppliers", async (long empresaId,MasterDataRepository masters,CancellationToken ct) => Results.Ok(await masters.GetSuppliersAsync(empresaId,ct)));
 app.MapGet("/api/v1/companies/{empresaId:long}/master-data/units", async (long empresaId,MasterDataRepository masters,CancellationToken ct) => Results.Ok(await masters.GetUnitsAsync(empresaId,ct)));
 app.MapGet("/api/v1/companies/{empresaId:long}/master-data/articles", async (long empresaId,MasterDataRepository masters,CancellationToken ct) => Results.Ok(await masters.GetArticlesAsync(empresaId,ct)));
+app.MapGet("/api/v1/companies/{empresaId:long}/master-data/brands",async(long empresaId,BrandCatalogRepository brands,CancellationToken ct)=>Results.Ok(await brands.ListAsync(empresaId,ct)));
+app.MapPost("/api/v1/companies/{empresaId:long}/master-data/brands/recognize",async(long empresaId,RecognizeBrandsRequest input,BrandCatalogRepository brands,CancellationToken ct)=>
+{
+    if(input.Descripciones is null || input.Descripciones.Length>1000 || input.Descripciones.Any(x=>x is null || x.Length>300))
+        return Results.BadRequest(new {error="Envía hasta 1000 descripciones, de máximo 300 caracteres cada una."});
+    return Results.Ok(await brands.RecognizeAsync(empresaId,input.Descripciones,ct));
+});
+app.MapPost("/api/v1/companies/{empresaId:long}/master-data/brands",async(long empresaId,SaveBrandRequest input,HttpContext context,BrandCatalogRepository brands,CancellationToken ct)=>
+{
+    if(string.IsNullOrWhiteSpace(input.Nombre)||input.Nombre.Length>100)return Results.BadRequest(new {error="Nombre de marca obligatorio, máximo 100 caracteres."});
+    try{return Results.Ok(new {id=await brands.SaveAsync(empresaId,null,input,Convert.ToInt64(context.Items["UsuarioId"]),ct)});}
+    catch(SqlException e) when(e.Number is 2601 or 2627){return Results.Conflict(new {error="Ya existe una marca con ese nombre en esta empresa."});}
+}).RequireErpPermission("MAESTROS.ARTICULO.ADMINISTRAR");
+app.MapPut("/api/v1/companies/{empresaId:long}/master-data/brands/{id:long}",async(long empresaId,long id,SaveBrandRequest input,HttpContext context,BrandCatalogRepository brands,CancellationToken ct)=>
+{
+    if(string.IsNullOrWhiteSpace(input.Nombre)||input.Nombre.Length>100)return Results.BadRequest(new {error="Nombre de marca obligatorio, máximo 100 caracteres."});
+    try{return Results.Ok(new {id=await brands.SaveAsync(empresaId,id,input,Convert.ToInt64(context.Items["UsuarioId"]),ct)});}
+    catch(SqlException e) when(e.Number is 2601 or 2627){return Results.Conflict(new {error="Ya existe una marca con ese nombre en esta empresa."});}
+    catch(SqlException e) when(e.Number==51630){return Results.NotFound(new {error="Marca no encontrada en esta empresa."});}
+}).RequireErpPermission("MAESTROS.ARTICULO.ADMINISTRAR");
 app.MapGet("/api/v1/companies/{empresaId:long}/master-data/item-mappings", async (long empresaId,long? terceroId,MasterDataRepository masters,CancellationToken ct) => Results.Ok(await masters.GetMappingsAsync(empresaId,terceroId,ct)));
 
 app.MapPost("/api/v1/companies/{empresaId:long}/master-data/suppliers", async (long empresaId,SaveSupplierRequest input,HttpContext context,MasterDataRepository masters,CancellationToken ct) =>
