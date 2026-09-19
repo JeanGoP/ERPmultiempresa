@@ -1,0 +1,19 @@
+<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/styles.css"><title>QA de períodos</title><body><main style="padding:24px;max-width:1100px;margin:auto"><h1>Prueba de fechas de entrada</h1><p id="result">Validando...</p><div id="entry"></div><div id="opening"></div></main><script>
+const state={erpSession:{company:{id:3}},purchaseWorkflow:null,apiContext:{warehouses:[{codigo:'01',nombre:'Bodega principal',bodegaId:1}],periods:[{periodoInventarioId:1,codigo:'2026-09',estado:'ABIERTO',fechaInicio:'2026-09-01',fechaFin:'2026-09-30'}]}};
+const invoice={number:'QA',issueDate:'2025-01-10',accountingDate:'2026-09-18',items:[{classification:'inventory'}],paymentCondition:'CONTADO'};
+const mappedLine=()=>({}),showSavedPurchases=()=>{},datePlusDays=d=>d;
+const elements={advancedAction:document.querySelector('#opening')};
+const advancedForm=html=>{const f=document.createElement('form');f.className='control-form';f.innerHTML=html;return f;};
+const advancedApiActive=()=>true,advancedBase=()=>'/test-only',loadApiCompanyContext=async()=>{},refreshAdvanced=async()=>{},showSuccess=t=>{document.querySelector('#result').textContent=t;},advancedMessage=(_f,t)=>showSuccess(t);
+let request=null;const apiRequest=async(path,options)=>{request={path,body:JSON.parse(options.body)};return {codigo:'2026-10'};};
+(async()=>{
+const source=await (await fetch('/app.js')).text();const controls=await (await fetch('/advanced-controls.js')).text();
+const script=document.createElement('script');script.textContent=source.slice(source.indexOf('function accountingToday('),source.indexOf('function renderInvoice('))+controls.slice(controls.indexOf('function renderPeriodOpening('),controls.indexOf('function renderClosingAction('));document.body.append(script);
+const panel=buildPurchaseWorkflowPanel(invoice);document.querySelector('#entry').append(panel);
+const fields=[...panel.querySelectorAll('label')];const date=fields.find(x=>x.textContent==='Fecha contable').querySelector('input');const original=fields.find(x=>x.textContent==='Fecha de factura').querySelector('input');const post=[...panel.querySelectorAll('button')].find(x=>x.textContent==='Guardar y contabilizar entrada');
+function check(value,text){if(!value)throw Error(text);}
+check(original.value==='2025-01-10'&&original.readOnly,'Fecha de factura incorrecta');check(!post.disabled,'Mes abierto bloqueado');check(!fields.some(x=>x.textContent==='Periodo de inventario'),'Selector visible');
+date.value='2026-10-01';date.dispatchEvent(new Event('change'));check(post.disabled,'No bloquea mes sin abrir');check(invoice.issueDate==='2025-01-10','Modifica factura');date.value='2026-09-18';date.dispatchEvent(new Event('change'));check(!post.disabled,'No habilita mes abierto');
+renderPeriodOpening();document.querySelector('#result').textContent='OK: factura antigua, fecha contable independiente, período automático, mes sin abrir bloqueado.';
+})().catch(e=>document.querySelector('#result').textContent='ERROR: '+e.message);
+</script></body></html>

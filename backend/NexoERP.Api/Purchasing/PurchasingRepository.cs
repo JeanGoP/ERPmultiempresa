@@ -782,6 +782,19 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         return new(recepcionId,detail.Recepcion.Revisadas,detail.Recepcion.RecibidasConforme,detail.Recepcion.RecibidasConNovedad,detail.Recepcion.NoRecibidas);
     }
 
+    public async Task ValidateReceiptDateAsync(long empresaId,DateOnly fecha,CancellationToken ct)
+    {
+        await using var connection=await connections.OpenAsync(empresaId,false,ct);
+        await using var command=connection.CreateCommand();
+        command.CommandText="""
+            IF (SELECT COUNT(*) FROM core.PeriodoInventario WHERE EmpresaId=@E AND Estado IN('ABIERTO','REABIERTO') AND @F BETWEEN FechaInicio AND FechaFin)<>1
+                THROW 51325,'No hay un unico periodo abierto para la fecha contable. Abre el mes en Periodos de inventario.',1;
+            """;
+        Add(command,"@E",SqlDbType.BigInt,empresaId);
+        Add(command,"@F",SqlDbType.Date,fecha.ToDateTime(TimeOnly.MinValue));
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
     public async Task<PreparedSupplierDocumentResponse> PrepareAsync(long empresaId,long documentoId,PrepareSupplierDocumentRequest input,CancellationToken cancellationToken)
     {
         await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
@@ -911,6 +924,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         await using var command=connection.CreateCommand();
         command.CommandType=CommandType.StoredProcedure;
         command.CommandText="inv.usp_ContabilizarRecepcion";
+        Add(command,"@FechaContableSolicitada",SqlDbType.Date,input.FechaContable?.ToDateTime(TimeOnly.MinValue));
         Add(command,"@BodegasJson",SqlDbType.NVarChar,input.Bodegas is null?null:JsonSerializer.Serialize(input.Bodegas,new JsonSerializerOptions { PropertyNamingPolicy=JsonNamingPolicy.CamelCase }),-1);
         Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
         Add(command,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);

@@ -400,14 +400,15 @@ app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents", async (long
     {
         if(input.FechaContable is null)
             return Results.ValidationProblem(new Dictionary<string,string[]> { ["fechaContable"]=["La fecha contable es obligatoria para preparar la recepción."] });
-        if(hasInventoryLines&&(input.BodegaId is null||input.PeriodoInventarioId is null||string.IsNullOrWhiteSpace(input.NumeroRecepcion)))
-            return Results.ValidationProblem(new Dictionary<string,string[]> { ["bodegaId"]=["Bodega, periodo y número de recepción son obligatorios para preparar mercancía."] });
+        if(hasInventoryLines&&(input.BodegaId is null||string.IsNullOrWhiteSpace(input.NumeroRecepcion)))
+            return Results.ValidationProblem(new Dictionary<string,string[]> { ["bodegaId"]=["Bodega y número de recepción son obligatorios para preparar mercancía."] });
         if(hasServiceLines&&string.IsNullOrWhiteSpace(input.NumeroCausacion))
             return Results.ValidationProblem(new Dictionary<string,string[]> { ["numeroCausacion"]=["El número de causación es obligatorio para preparar servicios."] });
     }
     try
     {
         var userId=Convert.ToInt64(context.Items["UsuarioId"]);
+        if(shouldPrepare && hasInventoryLines) await purchasing.ValidateReceiptDateAsync(empresaId,input.FechaContable!.Value,cancellationToken);
         var result = await purchasing.CreateDocumentAsync(empresaId, input with { CondicionPago=condicionPago, UsuarioId=userId }, cancellationToken);
         if(shouldPrepare)
         {
@@ -624,6 +625,13 @@ app.MapPost("/api/v1/companies/{empresaId:long}/physical-counts/{id:long}/apply"
     Results.Ok(await operations.ApplyCountAsync(empresaId,id,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct))).RequireErpPermission("INVENTARIO.CONTEO.APLICAR");
 app.MapPost("/api/v1/companies/{empresaId:long}/landed-cost-distributions/{id:long}/apply", async (long empresaId,long id,ApplyInventoryDocumentRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>
     Results.Ok(await operations.ApplyLandedCostAsync(empresaId,id,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct))).RequireErpPermission("COSTOS.DISTRIBUCION.APLICAR");
+app.MapPost("/api/v1/companies/{empresaId:long}/inventory-periods/open", async (long empresaId,OpenInventoryPeriodRequest input,HttpContext context,InventoryRepository inventory,CancellationToken ct) =>
+{
+    if(input.Mes==default) return Results.BadRequest(new { error="Selecciona el mes que deseas abrir." });
+    try { return Results.Ok(await inventory.OpenPeriodAsync(empresaId,input.Mes,Convert.ToInt64(context.Items["UsuarioId"]),ct)); }
+    catch(SqlException error) when(error.Number is >=51580 and <=51589) { return Results.Conflict(new {error=error.Message}); }
+}).RequireErpPermission("INVENTARIO.PERIODO.CERRAR");
+
 app.MapPost("/api/v1/companies/{empresaId:long}/inventory-periods/{id:long}/close", async (long empresaId,long id,CloseInventoryPeriodRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>
     Results.Ok(await operations.ClosePeriodAsync(empresaId,id,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct))).RequireErpPermission("INVENTARIO.PERIODO.CERRAR");
 app.MapPost("/api/v1/companies/{empresaId:long}/inventory-periods/{id:long}/reopen", async (long empresaId,long id,ReopenInventoryPeriodRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>

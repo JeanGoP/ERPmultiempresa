@@ -95,6 +95,7 @@
           <summary class="nav-item parent"><span class="nav-icon">◇</span><span>Inventarios</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
             <button class="nav-subitem" type="button" data-inventory-view="receiving">Recepción física</button>
+            <button class="nav-subitem" type="button" data-advanced-view="closing">Períodos de inventario</button>
             <button class="nav-subitem" type="button" data-inventory-view="receipt-issues">Novedades de recepción</button>
             <button class="nav-subitem" type="button" data-inventory-view="receipt-history">Historial de recepciones</button>
             <button id="inventoryNav" class="nav-subitem" type="button" data-inventory-view="stock">Existencias</button>
@@ -268,7 +269,7 @@
           <div id="advancedStats" class="inventory-stats control-stats"></div>
           <section class="advanced-workspace">
             <div class="advanced-tabs" role="tablist">
-              <button class="advanced-tab active" type="button" data-advanced-view="landed">Costos de adquisición</button><button class="advanced-tab" type="button" data-advanced-view="books">Libros y políticas</button><button class="advanced-tab" type="button" data-advanced-view="impairments">Deterioros</button><button class="advanced-tab" type="button" data-advanced-view="negative">Inventario negativo</button><button class="advanced-tab" type="button" data-advanced-view="counts">Conteos físicos</button><button class="advanced-tab" type="button" data-advanced-view="closing">Cierre y conciliación</button>
+              <button class="advanced-tab active" type="button" data-advanced-view="landed">Costos de adquisición</button><button class="advanced-tab" type="button" data-advanced-view="books">Libros y políticas</button><button class="advanced-tab" type="button" data-advanced-view="impairments">Deterioros</button><button class="advanced-tab" type="button" data-advanced-view="negative">Inventario negativo</button><button class="advanced-tab" type="button" data-advanced-view="counts">Conteos físicos</button><button class="advanced-tab" type="button" data-advanced-view="closing">Períodos de inventario</button>
             </div>
             <div class="advanced-toolbar"><div><span id="advancedViewKicker">COSTOS CAPITALIZABLES</span><h2 id="advancedViewTitle">Fletes y otros costos de adquisición</h2><p id="advancedViewSubtitle">Distribuye costos incluso después de contabilizar la recepción.</p></div><button id="refreshAdvanced" class="button secondary" type="button">Actualizar control</button></div>
             <div class="advanced-layout">
@@ -378,7 +379,8 @@
                 <label><span>NIT *</span><input id="manualNit" required inputmode="numeric" placeholder="900123456-7"></label>
                 <label><span>Tipo de documento *</span><select id="manualDocumentType"><option value="FACTURA">Factura</option><option value="REMISION">Remisión</option><option value="DOCUMENTO_SOPORTE">Documento soporte</option></select></label>
                 <label><span>Número *</span><input id="manualInvoiceNumber" required placeholder="Ej. FE-1042"></label>
-                <label><span>Fecha *</span><input id="manualIssueDate" type="date" required></label>
+                <label><span>Fecha de factura *</span><input id="manualIssueDate" type="date" required></label>
+                <label><span>Fecha contable *</span><input id="manualAccountingDate" type="date" required></label>
                 <label><span>Vencimiento</span><input id="manualDueDate" type="date" readonly></label>
                 <label><span>Condición de pago *</span><select id="manualPaymentCondition"><option value="CONTADO">Contado</option><option value="CREDITO">Crédito</option></select></label>
                 <label id="manualCreditDaysField" hidden><span>Días de crédito *</span><input id="manualCreditDays" type="number" min="1" max="3650" value="30"></label>

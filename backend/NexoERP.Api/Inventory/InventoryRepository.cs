@@ -6,6 +6,20 @@ namespace NexoERP.Api.Inventory;
 
 public sealed class InventoryRepository(TenantConnectionFactory connections)
 {
+    public async Task<InventoryPeriodListResponse> OpenPeriodAsync(long empresaId,DateOnly mes,long usuarioId,CancellationToken ct)
+    {
+        await using var connection=await connections.OpenAsync(empresaId,false,ct);
+        await using var command=connection.CreateCommand();
+        command.CommandType=CommandType.StoredProcedure;
+        command.CommandText="core.usp_AbrirPeriodoInventario";
+        command.Parameters.AddWithValue("@EmpresaId",empresaId);
+        command.Parameters.AddWithValue("@Mes",mes.ToDateTime(TimeOnly.MinValue));
+        command.Parameters.AddWithValue("@UsuarioId",usuarioId);
+        await using var reader=await command.ExecuteReaderAsync(ct);
+        if(!await reader.ReadAsync(ct)) throw new InvalidOperationException("No se obtuvo el periodo abierto.");
+        return new(reader.GetInt64(0),reader.GetString(1),DateOnly.FromDateTime(reader.GetDateTime(2)),DateOnly.FromDateTime(reader.GetDateTime(3)),reader.GetString(4));
+    }
+
     public async Task<IReadOnlyList<InventoryAgeResponse>> GetAgingAsync(long empresaId,long? bodegaId,string? q,long? recepcionId,CancellationToken ct)
     {
         await using var connection=await connections.OpenAsync(empresaId,false,ct);
