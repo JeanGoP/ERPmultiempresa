@@ -16,9 +16,10 @@ const assert=require('node:assert/strict');
       ${source.slice(source.indexOf('function updateXmlRetentionTotal('),source.indexOf('function buildInvoiceClassificationTable('))}
       document.querySelector('#retention').append(buildXmlRetentionInput(invoice));
     `});
-    await page.getByRole('spinbutton',{name:'Retención total'}).fill('120');
-    await page.getByRole('spinbutton',{name:'Retención total'}).press('Tab');
-    assert.equal(await page.locator('#payable').textContent(),'9880');
+    await page.getByRole('textbox',{name:'Retención total'}).fill('1234,56');
+    await page.getByRole('textbox',{name:'Retención total'}).press('Tab');
+    assert.equal(await page.locator('#payable').textContent(),'8765.44');
+    assert.equal(await page.locator('input').inputValue(),'1.234,56');
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     const bounds=await page.locator('input').evaluate(input=>{const a=input.getBoundingClientRect(),b=input.parentElement.getBoundingClientRect();return a.left>=b.left&&a.right<=b.right;});

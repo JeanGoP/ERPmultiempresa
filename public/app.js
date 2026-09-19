@@ -1497,15 +1497,18 @@ function updateXmlRetentionTotal(invoice,value) {
 }
 
 function buildXmlRetentionInput(invoice) {
-  const input=document.createElement('input');input.type='number';input.min='0';input.step='0.01';input.className='xml-retention-total';
-  input.value=String(invoice.totals.retentions||0);input.setAttribute('aria-label','Retención total');input.disabled=Boolean(state.purchaseWorkflow);
-  input.title=input.disabled?'El documento ya está guardado.':'Valor total editable. Al modificarlo se actualiza el total a pagar.';
+  const formattedValue=()=>new Intl.NumberFormat('es-CO',{minimumFractionDigits:0,maximumFractionDigits:2}).format(invoice.totals.retentions||0);
+  const input=document.createElement('input');input.type='text';input.inputMode='decimal';input.className='xml-retention-total';
+  input.value=formattedValue();input.placeholder='Ej. 166.377,50';input.setAttribute('aria-label','Retención total');input.disabled=Boolean(state.purchaseWorkflow);
+  input.title=input.disabled?'El documento ya está guardado.':'Usa puntos para miles y coma para decimales (166.377,50). Al modificarlo se actualiza el total a pagar.';
   input.addEventListener('change',()=>{
     try{
       if(state.purchaseWorkflow)throw new Error('El documento ya está guardado.');
       if(!input.value.trim())throw new Error('Escribe el valor de retención; usa 0 si no aplica.');
-      updateXmlRetentionTotal(invoice,Number(input.value));renderInvoice();
-    }catch(error){input.value=String(invoice.totals.retentions||0);showError(error.message);}
+      const value=input.value.trim();
+      if(!/^(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d{1,2})?$/.test(value))throw new Error('Usa puntos para miles y coma para decimales, por ejemplo 166.377,50.');
+      updateXmlRetentionTotal(invoice,Number(value.replace(/\./g,'').replace(',','.')));input.value=formattedValue();renderInvoice();
+    }catch(error){input.value=formattedValue();showError(error.message);}
   });
   return input;
 }

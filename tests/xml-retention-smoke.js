@@ -51,6 +51,13 @@ for(const value of [-1,NaN,Infinity,999999])assert.throws(()=>context.updateXmlR
 assert.equal(JSON.stringify(invoice),before,'Validaciones no deben modificar valores');
 const input=context.buildXmlRetentionInput(invoice);assert.equal(input.disabled,false);input.value='75';input.change();assert.equal(invoice.totals.retentions,75);assert.equal(renders,1);
 input.value='';input.change();assert.equal(errors,1);assert.equal(invoice.totals.retentions,75);
+assert.equal(input.type,'text');assert.equal(input.inputMode,'decimal');
+for(const [typed,amount,formatted] of [['1234',1234,'1.234'],['1.234,56',1234.56,'1.234,56'],['1234,5',1234.5,'1.234,5'],['0',0,'0']]){
+  input.value=typed;input.change();assert.equal(invoice.totals.retentions,amount);assert.equal(input.value,formatted);
+  assert.equal(context.buildXmlRetentionInput(invoice).value,formatted);
+}
+for(const typed of ['1.23','1,234.56','-1','1e3','abc','1,234']){const previous=invoice.totals.retentions;input.value=typed;input.change();assert.equal(invoice.totals.retentions,previous);assert.equal(input.value,'0');}
+input.value='75';input.change();
 state.purchaseWorkflow={documentId:1};assert.equal(context.buildXmlRetentionInput(invoice).disabled,true);input.value='50';input.change();assert.equal(invoice.totals.retentions,75);
 assert.ok(!slice('function buildInvoiceClassificationTable(','function mappedLine(').includes('updateXmlRetentionTotal'),'No debe haber edición por línea');
 console.log('QA retenciones: exclusión de autorretenciones, tarifas ordinarias sin mínimo, total editable, payload y bloqueo correctos.');
