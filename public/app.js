@@ -934,6 +934,10 @@ const taxNamesByCode = { '01': 'IVA', '03': 'ICA', '04': 'INC', '05': 'ReteIVA',
 function isRetentionTax(code, name, totalName = '') {
   return totalName === 'WithholdingTaxTotal' || retentionTaxCodes.has(String(code || '').trim()) || /rete|retenci|withhold/i.test(String(name || ''));
 }
+function includeXmlRetention(component) {
+  const rate=component.rate??(component.taxableAmount>0?100*(component.amount||0)/component.taxableAmount:null);
+  return rate===null||rate>=2;
+}
 function extractTaxComponents(parent, totalName) {
   return childrenByLocal(parent, totalName).flatMap((total) => {
     const subtotals = childrenByLocal(total, 'TaxSubtotal');
@@ -1110,15 +1114,20 @@ function extractInvoiceData(documentNode) {
       unit: quantityNode?.getAttribute('unitCode') || '',
       unitPrice, grossTotal, discount, discountRate, surcharge, lineTotal,
       tax: lineTaxComponents.filter((component) => !component.retention).reduce((sum, component) => sum + (component.amount || 0), 0),
-      retention: lineTaxComponents.filter((component) => component.retention).reduce((sum, component) => sum + (component.amount || 0), 0),
+      xmlRetentionComponents: lineTaxComponents.filter(component=>component.retention),
+      retention: lineTaxComponents.filter((component) => component.retention&&includeXmlRetention(component)).reduce((sum, component) => sum + (component.amount || 0), 0),
     };
   });
   const rootTaxComponents = [...extractTaxComponents(root, 'TaxTotal'), ...extractTaxComponents(root, 'WithholdingTaxTotal')];
   const taxes = rootTaxComponents.filter((component) => !component.retention);
-  const standardRetentions = rootTaxComponents.filter((component) => component.retention && (component.amount || 0) > 0);
-  const retentions = standardRetentions.length ? standardRetentions : extractCustomRetentions(root);
-  const retentionTotal = retentions.reduce((sum, retention) => sum + (retention.amount || 0), 0);
+  const standardRetentions = rootTaxComponents.filter((component) => component.retention);
+  const lineRetentions=items.flatMap(item=>item.xmlRetentionComponents);
+  // Select the source before filtering: custom totals must not resurrect excluded rates.
+  const retentionSource=standardRetentions.length?standardRetentions:lineRetentions.length?lineRetentions:extractCustomRetentions(root);
+  let retentions = retentionSource.filter(component=>includeXmlRetention(component)&&(component.amount||0)>0);
   const explicitLineRetention = items.reduce((sum, item) => sum + (item.retention || 0), 0);
+  const retentionTotal = Math.max(retentions.reduce((sum, retention) => sum + (retention.amount || 0), 0),explicitLineRetention);
+  if(explicitLineRetention>retentions.reduce((sum,x)=>sum+(x.amount||0),0))retentions=[{name:'Retenciones de líneas',rate:null,taxableAmount:null,amount:explicitLineRetention,retention:true}];
   const pendingRetention = Math.max(retentionTotal - explicitLineRetention, 0);
   if (pendingRetention > 0 && items.length) {
     const bases = items.map((item) => Math.max(item.lineTotal || item.grossTotal || 0, 0));
@@ -1461,6 +1470,44 @@ function buildHomologationPanel(invoice) {
   wrap.append(table); panel.append(heading,wrap); return panel;
 }
 
+function updateXmlRetentionTotal(invoice,value) {
+  if(!Number.isFinite(value)||value<0)throw new Error('Escribe una retención válida mayor o igual a cero.');
+  const cents=Math.round(value*100);
+  if(!Number.isSafeInteger(cents))throw new Error('El valor de retención es demasiado grande.');
+  const amount=cents/100;
+  const capacities=invoice.items.map(item=>Math.max(0,Math.floor(((item.lineTotal??item.grossTotal??0)+(item.tax||0))*100+1e-7)));
+  const capacity=capacities.reduce((sum,x)=>sum+x,0);
+  if(cents>capacity)throw new Error('La retención no puede superar el valor de los artículos más impuestos.');
+  const previous=invoice.items.reduce((sum,item)=>sum+(item.retention||0),0);
+  const payable=invoice.totals.payable;
+  const nextPayable=payable==null?null:Math.round((payable+previous-amount)*100)/100;
+  if(nextPayable!==null&&nextPayable<0)throw new Error('La retención dejaría un total a pagar negativo.');
+  const shares=capacities.map(base=>capacity?Math.floor(cents*(base/capacity)):0);
+  let remainder=cents-shares.reduce((sum,x)=>sum+x,0);
+  for(let index=0;index<shares.length&&remainder>0;index++)if(shares[index]<capacities[index]){shares[index]++;remainder--;}
+  if(remainder)throw new Error('No fue posible distribuir la retención entre los artículos.');
+  invoice.originalXmlRetentions??=invoice.retentions.map(x=>({...x}));
+  invoice.items.forEach((item,index)=>{item.retention=shares[index]/100;});
+  invoice.totals.retentions=amount;
+  if(nextPayable!==null)invoice.totals.payable=nextPayable;
+  invoice.retentions=amount?[{name:'Retención ajustada manualmente',rate:null,taxableAmount:null,amount,retention:true}]:[];
+  invoice.retentionEdited=true;
+}
+
+function buildXmlRetentionInput(invoice) {
+  const input=document.createElement('input');input.type='number';input.min='0';input.step='0.01';input.className='xml-retention-total';
+  input.value=String(invoice.totals.retentions||0);input.setAttribute('aria-label','Retención total');input.disabled=Boolean(state.purchaseWorkflow);
+  input.title=input.disabled?'El documento ya está guardado.':'Valor total editable. Al modificarlo se actualiza el total a pagar.';
+  input.addEventListener('change',()=>{
+    try{
+      if(state.purchaseWorkflow)throw new Error('El documento ya está guardado.');
+      if(!input.value.trim())throw new Error('Escribe el valor de retención; usa 0 si no aplica.');
+      updateXmlRetentionTotal(invoice,Number(input.value));renderInvoice();
+    }catch(error){input.value=String(invoice.totals.retentions||0);showError(error.message);}
+  });
+  return input;
+}
+
 function buildInvoiceClassificationTable(invoice) {
   if (!invoice.items.length) return emptyMessage('No se encontraron líneas en la factura.');
   const table = document.createElement('table');
@@ -1620,20 +1667,22 @@ function renderInvoice() {
   const amounts = document.createElement('div'); amounts.className = 'amount-grid';
   const amountData = [
     ['Subtotal bruto', invoice.totals.grossSubtotal], ['Descuentos', invoice.totals.allowances], ['Subtotal neto', invoice.totals.cost],
-    ['Impuestos', taxTotal], ...(retentionTotal > 0 ? [['Retenciones', retentionTotal]] : []), ['Fletes detectados', invoice.totals.freight], ['Otros cargos', invoice.totals.otherCharges], ['Total a pagar', invoice.totals.payable],
+    ['Impuestos', taxTotal], ['Retenciones', retentionTotal], ['Fletes detectados', invoice.totals.freight], ['Otros cargos', invoice.totals.otherCharges], ['Total a pagar', invoice.totals.payable],
   ];
   amountData.forEach(([label, value], index) => {
     const card = document.createElement('div'); card.className = `amount-card${index === amountData.length - 1 ? ' total' : ''}`;
     const span = document.createElement('span'); span.textContent = label;
     const strong = document.createElement('strong'); strong.textContent = formatCurrency(value, invoice.currency);
-    card.append(span, strong); amounts.append(card);
+    card.append(span,label==='Retenciones'?buildXmlRetentionInput(invoice):strong);
+    if(label==='Retenciones'){const help=document.createElement('small');help.textContent=state.purchaseWorkflow?'Documento guardado':invoice.retentionEdited?'Total ajustado manualmente':'Editable · se omiten tarifas XML menores al 2%';card.append(help);}
+    amounts.append(card);
   });
 
   const items = invoiceCard('Clasificación de artículos y servicios', `${invoice.items.length} líneas encontradas · revisa la propuesta antes de continuar`, buildInvoiceClassificationTable(invoice), 'invoice-table-card articles-card');
   const serialRows = invoice.items.flatMap((item) => item.serials.map((serial) => [item.line, item.code, serial.number, item.description, serial.motor, serial.chassis, serial.vin, serial.color, serial.model]));
   const serials = serialRows.length ? invoiceCard('Seriales de motos', `${serialRows.length} motos identificadas`, buildDataTable(['Línea', 'Código', 'Moto #', 'Descripción', 'Motor', 'Chasis', 'VIN', 'Color', 'Modelo (año)'], serialRows), 'invoice-table-card serials-card') : null;
   const taxes = invoiceCard('Impuestos', `${invoice.taxes.length} conceptos encontrados`, buildDataTable(['Impuesto', 'Tarifa %', 'Base', 'Valor'], invoice.taxes.map((tax) => [tax.name, tax.rate, formatCurrency(tax.taxableAmount, invoice.currency), formatCurrency(tax.amount, invoice.currency)])));
-  const retentions = invoiceCard('Retenciones', invoice.retentions.length ? `${invoice.retentions.length} conceptos encontrados` : 'No se encontraron retenciones en el XML', invoice.retentions.length ? buildDataTable(['Retención', 'Tarifa %', 'Base', 'Valor'], invoice.retentions.map((retention) => [retention.name, retention.rate, formatCurrency(retention.taxableAmount, invoice.currency), formatCurrency(retention.amount, invoice.currency)])) : emptyMessage('Este XML no informa retenciones.'));
+  const retentions = invoiceCard('Retenciones', invoice.retentionEdited?'Valor ajustado desde el resumen superior':'Se excluyen tarifas menores al 2%; los valores sin tarifa ni base requieren revisión.', invoice.retentions.length ? buildDataTable(['Retención', 'Tarifa %', 'Base', 'Valor'], invoice.retentions.map((retention) => [retention.name, retention.rate, formatCurrency(retention.taxableAmount, invoice.currency), formatCurrency(retention.amount, invoice.currency)])) : emptyMessage('No hay retenciones aplicables. Puedes ajustar el valor total arriba.'));
   const charges = invoiceCard('Fletes y otros cargos', `${invoice.charges.length} cargos encontrados`, buildDataTable(['Concepto', 'Base', 'Valor', 'Clasificación'], invoice.charges.map((charge) => [charge.reason, formatCurrency(charge.baseAmount, invoice.currency), formatCurrency(charge.amount, invoice.currency), charge.isFreight ? 'Flete' : 'Otro cargo'])));
   const support = document.createElement('div'); support.className = 'invoice-support-grid'; support.append(taxes, retentions, charges);
   elements.invoicePanel.append(hero, meta, amounts, invoiceOperationalSummary(invoice), buildHomologationPanel(invoice), buildPurchaseWorkflowPanel(invoice));

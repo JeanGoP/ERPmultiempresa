@@ -75,9 +75,17 @@ assert.deepStrictEqual(Array.from(variants.items[2].serials, (serial) => [serial
 assert.strictEqual(variants.items[0].serials[0].color, 'NEGRO MATE / CALCOMANÍA AZUL');
 assert.strictEqual(variants.items[0].serials[0].model, '2027');
 assert.strictEqual(variants.items[1].serials[0].model, '2028');
-assert.strictEqual(variants.retentions.length, 1);
-assert.strictEqual(variants.retentions[0].amount, 125);
-assert.strictEqual(variants.items.reduce((total, item) => total + item.retention, 0), 125);
+assert.strictEqual(variants.retentions.length, 0);
+assert.strictEqual(variants.totals.retentions, 0);
+assert.strictEqual(variants.items.reduce((total, item) => total + item.retention, 0), 0);
+for(const rate of [0.5,0.99,1.2,1.99,2,2.5]){
+  const parsed=parserContext.parseInvoiceForTest(variantsFixture.replace('<cbc:Percent>1.25</cbc:Percent>',`<cbc:Percent>${rate}</cbc:Percent>`));
+  assert.strictEqual(parsed.totals.retentions,rate<2?0:125);
+  assert.strictEqual(parsed.items.reduce((sum,item)=>sum+item.retention,0),rate<2?0:125);
+  assert.strictEqual(parsed.totals.payable,11775,'La lectura conserva el total informado por el proveedor');
+}
+assert.strictEqual(parserContext.parseInvoiceForTest(variantsFixture.replace('<cbc:Percent>1.25</cbc:Percent>','')).totals.retentions,0,'Debe calcular 1.25% usando la base propia');
+assert.strictEqual(parserContext.parseInvoiceForTest(variantsFixture.replace('</Invoice>','<CustomField Name="TotalRetenciones" Value="125"/></Invoice>')).totals.retentions,0,'No reintroducir retenciones excluidas por campos personalizados');
 assert.strictEqual(variants.paymentCondition, 'CREDITO');
 assert.strictEqual(variants.creditDays, 30);
 assert.strictEqual(variants.dueDate, '2026-09-19');
