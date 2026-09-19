@@ -935,8 +935,8 @@ function isRetentionTax(code, name, totalName = '') {
   return totalName === 'WithholdingTaxTotal' || retentionTaxCodes.has(String(code || '').trim()) || /rete|retenci|withhold/i.test(String(name || ''));
 }
 function includeXmlRetention(component) {
-  const rate=component.rate??(component.taxableAmount>0?100*(component.amount||0)/component.taxableAmount:null);
-  return rate===null||rate>=2;
+  // Code 06 is shared with ordinary withholding: never infer self-withholding from code or rate.
+  return !/autorr?et|selfwithhold/.test(normalizePropertyName(component.name));
 }
 function extractTaxComponents(parent, totalName) {
   return childrenByLocal(parent, totalName).flatMap((total) => {
@@ -962,11 +962,13 @@ function extractTaxComponents(parent, totalName) {
 function extractCustomRetentions(root) {
   const values = new Map();
   let generalTotal = null;
+  let hasSelfRetention = false;
   descendantsByLocal(root, 'CustomField').forEach((field) => {
     const name = field.getAttribute?.('Name') || firstDescendantText(field, 'Name');
     const value = numeric(field.getAttribute?.('Value') || firstDescendantText(field, 'Value'));
     if (value === null || value <= 0) return;
     const normalized = normalizePropertyName(name);
+    if(!includeXmlRetention({name})){hasSelfRetention=true;return;}
     if (normalized.includes('totalretenciones')) { generalTotal = Math.max(generalTotal || 0, value); return; }
     const definition = normalized.includes('retefuente') ? ['06', 'Retención en la fuente']
       : normalized.includes('reteiva') ? ['05', 'ReteIVA']
@@ -976,7 +978,7 @@ function extractCustomRetentions(root) {
     values.set(code, { code, name: label, rate: null, taxableAmount: null, amount: Math.max(values.get(code)?.amount || 0, value), retention: true });
   });
   const result = [...values.values()];
-  if (!result.length && generalTotal) result.push({ code: '', name: 'Retenciones', rate: null, taxableAmount: null, amount: generalTotal, retention: true });
+  if (!result.length && generalTotal && !hasSelfRetention) result.push({ code: '', name: 'Retenciones', rate: null, taxableAmount: null, amount: generalTotal, retention: true });
   return result;
 }
 
@@ -1122,7 +1124,7 @@ function extractInvoiceData(documentNode) {
   const taxes = rootTaxComponents.filter((component) => !component.retention);
   const standardRetentions = rootTaxComponents.filter((component) => component.retention);
   const lineRetentions=items.flatMap(item=>item.xmlRetentionComponents);
-  // Select the source before filtering: custom totals must not resurrect excluded rates.
+  // Select the source before filtering: custom totals must not resurrect self-withholding.
   const retentionSource=standardRetentions.length?standardRetentions:lineRetentions.length?lineRetentions:extractCustomRetentions(root);
   let retentions = retentionSource.filter(component=>includeXmlRetention(component)&&(component.amount||0)>0);
   const explicitLineRetention = items.reduce((sum, item) => sum + (item.retention || 0), 0);
@@ -1674,7 +1676,7 @@ function renderInvoice() {
     const span = document.createElement('span'); span.textContent = label;
     const strong = document.createElement('strong'); strong.textContent = formatCurrency(value, invoice.currency);
     card.append(span,label==='Retenciones'?buildXmlRetentionInput(invoice):strong);
-    if(label==='Retenciones'){const help=document.createElement('small');help.textContent=state.purchaseWorkflow?'Documento guardado':invoice.retentionEdited?'Total ajustado manualmente':'Editable · se omiten tarifas XML menores al 2%';card.append(help);}
+    if(label==='Retenciones'){const help=document.createElement('small');help.textContent=state.purchaseWorkflow?'Documento guardado':invoice.retentionEdited?'Total ajustado manualmente':'Editable · se excluyen autorretenciones';card.append(help);}
     amounts.append(card);
   });
 
@@ -1682,7 +1684,7 @@ function renderInvoice() {
   const serialRows = invoice.items.flatMap((item) => item.serials.map((serial) => [item.line, item.code, serial.number, item.description, serial.motor, serial.chassis, serial.vin, serial.color, serial.model]));
   const serials = serialRows.length ? invoiceCard('Seriales de motos', `${serialRows.length} motos identificadas`, buildDataTable(['Línea', 'Código', 'Moto #', 'Descripción', 'Motor', 'Chasis', 'VIN', 'Color', 'Modelo (año)'], serialRows), 'invoice-table-card serials-card') : null;
   const taxes = invoiceCard('Impuestos', `${invoice.taxes.length} conceptos encontrados`, buildDataTable(['Impuesto', 'Tarifa %', 'Base', 'Valor'], invoice.taxes.map((tax) => [tax.name, tax.rate, formatCurrency(tax.taxableAmount, invoice.currency), formatCurrency(tax.amount, invoice.currency)])));
-  const retentions = invoiceCard('Retenciones', invoice.retentionEdited?'Valor ajustado desde el resumen superior':'Se excluyen tarifas menores al 2%; los valores sin tarifa ni base requieren revisión.', invoice.retentions.length ? buildDataTable(['Retención', 'Tarifa %', 'Base', 'Valor'], invoice.retentions.map((retention) => [retention.name, retention.rate, formatCurrency(retention.taxableAmount, invoice.currency), formatCurrency(retention.amount, invoice.currency)])) : emptyMessage('No hay retenciones aplicables. Puedes ajustar el valor total arriba.'));
+  const retentions = invoiceCard('Retenciones', invoice.retentionEdited?'Valor ajustado desde el resumen superior':'Se excluyen las autorretenciones identificadas por nombre. Las demás se conservan sin límite mínimo de tarifa.', invoice.retentions.length ? buildDataTable(['Retención', 'Tarifa %', 'Base', 'Valor'], invoice.retentions.map((retention) => [retention.name, retention.rate, formatCurrency(retention.taxableAmount, invoice.currency), formatCurrency(retention.amount, invoice.currency)])) : emptyMessage('No hay retenciones aplicables. Puedes ajustar el valor total arriba.'));
   const charges = invoiceCard('Fletes y otros cargos', `${invoice.charges.length} cargos encontrados`, buildDataTable(['Concepto', 'Base', 'Valor', 'Clasificación'], invoice.charges.map((charge) => [charge.reason, formatCurrency(charge.baseAmount, invoice.currency), formatCurrency(charge.amount, invoice.currency), charge.isFreight ? 'Flete' : 'Otro cargo'])));
   const support = document.createElement('div'); support.className = 'invoice-support-grid'; support.append(taxes, retentions, charges);
   elements.invoicePanel.append(hero, meta, amounts, invoiceOperationalSummary(invoice), buildHomologationPanel(invoice), buildPurchaseWorkflowPanel(invoice));
