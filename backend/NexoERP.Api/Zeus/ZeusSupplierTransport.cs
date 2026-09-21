@@ -5,12 +5,13 @@ using NexoERP.Api.MasterData;
 
 namespace NexoERP.Api.Zeus;
 
-public sealed record ZeusSupplierSendRequest(string Zona="",string Segmento="",string CategoriaFiscal="",string Nombre1="",string Apellido1="",string Huella="");
+public sealed record ZeusSupplierSendRequest(string Nombre1="",string Apellido1="",string Huella="");
 public sealed record ZeusSupplierSendResult(string Estado,string Codigo,string Mensaje);
 
 public sealed partial class ZeusTransport
 {
-    public static string SupplierFingerprint(ZeusSettings settings,SupplierResponse supplier)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{settings,supplier}))));
+    public const string SupplierZone="GN", SupplierSegment="OTROS", SupplierFiscalCategory="OTROS";
+    public static string SupplierFingerprint(ZeusSettings settings,SupplierResponse supplier)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{settings,supplier,zona=SupplierZone,segmento=SupplierSegment,categoriaFiscal=SupplierFiscalCategory}))));
     internal static string IdentificationCode(string type)=>type switch {
         "NIT"=>"31","CC"=>"13","CE"=>"22","RC"=>"11","TI"=>"12","TE"=>"21","PAS"=>"41","DE"=>"42","OTRO"=>"00",
         _=>throw new ArgumentException("El tipo de identificación no tiene equivalencia confirmada en Zeus.")};
@@ -65,14 +66,8 @@ public sealed partial class ZeusTransport
         SupplierCode(supplier);
         await using var c=await OpenAsync(company,settings,ct);
         var existing=await SupplierExists(c,null,supplier.NumeroIdentificacion,ct);
-        var zones=new List<string>();var segments=new List<string>();var categories=new List<string>();
-        if(!existing.Supplier){
-            await using var q=c.CreateCommand();q.CommandText="SELECT RTRIM(IDZONA) FROM dbo.MAEZONAS ORDER BY IDZONA; SELECT RTRIM(IDSEGMENTO) FROM dbo.SEGMENTO WHERE TIPOSEGMENTO='D' ORDER BY IDSEGMENTO; SELECT RTRIM(TipoEmpresa) FROM dbo.TiposDeEmpresa ORDER BY TipoEmpresa;";
-            await using var r=await q.ExecuteReaderAsync(ct);
-            foreach(var list in new[]{zones,segments,categories}){while(await r.ReadAsync(ct))list.Add(r.GetString(0));await r.NextResultAsync(ct);}
-        }
         return new {huella=SupplierFingerprint(settings,supplier),baseDatos=settings.BaseEsperada,codigo=supplier.NumeroIdentificacion,nombre=supplier.RazonSocial,
-            divisionPolitica=supplier.DivisionPoliticaZeus,tipoPersona=PersonType(supplier),terceroExiste=existing.Third,proveedorExiste=existing.Supplier,zonas=zones,segmentos=segments,categoriasFiscales=categories};
+            divisionPolitica=supplier.DivisionPoliticaZeus,tipoPersona=PersonType(supplier),terceroExiste=existing.Third,proveedorExiste=existing.Supplier,zona=SupplierZone,segmento=SupplierSegment,categoriaFiscal=SupplierFiscalCategory};
     }
     public async Task<ZeusSupplierSendResult> SendSupplierAsync(long company,ZeusSettings settings,SupplierResponse s,ZeusSupplierSendRequest input,CancellationToken ct)
     {
@@ -90,12 +85,10 @@ public sealed partial class ZeusTransport
             SupplierText(s.Telefono,"teléfono",25,false);SupplierText(s.Correo,"correo",60,false);SupplierText(s.SitioWeb,"sitio web",60,false);
             SupplierText(s.ContactoNombre,"nombre de contacto",40,false);
             SupplierText(s.DivisionPoliticaZeus,"división política Zeus",25);SupplierText(settings.UsuarioZeus,"usuario de Zeus",15);
-            SupplierText(input.Zona,"zona Zeus",3);SupplierText(input.Segmento,"segmento Zeus",16);
             var person=PersonType(s);var identification="";
             if(!existing.Third){
                 identification=IdentificationCode(s.TipoIdentificacion);
                 if(person=="")throw new ArgumentException("Confirma el tipo de persona en Editar proveedor antes de enviarlo.");
-                SupplierText(input.CategoriaFiscal,"categoría fiscal Zeus",5);
                 SupplierText(s.DigitoVerificacion,"dígito de verificación",5,false);
                 if(person=="N"){SupplierText(input.Nombre1,"nombres de la persona natural",60);SupplierText(input.Apellido1,"apellidos de la persona natural",60);}
             }
@@ -112,8 +105,8 @@ public sealed partial class ZeusTransport
                     IF NOT EXISTS(SELECT 1 FROM dbo.TiposDeEmpresa WHERE TipoEmpresa=@Fiscal) THROW 51756,'Categoria fiscal no existe en Zeus.',1;
                 END;
                 """;
-            q.Parameters.AddWithValue("@Division",s.DivisionPoliticaZeus!);q.Parameters.AddWithValue("@Zona",input.Zona);q.Parameters.AddWithValue("@Segmento",input.Segmento);
-            q.Parameters.AddWithValue("@Cuenta",account!);q.Parameters.AddWithValue("@CrearTercero",!existing.Third);q.Parameters.AddWithValue("@TipoId",identification);q.Parameters.AddWithValue("@Fiscal",input.CategoriaFiscal??"");
+            q.Parameters.AddWithValue("@Division",s.DivisionPoliticaZeus!);q.Parameters.AddWithValue("@Zona",SupplierZone);q.Parameters.AddWithValue("@Segmento",SupplierSegment);
+            q.Parameters.AddWithValue("@Cuenta",account!);q.Parameters.AddWithValue("@CrearTercero",!existing.Third);q.Parameters.AddWithValue("@TipoId",identification);q.Parameters.AddWithValue("@Fiscal",SupplierFiscalCategory);
             await q.ExecuteNonQueryAsync(ct);
             async Task Call(string procedure,Dictionary<string,object?> parameters){
                 await using var cmd=c.CreateCommand();cmd.Transaction=tx;cmd.CommandTimeout=90;cmd.CommandType=CommandType.StoredProcedure;cmd.CommandText=procedure;
@@ -123,13 +116,13 @@ public sealed partial class ZeusTransport
                 await using(var reader=await cmd.ExecuteReaderAsync(ct))do{while(await reader.ReadAsync(ct)){}}while(await reader.NextResultAsync(ct));
                 if(result.Value is not int code||code!=0)throw new ArgumentException($"{procedure} rechazó la creación. No se confirmó el envío.");
             }
-            Dictionary<string,object?> Common()=>new(){["@IDTERCERO"]=s.NumeroIdentificacion,["@DIRECCION"]=s.Direccion,["@CIUDAD"]=s.Ciudad,["@TELEFONO"]=s.Telefono??"",["@EMAIL"]=s.Correo??"",["@DIVPOLITICA"]=s.DivisionPoliticaZeus,["@CODIGODANE"]=s.CiudadCodigo,["@SEGMENTO"]=input.Segmento,["@Usuario"]=settings.UsuarioZeus,["@Tipo"]="N",["@Deshabilitado"]=0};
+            Dictionary<string,object?> Common()=>new(){["@IDTERCERO"]=s.NumeroIdentificacion,["@DIRECCION"]=s.Direccion,["@CIUDAD"]=s.Ciudad,["@TELEFONO"]=s.Telefono??"",["@EMAIL"]=s.Correo??"",["@DIVPOLITICA"]=s.DivisionPoliticaZeus,["@CODIGODANE"]=s.CiudadCodigo,["@SEGMENTO"]=SupplierSegment,["@Usuario"]=settings.UsuarioZeus,["@Tipo"]="N",["@Deshabilitado"]=0};
             if(!existing.Third){
-                var p=Common();p["@NOMBRETER"]=s.RazonSocial;p["@TIPOTERCE"]=person;p["@TipoIdentificacion"]=identification;p["@DIGIVERIf"]=s.DigitoVerificacion??"";p["@TIPOEMPRESA"]=input.CategoriaFiscal;
+                var p=Common();p["@NOMBRETER"]=s.RazonSocial;p["@TIPOTERCE"]=person;p["@TipoIdentificacion"]=identification;p["@DIGIVERIf"]=s.DigitoVerificacion??"";p["@TIPOEMPRESA"]=SupplierFiscalCategory;
                 if(person=="N"){p["@Nombre1"]=input.Nombre1;p["@Apellido1"]=input.Apellido1;}
                 await Call("dbo.spMae_Terceros",p);
             }
-            var supplier=Common();supplier["@IDPROVE"]=s.NumeroIdentificacion;supplier["@RAZONCIAL"]=s.RazonSocial;supplier["@IDZONA"]=input.Zona;supplier["@CODICTA"]=account;
+            var supplier=Common();supplier["@IDPROVE"]=s.NumeroIdentificacion;supplier["@RAZONCIAL"]=s.RazonSocial;supplier["@IDZONA"]=SupplierZone;supplier["@CODICTA"]=account;
             supplier["@WEBSITE"]=s.SitioWeb??"";supplier["@CONTACTO"]=s.ContactoNombre??"";supplier["@DIPLAZO"]=(short)0;supplier["@CUPOCRE"]=0m;
             await Call("dbo.spMae_Proveedores",supplier);
             var verified=await SupplierExists(c,tx,s.NumeroIdentificacion,ct);

@@ -161,9 +161,9 @@ el destino y la existencia del proveedor. Esta operación usa la conexión priva
 backend remoto para la empresa activa; no requiere copiarla al navegador ni al equipo local.
 
 - `GET /api/v1/companies/{empresaId}/zeus/suppliers/{supplierId}/preview`: consulta
-  existencia y códigos de zona, segmento y categoría fiscal; no escribe en Zeus.
+  existencia y asignación fija de zona, segmento y categoría fiscal; no escribe en Zeus.
 - `POST /api/v1/companies/{empresaId}/zeus/suppliers/{supplierId}/send`: recibe
-  `zona`, `segmento`, `categoriaFiscal`, `nombre1`, `apellido1` (para persona natural)
+  `nombre1`, `apellido1` (para persona natural)
   y la `huella` de la consulta. Requiere `SEGURIDAD.PERMISOS.ADMINISTRAR`.
 
 Solo crea lo que falta, mediante `dbo.spMae_Terceros` y `dbo.spMae_Proveedores`
@@ -175,8 +175,10 @@ creación del proveedor, revierte el tercero creado en ese intento. Repetir cons
 antes de reintentar un resultado incierto; nunca asumir éxito por un SELECT intermedio.
 
 La cuenta se toma de la regla PROVEEDOR de la empresa, con prioridad del proveedor
-específico. La división política se toma del ERP. Zona, segmento y categoría fiscal
-se eligen explícitamente, sin adivinar clasificaciones tributarias. Los datos demasiado
+específico. La división política se toma del ERP. Por instrucción del propietario,
+el backend fija zona `GN`, segmento `OTROS` y categoría fiscal `OTROS`; no los pide
+al usuario ni acepta sobrescribirlos desde la solicitud. Antes de crear valida que
+estos códigos existan en Zeus, sin crear ni modificar los catálogos. Los datos demasiado
 largos para Zeus se rechazan, no se recortan. Actualmente el alta admite los proveedores
 colombianos cuya división política está calculada; otros países requieren parametrización.
 Quedan auditados la solicitud y el resultado en el ERP. No envía facturas, no activa

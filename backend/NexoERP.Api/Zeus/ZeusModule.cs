@@ -45,7 +45,7 @@ public static class ZeusModule
                 ZeusRepository.Add(q,"@U",Convert.ToInt64(http.Items["UsuarioId"]));ZeusRepository.Add(q,"@Op",operation);ZeusRepository.Add(q,"@Id",supplierId.ToString());ZeusRepository.Add(q,"@J",JsonSerializer.Serialize(new{intento=attempt,datos=details}));
                 await q.ExecuteNonQueryAsync(token);
             }
-            await Audit("ZEUS_PROVEEDOR_SOLICITAR",new{proveedor=supplier.NumeroIdentificacion,destino=settings.Configuracion.BaseEsperada,parametros=input},ct);
+            await Audit("ZEUS_PROVEEDOR_SOLICITAR",new{proveedor=supplier.NumeroIdentificacion,destino=settings.Configuracion.BaseEsperada,parametros=input,zona=ZeusTransport.SupplierZone,segmento=ZeusTransport.SupplierSegment,categoriaFiscal=ZeusTransport.SupplierFiscalCategory},ct);
             ZeusSupplierSendResult result;
             try{result=await transport.SendSupplierAsync(empresaId,settings.Configuracion,supplier,input,ct);}
             catch(SqlException){result=new("RECHAZADO",supplier.NumeroIdentificacion,"No se pudo abrir la conexión de Zeus. Revisa la conexión privada y los permisos.");}
