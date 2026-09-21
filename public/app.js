@@ -375,6 +375,7 @@ async function loadApiCompanyContext() {
 }
 
 async function ensureApiSupplier(invoice) {
+  requireSupplierIdentity(invoice.supplier);
   const identification=invoice.supplier.identification; if(!identification) throw new Error('El XML no contiene la identificación del proveedor.');
   const source=invoice.supplier; const payload=supplierApiPayload({
     identificationType:source.identificationType||'NIT',identification,verificationDigit:source.verificationDigit||'',name:source.name||'Proveedor desde XML',commercialName:source.commercialName||'',taxResponsibility:source.taxResponsibility||'',taxSchemeCode:source.taxSchemeCode||'',taxSchemeName:source.taxSchemeName||'',address:source.address||'',cityCode:source.cityCode||'',city:source.city||'',departmentCode:source.departmentCode||'',department:source.department||'',postalCode:source.postalCode||'',countryCode:source.countryCode||'',country:source.country||'',contactName:source.contactName||'',phone:source.phone||'',email:source.email||'',website:source.website||'',xmlData:JSON.stringify(source.xmlFields||{})
@@ -744,6 +745,8 @@ function openMasterForm(record=null) {
   elements.masterDialogTitle.textContent=editingArticle?'Editar artículo':editingSupplier?'Editar proveedor':`Nuevo: ${masterViewConfig[state.masterView][0]}`;
   elements.masterDialogSubtitle.textContent=editingArticle?'Actualiza la información permitida del artículo.':editingSupplier?'Corrige o completa los datos fiscales, de ubicación y contacto del proveedor.':'Completa la información requerida.';
   if(state.masterView==='suppliers') {
+    const person=addMasterField('Tipo de persona *','personType','text',[['','Pendiente de confirmación'],['N','Persona natural'],['J','Persona jurídica']]);
+    if(editingSupplier)person.value=resolvedSupplierPersonType({...editingSupplier,xmlFields:JSON.parse(editingSupplier.xmlData||'{}')});
     addMasterField('Tipo de identificación','identificationType','text',[['NIT','NIT'],['CC','Cédula'],['CE','Cédula de extranjería']]);addMasterField('Número de identificación *','identification');addMasterField('Dígito de verificación','verificationDigit','text',null,false,false);addMasterField('Razón social *','name','text',null,true);addMasterField('Nombre comercial','commercialName','text',null,true,false);
     addMasterField('Responsabilidad fiscal','taxResponsibility','text',null,false,false);addMasterField('Código de régimen fiscal','taxSchemeCode','text',null,false,false);addMasterField('Nombre del régimen fiscal','taxSchemeName','text',null,false,false);addMasterField('Dirección','address','text',null,true,false);
     addMasterField('Código de ciudad','cityCode','text',null,false,false);addMasterField('Ciudad','city','text',null,false,false);addMasterField('Código de departamento','departmentCode','text',null,false,false);addMasterField('Departamento','department','text',null,false,false);addMasterField('Código postal','postalCode','text',null,false,false);addMasterField('Código de país','countryCode','text',null,false,false);addMasterField('País','country','text',null,false,false);
@@ -754,6 +757,11 @@ function openMasterForm(record=null) {
   else if(state.masterView==='articles') { addMasterField('Código interno *','code'); addMasterField('Tipo *','type','text',[['INVENTARIO','Artículo inventariable'],['SERVICIO','Servicio'],['ACTIVO_FIJO','Activo fijo'],['CONCEPTO','Concepto de costo']]); addMasterField('Descripción *','description','text',null,true); addMasterField('Unidad base *','unitId','text',data.units.map(x=>[x.id,`${x.code} · ${x.name}`])); addMasterField('Unidad de compra','purchaseUnitId','text',[['','Igual a la unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const purchaseFactor=addMasterField('Factor a unidad base','purchaseFactor','number',null,false,false); purchaseFactor.min='0.0000000001'; purchaseFactor.step='0.0000000001'; purchaseFactor.value='1'; addMasterCheck('Maneja inventario','inventory',true); addMasterCheck('Maneja serial / motor / chasis','serial'); addMasterCheck('Maneja lote','lot'); addMasterCheck('Requiere vencimiento','expiry'); }
   else if(state.masterView==='warehouses') { addMasterField('Código *','code'); addMasterField('Nombre *','name'); addMasterCheck('Usa ubicaciones','locations'); addMasterCheck('Es bodega de tránsito','transit'); }
   else { addMasterField('Proveedor *','supplierId','text',data.suppliers.map(x=>[x.id,`${x.identification} · ${x.name}`]),true); addMasterField('Código externo *','externalCode'); addMasterField('Descripción externa','externalDescription','text',null,true,false); addMasterField('Artículo interno *','articleId','text',data.articles.map(x=>[x.id,`${x.code} · ${x.description}`]),true); addMasterField('Unidad','unitId','text',[['','Unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const factor=addMasterField('Factor a unidad base *','factor','number'); factor.min='0.0000000001'; factor.step='0.0000000001'; factor.value='1'; }
+  if(state.masterView==='suppliers'){
+    const identification=elements.masterRecordForm.elements.identificationType;
+    [['RC','Registro civil'],['TI','Tarjeta de identidad'],['TE','Tarjeta de extranjería'],['PAS','Pasaporte'],['DE','Documento extranjero'],['OTRO','Otro'],['NITEXT','NIT extranjero'],['NUIP','NUIP']].forEach(([value,label])=>identification.add(new Option(label,value)));
+    if(editingSupplier&&!Array.from(identification.options).some(o=>o.value===editingSupplier.identificationType))identification.add(new Option(editingSupplier.identificationType||'Pendiente',editingSupplier.identificationType||''));
+  }
   if(editingArticle){
     const values={code:editingArticle.code,type:editingArticle.type,description:editingArticle.description,unitId:editingArticle.unitId,purchaseUnitId:editingArticle.purchaseUnitId||'',purchaseFactor:editingArticle.purchaseFactor||1};
     Object.entries(values).forEach(([name,value])=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].value=String(value);});
@@ -781,6 +789,13 @@ async function saveMasterRecord(event) {
     else if(state.masterView==='articles'){path='articles';payload={codigo:values.code.trim().toUpperCase(),descripcion:values.description.trim(),tipo:values.type,unidadBaseId:Number(values.unitId),manejaInventario:values.type==='SERVICIO'?false:checkbox('inventory'),manejaLote:checkbox('lot'),manejaSerial:checkbox('serial'),requiereVencimiento:checkbox('expiry'),pesoBaseKg:null,volumenBaseM3:null};}
     else if(state.masterView==='warehouses'){path='warehouses';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),usaUbicaciones:checkbox('locations'),esTransito:checkbox('transit')};}
     else{path='item-mappings';payload={terceroId:Number(values.supplierId),codigoExterno:values.externalCode.trim(),descripcionExterna:values.externalDescription.trim()||null,articuloId:Number(values.articleId),unidadMedidaId:values.unitId?Number(values.unitId):null,factorAUnidadBase:Number(values.factor)||1};}
+    if(state.masterView==='suppliers'){
+      if(!['J','N'].includes(values.personType))throw new Error('Confirma el tipo de persona del proveedor.');
+      if(values.identificationType==='CC'&&values.personType!=='N')throw new Error('Una cédula de ciudadanía corresponde a persona natural.');
+      const fields=JSON.parse(payload.datosXmlJson||'{}');
+      fields.NexoPersonConfirmation={type:values.personType,identification:payload.numeroIdentificacion,identificationType:payload.tipoIdentificacion};
+      payload.datosXmlJson=JSON.stringify(fields);
+    }
     const editingArticle=state.masterView==='articles'&&state.masterEditingArticleId;const editingSupplier=state.masterView==='suppliers'&&state.masterEditingSupplierId;const endpoint=editingArticle?`${base}/articles/${editingArticle}`:editingSupplier?`${base}/suppliers/${editingSupplier}`:`${base}/${path}`;
     await apiRequest(endpoint,{method:editingArticle||editingSupplier?'PUT':'POST',body:JSON.stringify(payload)});state.masterEditingArticleId=null;state.masterEditingSupplierId=null;await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice(editingArticle?'Artículo actualizado correctamente.':editingSupplier?'Proveedor actualizado correctamente.':'Registro guardado correctamente.');if(state.invoice)renderInvoice();
   } catch(error) { elements.masterFormError.textContent=error.message||'No fue posible guardar el registro.'; elements.masterFormError.hidden=false; }
@@ -1055,12 +1070,29 @@ function collectPartyXmlFields(section) {
 }
 
 function identificationTypeFromXml(companyId) {
-  const value=(xmlAttribute(companyId,'schemeName')||xmlAttribute(companyId,'schemeID')||'').toUpperCase();
-  return ({'31':'NIT','13':'CC','22':'CE','NIT':'NIT','CC':'CC','CE':'CE'})[value]||'NIT';
+  const value=xmlAttribute(companyId,'schemeName').trim().toUpperCase();
+  return ({'31':'NIT','13':'CC','22':'CE','11':'RC','12':'TI','21':'TE','41':'PAS','42':'DE','43':'OTRO','50':'NITEXT','91':'NUIP','NIT':'NIT','CC':'CC','CE':'CE'})[value]||'';
+}
+function supplierPersonType(fields) {
+  if(typeof fields==='string'){try{fields=JSON.parse(fields);}catch{return '';}}
+  const values=fields?.AdditionalAccountID;
+  const codes=Array.isArray(values)?[...new Set(values.map(x=>String(x.value||'').trim()))]:[];
+  return codes.length===1?({'1':'J','2':'N'}[codes[0]]||''):'';
+}
+function resolvedSupplierPersonType(supplier) {
+  const fields=supplier.xmlFields||{};
+  const confirmed=fields.NexoPersonConfirmation;
+  if(confirmed?.identification===supplier.identification && confirmed?.identificationType===supplier.identificationType && ['J','N'].includes(confirmed.type))return supplier.identificationType==='CC'&&confirmed.type==='J'?'':confirmed.type;
+  const detected=supplierPersonType(fields);
+  return supplier.identificationType==='CC'&&detected==='J'?'':detected;
+}
+function requireSupplierIdentity(supplier) {
+  if(!supplier.identificationType)throw new Error('Confirma el tipo de identificación del proveedor en el resumen del XML.');
+  if(!resolvedSupplierPersonType(supplier))throw new Error('Confirma si el proveedor es persona natural o jurídica en el resumen del XML.');
 }
 function extractParty(root, sectionName) {
   const section = childByLocal(root, sectionName);
-  if (!section) return { name: '', identification: '', identificationType:'NIT', verificationDigit:'', commercialName:'', taxResponsibility:'', taxSchemeCode:'', taxSchemeName:'', cityCode:'', city: '', departmentCode:'', department:'', postalCode:'', address: '', countryCode:'', country:'', contactName:'', phone: '', email: '', website:'', xmlFields:{} };
+  if (!section) return { name: '', identification: '', identificationType:'', verificationDigit:'', commercialName:'', taxResponsibility:'', taxSchemeCode:'', taxSchemeName:'', cityCode:'', city: '', departmentCode:'', department:'', postalCode:'', address: '', countryCode:'', country:'', contactName:'', phone: '', email: '', website:'', xmlFields:{} };
   const party=childByLocal(section,'Party')||section;
   const taxParty=descendantsByLocal(party,'PartyTaxScheme')[0]||null;
   const legalEntity=descendantsByLocal(party,'PartyLegalEntity')[0]||null;
@@ -1578,6 +1610,7 @@ function mappedLine(invoice,item) { return mappingForLine(getCompanyMasterData()
 function documentTypeForApi(value) { return ({Invoice:'FACTURA',CreditNote:'NOTA_CREDITO',DebitNote:'NOTA_DEBITO'})[value]||'FACTURA'; }
 
 function buildSupplierDocumentPayload(invoice,preparation=null) {
+  requireSupplierIdentity(invoice.supplier);
   const classification={inventory:'INVENTARIO',service:'SERVICIO_GASTO','acquisition-cost':'COSTO_ADQUISICION'};
   const lineas=invoice.items.map((item,index)=>{
     const mapping=mappedLine(invoice,item); const serials=item.serials.length?item.serials:(item.motor||item.chassis?[{number:1,motor:item.motor,chassis:item.chassis,raw:item.description}]:[]);
@@ -1708,7 +1741,8 @@ function renderInvoice() {
   const meta = document.createElement('div'); meta.className = 'invoice-meta';
   [
     ['Proveedor', invoice.supplier.name || 'No informado'],
-    ['NIT proveedor', invoice.supplier.identification || 'No informado'],
+    ['Identificación proveedor', `${invoice.supplier.identificationType||'Tipo pendiente'} ${invoice.supplier.identification||'No informada'}`],
+    ['Tipo de persona', ({J:'Persona jurídica',N:'Persona natural'})[resolvedSupplierPersonType(invoice.supplier)]||'Pendiente de confirmación'],
     ['Fecha', invoice.issueDate || 'No informada'],
     ['Vencimiento', invoice.dueDate || 'No informado'],
   ].forEach(([label, value]) => {
@@ -1716,6 +1750,26 @@ function renderInvoice() {
     span.textContent = label; strong.textContent = value; box.append(span, strong); meta.append(box);
   });
 
+  if(!invoice.supplier.identificationType||!resolvedSupplierPersonType(invoice.supplier)){
+    const review=document.createElement('div');review.className='supplier-identity-review';
+    const label=document.createElement('p');label.textContent='El XML no informa una clasificación válida o presenta datos contradictorios. Confirma los datos del proveedor antes de guardarlo.';
+    const identification=document.createElement('select');identification.setAttribute('aria-label','Tipo de identificación del proveedor');
+    [['','Seleccionar identificación…'],['NIT','NIT'],['CC','Cédula de ciudadanía'],['CE','Cédula de extranjería'],['RC','Registro civil'],['TI','Tarjeta de identidad'],['TE','Tarjeta de extranjería'],['PAS','Pasaporte'],['DE','Documento extranjero'],['OTRO','Otro'],['NITEXT','NIT extranjero'],['NUIP','NUIP']].forEach(([v,t])=>identification.add(new Option(t,v)));
+    identification.value=invoice.supplier.identificationType||'';
+    const person=document.createElement('select');person.setAttribute('aria-label','Tipo de persona del proveedor');
+    [['','Seleccionar tipo de persona…'],['N','Persona natural'],['J','Persona jurídica']].forEach(([v,t])=>person.add(new Option(t,v)));
+    person.value=resolvedSupplierPersonType(invoice.supplier);
+    const confirm=document.createElement('button');confirm.type='button';confirm.className='button primary';confirm.textContent='Confirmar proveedor';
+    confirm.addEventListener('click',async()=>{
+      if(!identification.value||!person.value){showError('Selecciona el tipo de identificación y el tipo de persona.');return;}
+      if(identification.value==='CC'&&person.value!=='N'){showError('Una cédula de ciudadanía corresponde a persona natural.');return;}
+      invoice.supplier.identificationType=identification.value;
+      invoice.supplier.xmlFields??={};
+      invoice.supplier.xmlFields.NexoPersonConfirmation={type:person.value,identification:invoice.supplier.identification,identificationType:identification.value};
+      renderInvoice();await persistAnalyzedSupplier(invoice);
+    });
+    review.append(label,identification,person,confirm);meta.append(review);
+  }
   const taxTotal = invoice.taxes.reduce((sum, tax) => sum + (tax.amount || 0), 0);
   const retentionTotal = invoice.retentions.reduce((sum, retention) => sum + (retention.amount || 0), 0);
   const amounts = document.createElement('div'); amounts.className = 'amount-grid';
