@@ -759,6 +759,10 @@ function openMasterForm(record=null) {
   else { addMasterField('Proveedor *','supplierId','text',data.suppliers.map(x=>[x.id,`${x.identification} · ${x.name}`]),true); addMasterField('Código externo *','externalCode'); addMasterField('Descripción externa','externalDescription','text',null,true,false); addMasterField('Artículo interno *','articleId','text',data.articles.map(x=>[x.id,`${x.code} · ${x.description}`]),true); addMasterField('Unidad','unitId','text',[['','Unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const factor=addMasterField('Factor a unidad base *','factor','number'); factor.min='0.0000000001'; factor.step='0.0000000001'; factor.value='1'; }
   if(state.masterView==='suppliers'){
     const identification=elements.masterRecordForm.elements.identificationType;
+    const division=addMasterField('División política Zeus (automática)','divisionPoliticaZeus','text',null,false,false);division.readOnly=true;
+    const updateDivision=()=>{division.value=supplierPoliticalDivision({countryCode:elements.masterRecordForm.elements.countryCode.value,cityCode:elements.masterRecordForm.elements.cityCode.value});};
+    ['countryCode','cityCode'].forEach(name=>elements.masterRecordForm.elements[name].addEventListener('input',updateDivision));
+    division.value=editingSupplier?supplierPoliticalDivision(editingSupplier):'';
     [['RC','Registro civil'],['TI','Tarjeta de identidad'],['TE','Tarjeta de extranjería'],['PAS','Pasaporte'],['DE','Documento extranjero'],['OTRO','Otro'],['NITEXT','NIT extranjero'],['NUIP','NUIP']].forEach(([value,label])=>identification.add(new Option(label,value)));
     if(editingSupplier&&!Array.from(identification.options).some(o=>o.value===editingSupplier.identificationType))identification.add(new Option(editingSupplier.identificationType||'Pendiente',editingSupplier.identificationType||''));
   }
@@ -1072,6 +1076,11 @@ function collectPartyXmlFields(section) {
 function identificationTypeFromXml(companyId) {
   const value=xmlAttribute(companyId,'schemeName').trim().toUpperCase();
   return ({'31':'NIT','13':'CC','22':'CE','11':'RC','12':'TI','21':'TE','41':'PAS','42':'DE','43':'OTRO','50':'NITEXT','91':'NUIP','NIT':'NIT','CC':'CC','CE':'CE'})[value]||'';
+}
+function supplierPoliticalDivision(supplier) {
+  const country=String(supplier.countryCode||'').trim().toUpperCase();
+  const city=String(supplier.cityCode||'').trim();
+  return ['CO','COL','57'].includes(country)&&/^[0-9]{5}$/.test(city)?`57${city}`:'';
 }
 function supplierPersonType(fields) {
   if(typeof fields==='string'){try{fields=JSON.parse(fields);}catch{return '';}}
@@ -1743,6 +1752,7 @@ function renderInvoice() {
     ['Proveedor', invoice.supplier.name || 'No informado'],
     ['Identificación proveedor', `${invoice.supplier.identificationType||'Tipo pendiente'} ${invoice.supplier.identification||'No informada'}`],
     ['Tipo de persona', ({J:'Persona jurídica',N:'Persona natural'})[resolvedSupplierPersonType(invoice.supplier)]||'Pendiente de confirmación'],
+    ['División política Zeus', supplierPoliticalDivision(invoice.supplier)||'Pendiente: revisar país y código de ciudad'],
     ['Fecha', invoice.issueDate || 'No informada'],
     ['Vencimiento', invoice.dueDate || 'No informado'],
   ].forEach(([label, value]) => {

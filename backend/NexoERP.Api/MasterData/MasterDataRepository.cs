@@ -16,7 +16,7 @@ public sealed class MasterDataRepository(TenantConnectionFactory connections)
             SELECT TerceroId,TipoIdentificacion,NumeroIdentificacion,DigitoVerificacion,RazonSocial,
                    NombreComercial,CodigoResponsabilidadFiscal,RegimenFiscalCodigo,RegimenFiscalNombre,
                    Direccion,CiudadCodigo,Ciudad,DepartamentoCodigo,Departamento,CodigoPostal,PaisCodigo,Pais,
-                   ContactoNombre,Telefono,Correo,SitioWeb,DatosXmlJson,Activo
+                   ContactoNombre,Telefono,Correo,SitioWeb,DatosXmlJson,Activo,DivisionPoliticaZeus
             FROM ter.Tercero WHERE EmpresaId=@EmpresaId AND EsProveedor=1 ORDER BY RazonSocial;
             """;
         Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
@@ -24,7 +24,7 @@ public sealed class MasterDataRepository(TenantConnectionFactory connections)
         while(await reader.ReadAsync(ct)) result.Add(new(
             reader.GetInt64(0),reader.GetString(1),reader.GetString(2),reader.IsDBNull(3)?null:reader.GetString(3),reader.GetString(4),
             Text(reader,5),Text(reader,6),Text(reader,7),Text(reader,8),Text(reader,9),Text(reader,10),Text(reader,11),Text(reader,12),Text(reader,13),
-            Text(reader,14),Text(reader,15),Text(reader,16),Text(reader,17),Text(reader,18),Text(reader,19),Text(reader,20),Text(reader,21),reader.GetBoolean(22)));
+            Text(reader,14),Text(reader,15),Text(reader,16),Text(reader,17),Text(reader,18),Text(reader,19),Text(reader,20),Text(reader,21),reader.GetBoolean(22),Text(reader,23)));
         return result;
     }
 

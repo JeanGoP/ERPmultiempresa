@@ -22,3 +22,7 @@ assert.equal(missing.xmlFields.AdditionalAccountID,undefined,'No se inventa un c
 missing.identification='otro';assert.throws(()=>context.requireSupplierIdentity(missing),/Confirma/);
 assert.equal(context.supplierPersonType({AdditionalAccountID:[{value:'1'},{value:'2'}]}),'');
 console.log('Identidad proveedor: tipos independientes, ausencia, contradicción y confirmación verificados.');
+for(const countryCode of ['CO','COL','57',' co '])assert.equal(context.supplierPoliticalDivision({countryCode,cityCode:'05001'}),'5705001');
+assert.equal(context.supplierPoliticalDivision({countryCode:'CO',cityCode:'11001'}),'5711001');
+for(const [countryCode,cityCode] of [['','05001'],['US','05001'],['CO','5001'],['CO','05A01'],['CO',''],['CO','5711001']])assert.equal(context.supplierPoliticalDivision({countryCode,cityCode}),'');
+console.log('División Zeus: prefijo, ceros iniciales, país y ciudad inválidos verificados.');

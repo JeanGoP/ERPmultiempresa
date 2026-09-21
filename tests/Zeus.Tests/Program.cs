@@ -143,6 +143,17 @@ if(args.Contains("--sql"))
             }
         }
         Check(true,"Migración 049 ejecutable e idempotente en base aislada");
+        q.CommandText="ALTER TABLE ter.Tercero ADD PaisCodigo nvarchar(10),CiudadCodigo nvarchar(20)";await q.ExecuteNonQueryAsync();
+        var divisionMigration=await File.ReadAllTextAsync(Path.Combine(dir!.FullName,"database","migrations","051_supplier_zeus_political_division.sql"));
+        for(var pass=0;pass<2;pass++)foreach(var batch in System.Text.RegularExpressions.Regex.Split(divisionMigration,@"(?im)^\s*GO\s*$"))
+        {if(string.IsNullOrWhiteSpace(batch))continue;q.CommandText=batch;await q.ExecuteNonQueryAsync();}
+        foreach(var example in new[]{("CO","05001","5705001"),("CO","11001","5711001"),("57","05001","5705001"),("US","11001",""),("CO","5001",""),("CO","05A01","")})
+        {
+            q.CommandText="UPDATE ter.Tercero SET PaisCodigo=@Country,CiudadCodigo=@City;SELECT DivisionPoliticaZeus FROM ter.Tercero";
+            q.Parameters.AddWithValue("@Country",example.Item1);q.Parameters.AddWithValue("@City",example.Item2);
+            Check(Convert.ToString(await q.ExecuteScalarAsync())==example.Item3,"División SQL calculada: "+example.Item1+" / "+example.Item2);q.Parameters.Clear();
+        }
+        q.CommandText="UPDATE ter.Tercero SET PaisCodigo=NULL,CiudadCodigo=NULL";await q.ExecuteNonQueryAsync();
         var erpConf=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["ConnectionStrings:NexoErp"]=cs}).Build();
         var repository=new ZeusRepository(new TenantConnectionFactory(erpConf));
         await repository.SaveSettingsAsync(1,1,new(0,settings),default);
@@ -157,6 +168,10 @@ if(args.Contains("--sql"))
         q.CommandText="UPDATE inv.RecepcionMercancia SET Estado='CONTABILIZADA' WHERE RecepcionMercanciaId=20";await q.ExecuteNonQueryAsync();
         var preview=await repository.PreviewAsync(1,20,input,default);
         Check(preview is not null,"Vista previa usa consultas reales del repositorio");
+        q.CommandText="UPDATE ter.Tercero SET PaisCodigo='CO',CiudadCodigo='05001'";await q.ExecuteNonQueryAsync();
+        var divisionPreview=System.Text.Json.JsonSerializer.Serialize(await repository.PreviewAsync(1,20,input,default));
+        Check(divisionPreview.Contains("\"DivisionPoliticaZeus\":\"5705001\""),"Vista previa Zeus lleva división del proveedor de la empresa");
+        q.CommandText="UPDATE ter.Tercero SET PaisCodigo=NULL,CiudadCodigo=NULL";await q.ExecuteNonQueryAsync();
         var approve=new ZeusApproveRequest(input.Impuestos,input.Retenciones,ZeusRepository.Fingerprint(journal));
         var jobId=await repository.ApproveAsync(1,20,1,approve,default);
         var jobs=(List<Dictionary<string,object?>>)await repository.ListAsync(1,"",0,default);

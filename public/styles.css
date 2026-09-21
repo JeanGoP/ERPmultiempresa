@@ -193,7 +193,7 @@ textarea:focus, input:focus { border-color: var(--green); outline: 2px solid rgb
 .invoice-hero { padding: 23px 25px; border-radius: 13px 13px 0 0; color: white; background: linear-gradient(120deg, var(--green-dark), var(--green)); }
 .invoice-hero .eyebrow { margin-bottom: 7px; color: #f3ad7c; }
 .invoice-hero h3 { margin: 0; font-size: 26px; }
-.invoice-meta { display: grid; grid-template-columns: 2fr repeat(4, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); border-top: 0; background: var(--line); }
+.invoice-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); border-top: 0; background: var(--line); }
 .invoice-meta .supplier-identity-review { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .supplier-identity-review p { grid-column: 1 / -1; margin: 0; }
 .supplier-identity-review select { width: 100%; min-width: 0; padding: 10px; }
