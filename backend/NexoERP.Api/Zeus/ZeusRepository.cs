@@ -137,14 +137,40 @@ public sealed class ZeusRepository(TenantConnectionFactory connections)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=Command(c,"""
-            SELECT ZeusEnvioId,RecepcionMercanciaId,Clave,Estado,Intentos,Fuente,Documento,Error,CreadoEnUtc,ActualizadoEnUtc
-            FROM core.ZeusEnvio WHERE EmpresaId=@E AND (@S IS NULL OR Estado=@S)
-            ORDER BY ZeusEnvioId DESC OFFSET @O ROWS FETCH NEXT 100 ROWS ONLY;
+            SELECT e.ZeusEnvioId,e.RecepcionMercanciaId,e.Clave,e.Estado,e.Intentos,e.Fuente,e.Documento,e.Error,e.CreadoEnUtc,e.ActualizadoEnUtc,
+                   d.NumeroDocumento Factura,t.RazonSocial Proveedor,r.FechaContable,d.TotalPagar Total
+            FROM core.ZeusEnvio e
+            JOIN inv.RecepcionMercancia r ON r.EmpresaId=e.EmpresaId AND r.RecepcionMercanciaId=e.RecepcionMercanciaId
+            LEFT JOIN comp.DocumentoProveedor d ON d.EmpresaId=r.EmpresaId AND d.DocumentoProveedorId=r.DocumentoProveedorId
+            LEFT JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
+            WHERE e.EmpresaId=@E AND (@S IS NULL OR e.Estado=@S)
+            ORDER BY e.ZeusEnvioId DESC OFFSET @O ROWS FETCH NEXT 100 ROWS ONLY;
             """,company);
-        Add(q,"@S",(object?)state??DBNull.Value);Add(q,"@O",Math.Max(0,offset));
+        Add(q,"@S",string.IsNullOrWhiteSpace(state)?DBNull.Value:state);Add(q,"@O",Math.Max(0,offset));
         var rows=new List<Dictionary<string,object?>>(); await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct)) { var row=new Dictionary<string,object?>(); for(int i=0;i<r.FieldCount;i++) row[r.GetName(i)]=r.IsDBNull(i)?null:r.GetValue(i);rows.Add(row); }
         return rows;
+    }
+    public async Task<object> ReceiptsAsync(long company,string? search,CancellationToken ct)
+    {
+        if(search?.Length>100) throw new ArgumentException("La búsqueda admite hasta 100 caracteres.");
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=Command(c,"""
+            SELECT TOP(100) r.RecepcionMercanciaId RecepcionId,d.NumeroDocumento Factura,t.RazonSocial Proveedor,
+                r.FechaContable,d.FechaDocumento FechaFactura,d.TotalPagar Total,d.ImpuestoTotal Impuestos,d.Moneda,
+                COALESCE((SELECT SUM(l.Retencion) FROM comp.DocumentoProveedorLinea l WHERE l.EmpresaId=d.EmpresaId AND l.DocumentoProveedorId=d.DocumentoProveedorId),0) Retenciones,
+                COALESCE(e.Estado,'SIN_PREPARAR') EstadoZeus
+            FROM inv.RecepcionMercancia r
+            JOIN comp.DocumentoProveedor d ON d.EmpresaId=r.EmpresaId AND d.DocumentoProveedorId=r.DocumentoProveedorId
+            JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
+            LEFT JOIN core.ZeusEnvio e ON e.EmpresaId=r.EmpresaId AND e.RecepcionMercanciaId=r.RecepcionMercanciaId
+            WHERE r.EmpresaId=@E AND r.Estado='CONTABILIZADA' AND d.Estado='CONTABILIZADO'
+                AND (@Q IS NULL OR d.NumeroDocumento LIKE '%'+@Q+'%' OR t.RazonSocial LIKE '%'+@Q+'%')
+            ORDER BY r.RecepcionMercanciaId DESC;
+            """,company);
+        Add(q,"@Q",(object?)search??DBNull.Value);
+        var rows=new List<Dictionary<string,object?>>();await using var r=await q.ExecuteReaderAsync(ct);
+        while(await r.ReadAsync(ct)){var row=new Dictionary<string,object?>();for(int i=0;i<r.FieldCount;i++)row[r.GetName(i)]=r.IsDBNull(i)?null:r.GetValue(i);rows.Add(row);}return rows;
     }
     internal async Task<(long Id,long Company,Guid Key,ZeusSnapshot Snapshot)?> ClaimAsync(CancellationToken ct)
     {

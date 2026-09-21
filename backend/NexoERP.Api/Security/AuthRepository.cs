@@ -45,6 +45,13 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
             await failed.ExecuteNonQueryAsync(cancellationToken);
             return null;
         }
+        long? assignedCompany=null;
+        if(!superAdministrator)
+        {
+            var companies=await GetCompaniesAsync(userId,cancellationToken);
+            if(companies.Count!=1) throw new InvalidOperationException("Tu usuario debe tener una única empresa activa asignada. Solicita al superadministrador revisar tu acceso.");
+            assignedCompany=companies[0].EmpresaId;
+        }
         var rawToken=RandomNumberGenerator.GetBytes(32);
         var tokenHash=SHA256.HashData(rawToken);
         var expires=DateTime.UtcNow.AddHours(8);
@@ -60,7 +67,7 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
             success.Parameters.Add(new SqlParameter("@DireccionIp",SqlDbType.NVarChar,64){Value=(object?)address??DBNull.Value});
             await success.ExecuteNonQueryAsync(cancellationToken);
         }
-        return new(ToBase64Url(rawToken),expires,userId,name,superAdministrator);
+        return new(ToBase64Url(rawToken),expires,userId,name,superAdministrator,assignedCompany);
     }
 
     public async Task<AuthenticatedUser?> ValidateAsync(string token,CancellationToken cancellationToken)
@@ -84,7 +91,7 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
     {
         await using var connection=await connections.OpenAsync(null,true,cancellationToken);
         await using var command=connection.CreateCommand();
-        command.CommandText="SELECT IIF(EXISTS(SELECT 1 FROM seg.Usuario WHERE UsuarioId=@UsuarioId AND Activo=1 AND EsSuperAdministrador=1) OR EXISTS(SELECT 1 FROM seg.UsuarioEmpresaRol WHERE UsuarioId=@UsuarioId AND EmpresaId=@EmpresaId AND Activo=1),1,0);";
+        command.CommandText="SELECT IIF(EXISTS(SELECT 1 FROM core.Empresa WHERE EmpresaId=@EmpresaId AND Activa=1) AND (EXISTS(SELECT 1 FROM seg.Usuario WHERE UsuarioId=@UsuarioId AND Activo=1 AND EsSuperAdministrador=1) OR (EXISTS(SELECT 1 FROM seg.UsuarioEmpresaRol WHERE UsuarioId=@UsuarioId AND EmpresaId=@EmpresaId AND Activo=1) AND (SELECT COUNT(DISTINCT EmpresaId) FROM seg.UsuarioEmpresaRol WHERE UsuarioId=@UsuarioId AND Activo=1)=1)),1,0);";
         command.Parameters.Add(new SqlParameter("@UsuarioId",SqlDbType.BigInt){Value=userId});
         command.Parameters.Add(new SqlParameter("@EmpresaId",SqlDbType.BigInt){Value=empresaId});
         return Convert.ToBoolean(await command.ExecuteScalarAsync(cancellationToken));
@@ -100,7 +107,8 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
             WHERE e.Activa=1 AND
             (
                 EXISTS(SELECT 1 FROM seg.Usuario WHERE UsuarioId=@UsuarioId AND Activo=1 AND EsSuperAdministrador=1)
-                OR EXISTS(SELECT 1 FROM seg.UsuarioEmpresaRol ur WHERE ur.EmpresaId=e.EmpresaId AND ur.UsuarioId=@UsuarioId AND ur.Activo=1)
+                OR (EXISTS(SELECT 1 FROM seg.UsuarioEmpresaRol ur WHERE ur.EmpresaId=e.EmpresaId AND ur.UsuarioId=@UsuarioId AND ur.Activo=1)
+                    AND (SELECT COUNT(DISTINCT EmpresaId) FROM seg.UsuarioEmpresaRol WHERE UsuarioId=@UsuarioId AND Activo=1)=1)
             )
             ORDER BY e.RazonSocial;
             """;
@@ -113,6 +121,7 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
 
     public async Task<bool> HasPermissionAsync(long userId,long empresaId,string permission,CancellationToken cancellationToken)
     {
+        if(!await HasCompanyAccessAsync(userId,empresaId,cancellationToken)) return false;
         if(await IsSuperAdministratorAsync(userId,cancellationToken)) return true;
         await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
         await using var command=connection.CreateCommand();

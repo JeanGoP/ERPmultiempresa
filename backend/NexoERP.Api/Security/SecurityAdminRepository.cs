@@ -104,6 +104,7 @@ public sealed class SecurityAdminRepository(TenantConnectionFactory connections)
         }
         if(existing)
         {
+            await EnsureManageableUserAsync(connection,transaction,empresaId,userId,null,ct);
             await using var duplicate=connection.CreateCommand();duplicate.Transaction=transaction;
             duplicate.CommandText="SELECT COUNT(*) FROM seg.UsuarioEmpresaRol WHERE EmpresaId=@EmpresaId AND UsuarioId=@UsuarioId;";
             Add(duplicate,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(duplicate,"@UsuarioId",SqlDbType.BigInt,userId);
@@ -123,6 +124,7 @@ public sealed class SecurityAdminRepository(TenantConnectionFactory connections)
         await using var connection=await connections.OpenAsync(empresaId,false,ct);
         await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(ct);
         await EnsureCompanyUserAsync(connection,transaction,empresaId,userId,ct);
+        await EnsureManageableUserAsync(connection,transaction,empresaId,userId,actorId,ct);
         await EnsureRolesAsync(connection,transaction,roleIds,ct);
         await SaveUserRolesAsync(connection,transaction,empresaId,userId,roleIds,input.AccesoActivo,ct);
         await AuditAsync(connection,transaction,empresaId,actorId,"USUARIO_EMPRESA_ACTUALIZADO","seg.UsuarioEmpresaRol",userId,new { roles=roleIds,accesoActivo=input.AccesoActivo },ct);
@@ -135,6 +137,7 @@ public sealed class SecurityAdminRepository(TenantConnectionFactory connections)
         await using var connection=await connections.OpenAsync(empresaId,false,ct);
         await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(ct);
         await EnsureCompanyUserAsync(connection,transaction,empresaId,userId,ct);
+        await EnsureManageableUserAsync(connection,transaction,empresaId,userId,actorId,ct);
         if(!actorIsSuperAdministrator)
         {
             await using var count=connection.CreateCommand();count.Transaction=transaction;
@@ -185,6 +188,18 @@ public sealed class SecurityAdminRepository(TenantConnectionFactory connections)
 
     private static async Task SaveUserRolesAsync(SqlConnection connection,SqlTransaction transaction,long empresaId,long userId,IReadOnlyCollection<long> roleIds,bool active,CancellationToken ct)
     {
+        await using(var guard=connection.CreateCommand())
+        {
+            guard.Transaction=transaction;
+            guard.CommandText="""
+                DECLARE @Super bit;
+                SELECT @Super=EsSuperAdministrador FROM seg.Usuario WITH(UPDLOCK,HOLDLOCK) WHERE UsuarioId=@U;
+                IF @Active=1 AND @Super=0 AND EXISTS(SELECT 1 FROM seg.UsuarioEmpresaRol WHERE UsuarioId=@U AND Activo=1 AND EmpresaId<>@E)
+                    THROW 51730,'El usuario ya pertenece a otra empresa. Desactiva su acceso anterior antes de reasignarlo.',1;
+                """;
+            Add(guard,"@U",SqlDbType.BigInt,userId);Add(guard,"@E",SqlDbType.BigInt,empresaId);Add(guard,"@Active",SqlDbType.Bit,active);
+            await guard.ExecuteNonQueryAsync(ct);
+        }
         await using(var clear=connection.CreateCommand())
         {
             clear.Transaction=transaction;clear.CommandText="DELETE seg.UsuarioEmpresaRol WHERE EmpresaId=@EmpresaId AND UsuarioId=@UsuarioId;";
@@ -219,6 +234,20 @@ public sealed class SecurityAdminRepository(TenantConnectionFactory connections)
     private static async Task EnsurePermissionsAsync(SqlConnection connection,SqlTransaction transaction,IReadOnlyCollection<long> ids,CancellationToken ct)
     {
         foreach(var id in ids){await using var command=connection.CreateCommand();command.Transaction=transaction;command.CommandText="SELECT COUNT(*) FROM seg.Permiso WHERE PermisoId=@Id AND Activo=1;";Add(command,"@Id",SqlDbType.BigInt,id);if(Convert.ToInt32(await command.ExecuteScalarAsync(ct))==0) throw new InvalidOperationException("Uno de los permisos seleccionados no existe.");}
+    }
+    private static async Task EnsureManageableUserAsync(SqlConnection connection,SqlTransaction transaction,long empresaId,long userId,long? actorId,CancellationToken ct)
+    {
+        await using var command=connection.CreateCommand();command.Transaction=transaction;
+        command.CommandText="""
+            IF EXISTS(SELECT 1 FROM seg.Usuario WITH(UPDLOCK,HOLDLOCK) WHERE UsuarioId=@U AND EsSuperAdministrador=1)
+               AND (@A IS NULL OR NOT EXISTS(SELECT 1 FROM seg.Usuario WHERE UsuarioId=@A AND Activo=1 AND EsSuperAdministrador=1))
+                THROW 51731,'La cuenta de superadministrador no se puede administrar como usuario de empresa.',1;
+            IF (@A IS NULL OR NOT EXISTS(SELECT 1 FROM seg.Usuario WHERE UsuarioId=@A AND Activo=1 AND EsSuperAdministrador=1))
+               AND EXISTS(SELECT 1 FROM seg.UsuarioEmpresaRol WHERE UsuarioId=@U AND Activo=1 AND EmpresaId<>@E)
+                THROW 51730,'El usuario pertenece a otra empresa. Solicita al superadministrador revisar su asignacion.',1;
+            """;
+        Add(command,"@U",SqlDbType.BigInt,userId);Add(command,"@A",SqlDbType.BigInt,actorId);Add(command,"@E",SqlDbType.BigInt,empresaId);
+        await command.ExecuteNonQueryAsync(ct);
     }
     private static async Task EnsureCompanyUserAsync(SqlConnection connection,SqlTransaction transaction,long empresaId,long userId,CancellationToken ct)
     {

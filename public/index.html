@@ -6,6 +6,7 @@
   <meta name="description" content="Módulo ERP para registrar mercancías y causar servicios de proveedores desde XML DIAN o captura manual.">
   <title>Registro de compras · ERP</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="zeus.css">
 </head>
 <body>
   <section id="loginView" class="login-view" aria-labelledby="loginTitle">
@@ -27,7 +28,7 @@
       <form id="loginForm" class="login-card">
         <span class="login-kicker">ACCESO AL SISTEMA</span>
         <h2 id="loginTitle">Bienvenido</h2>
-        <p>Ingresa para elegir la empresa con la que vas a trabajar.</p>
+            <p>Ingresa a tu empresa con el correo y la contraseña asignados.</p>
         <label><span>Correo electrónico</span><input id="loginEmail" type="email" required autocomplete="username" placeholder="nombre@empresa.com"></label>
         <div class="login-field"><label for="loginPassword">Contraseña</label><span class="password-field"><input id="loginPassword" type="password" required minlength="4" autocomplete="current-password" placeholder="Mínimo 4 caracteres"><button id="togglePassword" type="button" aria-label="Mostrar contraseña">Ver</button></span></div>
         <p id="loginError" class="login-error" hidden></p>
@@ -149,6 +150,10 @@
             <button class="nav-subitem master-link muted" type="button" disabled aria-disabled="true">Plan de cuentas<span class="nav-soon">Próximamente</span></button>
             <button class="nav-subitem master-link muted" type="button" disabled aria-disabled="true">Impuestos y retenciones<span class="nav-soon">Próximamente</span></button>
           </div>
+        </details>
+        <details id="zeusNavGroup" class="nav-group" data-nav-group="zeus" hidden>
+          <summary class="nav-item parent"><span class="nav-icon">⇄</span><span>Integraciones</span><span class="chevron">⌄</span></summary>
+          <div class="nav-children"><button id="zeusNav" class="nav-subitem" type="button">Integración Zeus</button></div>
         </details>
         <details class="nav-group" data-nav-group="administration">
           <summary class="nav-item parent"><span class="nav-icon">◎</span><span>Empresas y seguridad</span><span class="chevron">⌄</span></summary>
@@ -475,6 +480,7 @@
       <button class="dialog-close" type="button" data-close-dialog="securityUserDialog" aria-label="Cerrar">×</button>
     </div>
     <form id="securityUserForm" class="security-form">
+      <label><span>Empresa a la que pertenece</span><select id="securityUserCompany" name="empresaId" required></select><small>Solo el superadministrador puede escoger otra empresa. Los demás usuarios ingresan directamente a la asignada.</small></label>
       <div id="securityUserIdentity" class="security-form-grid">
         <label><span>Nombre completo</span><input name="nombreCompleto" required maxlength="150" autocomplete="name"></label>
         <label><span>Correo</span><input name="correo" type="email" required maxlength="254" autocomplete="email"></label>
@@ -512,5 +518,6 @@
   <script src="payment-report-excel.js"></script>
   <script src="inventory-origin.js"></script>
   <script src="advanced-controls.js"></script>
+  <script src="zeus.js"></script>
 </body>
 </html>

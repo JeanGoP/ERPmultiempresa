@@ -83,7 +83,7 @@ async function apiRequest(path, options = {}) {
   const response = await fetch(`/erp-api${path}`, { ...options, headers });
   const payload = await response.json().catch(() => null);
   const validationMessage=payload?.errors?Object.values(payload.errors).flat()[0]:null;
-  if (!response.ok) throw new Error(payload?.error || validationMessage || payload?.detail || payload?.title || `La API respondió ${response.status}.`);
+  if (!response.ok) { const error=new Error(payload?.error || validationMessage || payload?.detail || payload?.title || `La API respondió ${response.status}.`);error.status=response.status;throw error; }
   return payload;
 }
 
@@ -121,6 +121,8 @@ function renderErpSession() {
   elements.userName.textContent = session.name;
   elements.userEmail.textContent = session.email;
   elements.userAvatar.textContent = initials(session.name);
+  elements.companySwitcher.disabled=!session.superAdmin;
+  elements.companySwitcher.setAttribute('aria-label',session.superAdmin?'Cambiar empresa':'Empresa asignada');
   document.querySelectorAll('.company-option').forEach((option) => option.classList.toggle('active', option.dataset.companyId === String(session.company.id)));
 }
 
@@ -157,6 +159,7 @@ function firstAllowedInventoryView() {
   return ['receiving', 'receipt-issues', 'receipt-history', 'stock', 'kardex', 'serials', 'expiry', 'operations'].find(isInventoryViewAllowed) || null;
 }
 function hideWorkspaces() {
+  window.closeZeus?.();
   elements.purchaseModule.hidden = true;
   elements.masterDataModule.hidden = true;
   elements.savedPurchasesModule.hidden = true;
@@ -177,6 +180,7 @@ function showNoAccess() {
   elements.manualResult.hidden = true;
 }
 function isCurrentWorkspaceAllowed() {
+  if(document.querySelector('#zeusModule')?.hidden===false) return hasAnyPermission(['SEGURIDAD.PERMISOS.ADMINISTRAR','COMPRAS.RECEPCION.CONTABILIZAR']);
   if (!elements.purchaseModule.hidden) return canPurchaseMode(state.registrationMode);
   if (!elements.savedPurchasesModule.hidden) return canUseSavedPurchases();
   if (!elements.accountsPayableModule.hidden) return canUseAccountsPayable();
@@ -221,6 +225,7 @@ function applyAccessControls() {
   setVisible('[data-nav-group="administration"]', canSecurity || Boolean(state.erpSession?.superAdmin));
   setVisible(elements.companiesAdminNav, Boolean(state.erpSession?.superAdmin));
   setVisible(elements.securityAdminNav, canSecurity);
+  setVisible('#zeusNavGroup',canSecurity||hasPermission('COMPRAS.RECEPCION.CONTABILIZAR'));
   setVisible(elements.savedPurchasesNav, canUseSavedPurchases());
   setVisible(elements.accountsPayableNav, canUseAccountsPayable());
   setVisible($('#supplierPaymentReportNav'), canUseAccountsPayable());
@@ -239,6 +244,8 @@ function applyAccessControls() {
 }
 
 function enterErp(session) {
+  window.resetZeus?.();
+  state.securityData=null;state.securityEditingUserId=null;state.securityEditingRoleId=null;state.securityPasswordUserId=null;
   state.erpSession = session;
   state.accessInitialized = false;
   localStorage.setItem(uiStorage.session, JSON.stringify(session));
@@ -252,6 +259,8 @@ function enterErp(session) {
 }
 
 function leaveErp() {
+  window.resetZeus?.();
+  state.securityData=null;
   localStorage.removeItem(uiStorage.session);
   sessionStorage.removeItem(uiStorage.apiToken);
   state.erpSession = null;
@@ -272,13 +281,25 @@ function leaveErp() {
   elements.loginEmail.focus();
 }
 
-function initializeErpUi() {
+async function initializeErpUi() {
   elements.topbarDate.textContent = new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date()).replace(/\./g, '').toLocaleUpperCase('es-CO');
   state.runtimeMode = 'api';
   localStorage.removeItem('nexo.runtimeMode');
   localStorage.removeItem('nexo.masterData.v1');
   const savedSession = readStoredJson(uiStorage.session);
-  if (savedSession?.email && savedSession?.company && savedSession.api && apiToken()) enterErp(savedSession);
+  if (savedSession?.email && savedSession?.company && savedSession.api && apiToken()) {
+    elements.loginView.hidden=true;elements.erpShell.hidden=true;
+    try {
+      const identity=await apiRequest('/api/v1/auth/me');
+      const companies=await apiRequest('/api/v1/companies');
+      state.pendingEmail=savedSession.email;state.pendingName=savedSession.name;state.pendingSuperAdmin=identity.esSuperAdministrador;
+      const company=companies.find(c=>String(c.empresaId)===String(identity.esSuperAdministrador?savedSession.company.id:identity.empresaId));
+      renderCompanyOptions(companies);
+      if(company){state.erpSession=null;selectCompany([...$('#companyOptions').children].find(x=>x.dataset.companyId===String(company.empresaId)));}
+      else if(identity.esSuperAdministrador){elements.loginView.hidden=false;configureSuperAdminCompanyPanel(true,companies.length>0);openErpDialog(elements.companyDialog);}
+      else throw new Error('No tienes una empresa activa asignada.');
+    } catch(error){leaveErp();elements.loginError.textContent=error.message;elements.loginError.hidden=false;}
+  }
   else { if(savedSession&&!savedSession.api)localStorage.removeItem(uiStorage.session);elements.loginView.hidden = false; elements.erpShell.hidden = true; }
 }
 
@@ -333,6 +354,7 @@ async function loadApiCompanyContext() {
       apiRequest(`${base}/accounting-periods`),apiRequest(`${base}/accounting-accounts`),apiRequest('/api/v1/companies'),apiRequest(`${base}/permissions`),
       apiRequest(`${base}/master-data/brands`).then(rows=>({rows,error:null})).catch(error=>({rows:[],error:error.message})),
     ]);
+    if(String(state.erpSession?.company?.id)!==String(companyId))return;
     renderCompanyOptions(companies);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);
     state.apiContext={ warehouses,periods,accountingPeriods,accounts,permissions,permissionCodes:new Set(permissions.map(permissionCode)),masterData:{
       brands:brands.rows,brandsError:brands.error,
@@ -491,7 +513,9 @@ function securityCheckbox(value,title,subtitle,checked=false,critical=false){
 }
 async function loadSecurityData(){
   if(state.runtimeMode!=='api'||!state.erpSession?.api)throw new Error('La administración de seguridad solo está disponible con la API ERP.');
+  const company=state.erpSession.company.id,token=apiToken();
   const [users,roles,permissions]=await Promise.all([apiRequest(`${securityBase()}/users`),apiRequest(`${securityBase()}/roles`),apiRequest(`${securityBase()}/permissions`)]);
+  if(company!==state.erpSession?.company?.id||token!==apiToken())throw new Error('Cambió la sesión o empresa durante la consulta. Actualiza la pantalla.');
   state.securityData={users,roles,permissions};return state.securityData;
 }
 function securityAction(label,action,id){const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.securityAction=action;button.dataset.id=String(id);return button;}
@@ -517,8 +541,12 @@ function showSecurityView(view='users'){
   state.securityView=view;elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.savedPurchasesModule.hidden=true;elements.accountsPayableModule.hidden=true;elements.inventoryModule.hidden=true;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=false;elements.savedPurchasesNav.classList.remove('active');elements.accountsPayableNav.classList.remove('active');elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.add('active');document.querySelector('.breadcrumb span').textContent='Administración';elements.breadcrumbCurrent.textContent='Usuarios y permisos';document.querySelectorAll('[data-registration-mode],[data-master-view],[data-inventory-view]').forEach(x=>x.classList.remove('active'));if(state.securityData)renderSecurityView();else void refreshSecurity();window.scrollTo({top:0,behavior:'smooth'});
 }
 function fillSecurityRoles(selected=[]){const chosen=new Set(selected.map(String));elements.securityUserRoles.replaceChildren();state.securityData.roles.forEach(role=>elements.securityUserRoles.append(securityCheckbox(role.rolId,role.nombre,role.codigo,chosen.has(String(role.rolId)))));}
-function openSecurityUser(user=null){
-  state.securityEditingUserId=user?.usuarioId||null;elements.securityUserForm.reset();elements.securityUserError.hidden=true;elements.securityUserIdentity.hidden=Boolean(user);elements.securityUserIdentity.querySelectorAll('input').forEach(input=>input.disabled=Boolean(user));$('#securityUserDialogTitle').textContent=user?'Editar acceso':'Nuevo usuario';$('#securityUserDialogSubtitle').textContent=user?`${user.nombreCompleto} · ${user.correo}`:'Crea sus credenciales y asigna los roles autorizados.';elements.securityUserForm.elements.accesoActivo.checked=user?.accesoActivo??true;fillSecurityRoles(user?.roles.map(x=>x.rolId)||[]);openErpDialog(elements.securityUserDialog);
+async function openSecurityUser(user=null){
+  state.securityEditingUserId=user?.usuarioId||null;elements.securityUserForm.reset();elements.securityUserError.hidden=true;elements.securityUserIdentity.hidden=Boolean(user);elements.securityUserIdentity.querySelectorAll('input').forEach(input=>input.disabled=Boolean(user));$('#securityUserDialogTitle').textContent=user?'Editar acceso':'Nuevo usuario';$('#securityUserDialogSubtitle').textContent=user?`${user.nombreCompleto} · ${user.correo}`:'Asigna su empresa y sus roles. Ingresará directamente a esa empresa.';elements.securityUserForm.elements.accesoActivo.checked=user?.accesoActivo??true;fillSecurityRoles(user?.roles.map(x=>x.rolId)||[]);
+  const select=$('#securityUserCompany'),company=state.erpSession.company;
+  select.replaceChildren(new Option(company.name,company.id));select.value=company.id;select.disabled=true;
+  openErpDialog(elements.securityUserDialog);
+  if(!user&&state.erpSession.superAdmin){try{const companies=await apiRequest('/api/v1/companies');if(!elements.securityUserDialog.open||state.securityEditingUserId||state.erpSession?.company?.id!==company.id)return;select.replaceChildren(...companies.map(c=>new Option(c.razonSocial,c.empresaId)));select.value=company.id;select.disabled=false;}catch(error){elements.securityUserError.textContent=error.message;elements.securityUserError.hidden=false;}}
 }
 function fillRolePermissions(selected=[]){
   const chosen=new Set(selected.map(String));elements.securityRolePermissions.replaceChildren();const groups=Object.groupBy?Object.groupBy(state.securityData.permissions,x=>x.modulo):state.securityData.permissions.reduce((all,x)=>{(all[x.modulo]??=[]).push(x);return all;},{});
@@ -527,7 +555,8 @@ function fillRolePermissions(selected=[]){
 function openSecurityRole(role=null){state.securityEditingRoleId=role?.rolId||null;elements.securityRoleForm.reset();elements.securityRoleError.hidden=true;$('#securityRoleDialogTitle').textContent=role?'Editar rol':'Nuevo rol';elements.securityRoleForm.elements.codigo.value=role?.codigo||'';elements.securityRoleForm.elements.nombre.value=role?.nombre||'';fillRolePermissions(role?.permisoIds||[]);openErpDialog(elements.securityRoleDialog);}
 async function saveSecurityUser(event){
   event.preventDefault();elements.securityUserError.hidden=true;const roleIds=[...elements.securityUserRoles.querySelectorAll('input:checked')].map(x=>Number(x.value));const edit=Boolean(state.securityEditingUserId);const data=new FormData(elements.securityUserForm);const payload=edit?{accesoActivo:elements.securityUserForm.elements.accesoActivo.checked,rolIds:roleIds}:{correo:String(data.get('correo')||'').trim(),nombreCompleto:String(data.get('nombreCompleto')||'').trim(),password:String(data.get('password')||''),accesoActivo:elements.securityUserForm.elements.accesoActivo.checked,rolIds:roleIds};
-  try{if(!roleIds.length)throw new Error('Selecciona al menos un rol.');const result=await apiRequest(`${securityBase()}/users${edit?`/${state.securityEditingUserId}`:''}`,{method:edit?'PUT':'POST',body:JSON.stringify(payload)});closeErpDialog(elements.securityUserDialog);await refreshSecurity();if(!edit&&result.usuarioExistente){elements.securityNotice.textContent='El correo ya existía: se vinculó a esta empresa conservando su contraseña actual.';elements.securityNotice.hidden=false;}}catch(error){elements.securityUserError.textContent=error.message;elements.securityUserError.hidden=false;}
+  const submit=elements.securityUserForm.querySelector('[type="submit"]');submit.disabled=true;
+  try{if(!roleIds.length)throw new Error('Selecciona al menos un rol.');const target=edit?state.erpSession.company.id:$('#securityUserCompany').value;if(!target)throw new Error('Selecciona la empresa del usuario.');if(!state.erpSession.superAdmin&&String(target)!==String(state.erpSession.company.id))throw new Error('Solo puedes crear usuarios de tu empresa.');await apiRequest(`/api/v1/companies/${target}/security/users${edit?`/${state.securityEditingUserId}`:''}`,{method:edit?'PUT':'POST',body:JSON.stringify(payload)});const companyName=$('#securityUserCompany').selectedOptions[0].textContent;closeErpDialog(elements.securityUserDialog);await refreshSecurity();elements.securityNotice.textContent=`Usuario guardado en ${companyName}. Su empresa no se escoge al iniciar sesión.`;elements.securityNotice.hidden=false;}catch(error){elements.securityUserError.textContent=error.message;elements.securityUserError.hidden=false;}finally{submit.disabled=false;}
 }
 async function saveSecurityRole(event){event.preventDefault();elements.securityRoleError.hidden=true;const data=new FormData(elements.securityRoleForm);const permissionIds=[...elements.securityRolePermissions.querySelectorAll('input:checked')].map(x=>Number(x.value));const payload={codigo:String(data.get('codigo')||'').trim(),nombre:String(data.get('nombre')||'').trim(),permisoIds:permissionIds};try{const edit=Boolean(state.securityEditingRoleId);await apiRequest(`${securityBase()}/roles${edit?`/${state.securityEditingRoleId}`:''}`,{method:edit?'PUT':'POST',body:JSON.stringify(payload)});closeErpDialog(elements.securityRoleDialog);await refreshSecurity();}catch(error){elements.securityRoleError.textContent=error.message;elements.securityRoleError.hidden=false;}}
 function openSecurityPassword(user){state.securityPasswordUserId=user.usuarioId;elements.securityPasswordForm.reset();elements.securityPasswordError.hidden=true;$('#securityPasswordDialogTitle').textContent=`Contraseña de ${user.nombreCompleto}`;openErpDialog(elements.securityPasswordDialog);}
@@ -2135,6 +2164,7 @@ async function createCompanyAsSuperAdmin(event) {
 }
 
 async function openCompanyManager() {
+  if(!state.erpSession?.superAdmin&&!state.pendingSuperAdmin)return;
   if(state.runtimeMode==='api'&&apiToken()){
     try {const companies=await apiRequest('/api/v1/companies');renderCompanyOptions(companies);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);}
     catch(error){showError(`No fue posible cargar las empresas. ${error.message}`);return;}
@@ -2160,7 +2190,12 @@ async function beginLogin(event) {
     sessionStorage.setItem(uiStorage.apiToken,login.token); state.pendingName=login.nombreCompleto;state.pendingSuperAdmin=Boolean(login.esSuperAdministrador);
     const companies=await apiRequest('/api/v1/companies');
     if(!companies.length&&!state.pendingSuperAdmin) throw new Error('El usuario no tiene empresas activas asignadas.');
-    renderCompanyOptions(companies);configureSuperAdminCompanyPanel(state.pendingSuperAdmin,companies.length>0);openErpDialog(elements.companyDialog);
+    renderCompanyOptions(companies);configureSuperAdminCompanyPanel(state.pendingSuperAdmin,companies.length>0);
+    if(state.pendingSuperAdmin)openErpDialog(elements.companyDialog);
+    else {
+      if(companies.length!==1||String(companies[0].empresaId)!==String(login.empresaId))throw new Error('Tu usuario debe tener una única empresa asignada. Contacta al superadministrador.');
+      selectCompany($('#companyOptions').firstElementChild);
+    }
   } catch(error) { sessionStorage.removeItem(uiStorage.apiToken); elements.loginError.textContent=`No fue posible ingresar a la API. ${error.message}`; elements.loginError.hidden=false; }
   finally { submit.disabled=false; submit.firstChild.textContent='Continuar '; }
 }

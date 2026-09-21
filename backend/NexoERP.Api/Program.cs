@@ -38,7 +38,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddZeus();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.21.1";
+const string ReleaseVersion="2026.09.21.2";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -128,8 +128,21 @@ app.MapPost("/api/v1/auth/login", async (LoginRequest input,HttpContext context,
 {
     if(string.IsNullOrWhiteSpace(input.Correo) || string.IsNullOrEmpty(input.Password))
         return Results.ValidationProblem(new Dictionary<string,string[]> { ["credenciales"]=["Correo y contraseña son obligatorios."] });
-    var result=await auth.LoginAsync(input,context.Connection.RemoteIpAddress?.ToString(),cancellationToken);
-    return result is null?Results.Unauthorized():Results.Ok(result);
+    try
+    {
+        var result=await auth.LoginAsync(input,context.Connection.RemoteIpAddress?.ToString(),cancellationToken);
+        return result is null?Results.Unauthorized():Results.Ok(result);
+    }
+    catch(InvalidOperationException error){return Results.Conflict(new {error=error.Message});}
+});
+
+app.MapGet("/api/v1/auth/me",async(HttpContext context,AuthRepository auth,CancellationToken ct)=>
+{
+    var userId=Convert.ToInt64(context.Items["UsuarioId"]);
+    var superAdmin=context.Items["EsSuperAdministrador"] is true;
+    var companies=await auth.GetCompaniesAsync(userId,ct);
+    if(!superAdmin&&companies.Count!=1) return Results.Json(new {error="Tu usuario no tiene una única empresa activa asignada. Contacta al superadministrador."},statusCode:403);
+    return Results.Ok(new {usuarioId=userId,esSuperAdministrador=superAdmin,empresaId=superAdmin?(long?)null:companies[0].EmpresaId});
 });
 
 app.MapGet("/api/v1/companies", async (HttpContext context,AuthRepository auth,CancellationToken cancellationToken) =>

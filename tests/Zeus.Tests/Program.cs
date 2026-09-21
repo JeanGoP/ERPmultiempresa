@@ -111,6 +111,9 @@ if(args.Contains("--sql"))
             CREATE TABLE core.SchemaMigration(MigrationId varchar(50) PRIMARY KEY,Descripcion nvarchar(250));
             CREATE TABLE core.Empresa(EmpresaId bigint PRIMARY KEY);INSERT core.Empresa VALUES(1),(2);
             CREATE TABLE seg.Usuario(UsuarioId bigint PRIMARY KEY);INSERT seg.Usuario VALUES(1);
+            EXEC('CREATE SCHEMA ter');
+            CREATE TABLE ter.Tercero(EmpresaId bigint,TerceroId bigint,RazonSocial nvarchar(200));
+            INSERT ter.Tercero VALUES(1,10,N'Proveedor de prueba');
             CREATE TABLE core.Probe(EmpresaId bigint);
             CREATE TABLE inv.RecepcionMercancia(RecepcionMercanciaId bigint PRIMARY KEY,EmpresaId bigint,Estado varchar(15),TerceroId bigint,DocumentoProveedorId bigint,FechaContable date,UNIQUE(EmpresaId,RecepcionMercanciaId));
             CREATE TABLE comp.DocumentoProveedor(DocumentoProveedorId bigint,EmpresaId bigint,NumeroDocumento varchar(50),FechaDocumento date,FechaVencimiento date,TotalPagar decimal(20,4),ImpuestoTotal decimal(20,4),Moneda char(3),CargoTotal decimal(20,4),Estado varchar(15));
@@ -156,6 +159,12 @@ if(args.Contains("--sql"))
         Check(preview is not null,"Vista previa usa consultas reales del repositorio");
         var approve=new ZeusApproveRequest(input.Impuestos,input.Retenciones,ZeusRepository.Fingerprint(journal));
         var jobId=await repository.ApproveAsync(1,20,1,approve,default);
+        var jobs=(List<Dictionary<string,object?>>)await repository.ListAsync(1,"",0,default);
+        Check(jobs.Count==1 && (string)jobs[0]["Factura"]! == "F&123","Listado sin filtro incluye factura y proveedor");
+        Check(((List<Dictionary<string,object?>>)await repository.ListAsync(2,null,0,default)).Count==0,"Listado no cruza empresas");
+        var receipts=(List<Dictionary<string,object?>>)await repository.ReceiptsAsync(1,"Proveedor",default);
+        Check(receipts.Count==1 && (decimal)receipts[0]["Retenciones"]! == 2.5m,"Buscador obtiene retenciones persistidas");
+        Check(((List<Dictionary<string,object?>>)await repository.ReceiptsAsync(2,"",default)).Count==0,"Buscador no cruza empresas");
         Check(jobId==await repository.ApproveAsync(1,20,1,approve,default),"Aprobación repetida devuelve mismo envío");
         try { await repository.ApproveAsync(2,20,1,approve,default);throw new Exception("Aprobó otra empresa"); }
         catch(ArgumentException) { Check(true,"No aprueba entrada de otra empresa"); }
@@ -189,6 +198,7 @@ if(args.Contains("--sql"))
         Check(await repository.ClaimAsync(default) is null,"Un envío abandonado no vuelve a la cola");
         q.CommandText="SELECT Estado FROM core.ZeusEnvio WHERE ZeusEnvioId="+jobId;
         Check((string)(await q.ExecuteScalarAsync())! == "INCIERTO","Envío abandonado exige conciliación");
+        await CompanySecurityTests.Run(cs,dir!.FullName,Check);
     }
     finally
     {

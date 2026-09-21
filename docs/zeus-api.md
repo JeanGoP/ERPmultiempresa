@@ -108,7 +108,11 @@ No se etiqueta todo impuesto como IVA ni se infiere automáticamente una retenci
 
 ## Límites de esta entrega
 
-No incluye pantalla de configuración ni integración de botones en el frontend.
+La pantalla **Configuración → Integraciones → Integración Zeus** incluye configuración por empresa,
+seguimiento filtrable y preparación de entradas contabilizadas. La vista previa
+requiere revisar el desglose de impuestos y retenciones guardados; aprobar crea
+una tarea, no una confirmación de Zeus. Los envíos inciertos solo permiten conciliar.
+La pantalla muestra si el despachador del servidor está apagado; no lo activa.
 Incluye cuentas configurables para CxC, anticipos, fletes, gastos, descuentos y
 redondeos, pero **no genera todavía esos tipos de comprobante**. La primera ruta
 genera inventario, IVA/otros impuestos explícitos, retenciones y proveedor.
@@ -130,3 +134,23 @@ de retorno; la verificación y transacción externa reducen ese riesgo sin alter
 de reglas/XML y del transporte contra un contrato simulado en una base desechable
 en `(localdb)\MSSQLLocalDB`. Esa base se elimina al terminar. Nunca usa el `.env`
 ni contabiliza en Zeus remoto. No sustituye la prueba de aceptación con Zeus real.
+
+## Usuarios y empresa asignada
+
+El superadministrador elige la empresa al ingresar y puede cambiar entre empresas.
+En **Usuarios y permisos → Nuevo usuario** elige la empresa del nuevo usuario.
+Un administrador de empresa solo puede crear usuarios dentro de su propia empresa.
+Los demás usuarios ingresan directamente a su única empresa activa; la API valida
+esta condición también en sesiones restauradas y peticiones posteriores.
+
+La migración `050_single_company_users` impide nuevas asignaciones activas a varias
+empresas para usuarios normales, sin borrar accesos históricos. Un usuario anterior
+con varias empresas no podrá ingresar hasta que el superadministrador desactive los
+accesos sobrantes. No se selecciona una empresa arbitrariamente. Se pueden mantener
+varios roles dentro de la misma empresa. Las cuentas de superadministrador no se
+vinculan mediante el formulario de usuarios de empresa ni se administran por sus
+administradores locales.
+
+`database/scripts/single-company-migration.ps1 -Apply` comprueba prerrequisitos,
+aplica únicamente la migración 050 pendiente usando `.env` y verifica su trigger en
+la base remota. No ejecuta cambios en Zeus.

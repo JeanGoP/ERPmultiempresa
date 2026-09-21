@@ -31,6 +31,14 @@ public static class ZeusModule
             await repo.SaveSettingsAsync(empresaId,Convert.ToInt64(http.Items["UsuarioId"]),input,ct);return Results.NoContent();
         }).RequireErpPermission(admin);
         group.MapGet("/concepts",()=>Results.Ok(ZeusJournal.Concepts)).RequireErpPermission(admin);
+        group.MapGet("/status",async(long empresaId,HttpContext http,AuthRepository auth,ZeusRepository repo,IConfiguration config,CancellationToken ct)=>
+        {
+            var user=Convert.ToInt64(http.Items["UsuarioId"]);
+            if(!await auth.HasPermissionAsync(user,empresaId,admin,ct)&&!await auth.HasPermissionAsync(user,empresaId,posting,ct))return Results.StatusCode(403);
+            var settings=await repo.SettingsAsync(empresaId,ct);
+            return Results.Ok(new {configurado=settings is not null,habilitado=settings?.Configuracion.Habilitado??false,despachadorActivo=config.GetValue<bool>("Zeus:Enabled")});
+        });
+        group.MapGet("/receipts",async(long empresaId,string? q,ZeusRepository repo,CancellationToken ct)=>Results.Ok(await repo.ReceiptsAsync(empresaId,q,ct))).RequireErpPermission(posting);
         group.MapPost("/connection/check",async(long empresaId,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
         {
             var settings=await repo.SettingsAsync(empresaId,ct) ?? throw new ArgumentException("Configura primero la empresa.");
