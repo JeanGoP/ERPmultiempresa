@@ -5,14 +5,16 @@ using Microsoft.Data.SqlClient;
 namespace NexoERP.Api.Zeus;
 
 public sealed record ZeusResult(string Estado,string? Fuente=null,string? Documento=null,string? Error=null);
-public sealed class ZeusTransport(IConfiguration configuration)
+public sealed partial class ZeusTransport(IConfiguration configuration)
 {
     private async Task<SqlConnection> OpenAsync(long company,ZeusSettings settings,CancellationToken ct)
     {
         // La clave depende de EmpresaId, no de un alias suministrado por el navegador.
         var secret=configuration[$"Zeus:Companies:{company}:ConnectionString"];
         if(string.IsNullOrWhiteSpace(secret)) throw new ArgumentException("Falta la conexión privada de Zeus para esta empresa.");
-        var builder=new SqlConnectionStringBuilder(secret);
+        SqlConnectionStringBuilder builder;
+        try {builder=new SqlConnectionStringBuilder(secret);}
+        catch(ArgumentException){throw new ArgumentException("La conexión privada de Zeus tiene un formato inválido. Revisar con soporte.");}
         if(!string.Equals(builder.DataSource,settings.ServidorEsperado,StringComparison.OrdinalIgnoreCase)
            || !string.Equals(builder.InitialCatalog,settings.BaseEsperada,StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("La conexión privada no coincide con el destino configurado para esta empresa.");

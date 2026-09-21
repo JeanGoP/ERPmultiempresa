@@ -214,6 +214,7 @@ if(args.Contains("--sql"))
         q.CommandText="SELECT Estado FROM core.ZeusEnvio WHERE ZeusEnvioId="+jobId;
         Check((string)(await q.ExecuteScalarAsync())! == "INCIERTO","Envío abandonado exige conciliación");
         await CompanySecurityTests.Run(cs,dir!.FullName,Check);
+        await SupplierSendTests.Run(cs,Check);
     }
     finally
     {

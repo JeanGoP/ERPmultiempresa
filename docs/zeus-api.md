@@ -154,3 +154,35 @@ administradores locales.
 `database/scripts/single-company-migration.ps1 -Apply` comprueba prerrequisitos,
 aplica únicamente la migración 050 pendiente usando `.env` y verifica su trigger en
 la base remota. No ejecuta cambios en Zeus.
+# Envío manual de proveedores
+
+En **Datos maestros → Proveedores → Enviar a Zeus**, un administrador consulta primero
+el destino y la existencia del proveedor. Esta operación usa la conexión privada del
+backend remoto para la empresa activa; no requiere copiarla al navegador ni al equipo local.
+
+- `GET /api/v1/companies/{empresaId}/zeus/suppliers/{supplierId}/preview`: consulta
+  existencia y códigos de zona, segmento y categoría fiscal; no escribe en Zeus.
+- `POST /api/v1/companies/{empresaId}/zeus/suppliers/{supplierId}/send`: recibe
+  `zona`, `segmento`, `categoriaFiscal`, `nombre1`, `apellido1` (para persona natural)
+  y la `huella` de la consulta. Requiere `SEGURIDAD.PERMISOS.ADMINISTRAR`.
+
+Solo crea lo que falta, mediante `dbo.spMae_Terceros` y `dbo.spMae_Proveedores`
+con operación `I` y control transaccional `N` dentro de una transacción propia.
+Necesita permisos de ejecución de esos procedimientos y consulta de sus maestros.
+El tercero y el proveedor usan la identificación ERP, sin DV, máximo 10 caracteres.
+No sobrescribe ni reactiva existentes y rechaza códigos incompatibles. Si falla la
+creación del proveedor, revierte el tercero creado en ese intento. Repetir consulta
+antes de reintentar un resultado incierto; nunca asumir éxito por un SELECT intermedio.
+
+La cuenta se toma de la regla PROVEEDOR de la empresa, con prioridad del proveedor
+específico. La división política se toma del ERP. Zona, segmento y categoría fiscal
+se eligen explícitamente, sin adivinar clasificaciones tributarias. Los datos demasiado
+largos para Zeus se rechazan, no se recortan. Actualmente el alta admite los proveedores
+colombianos cuya división política está calculada; otros países requieren parametrización.
+Quedan auditados la solicitud y el resultado en el ERP. No envía facturas, no activa
+el despachador contable y no cambia las homologaciones contables anteriores.
+
+Tras desplegar el backend de `publish/`, probar con un solo proveedor en la base de
+pruebas configurada. Las pruebas automáticas usan exclusivamente una base desechable
+LocalDB, con procedimientos simulados; no demuestran permisos o compatibilidad de la
+instalación remota real.

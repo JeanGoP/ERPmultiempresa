@@ -1,5 +1,8 @@
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Security;
+using NexoERP.Api.MasterData;
+using NexoERP.Api.Data;
+using System.Text.Json;
 
 namespace NexoERP.Api.Zeus;
 
@@ -21,6 +24,39 @@ public static class ZeusModule
             catch(ArgumentException e) { return Results.BadRequest(new {error=e.Message}); }
             catch(InvalidOperationException) { return Results.Conflict(new {error="Zeus no confirmó los datos esperados; requiere revisión."}); }
         });
+        group.MapGet("/suppliers/{supplierId:long}/preview",async(long empresaId,long supplierId,ZeusRepository repo,MasterDataRepository masters,ZeusTransport transport,CancellationToken ct)=>
+        {
+            var supplier=(await masters.GetSuppliersAsync(empresaId,ct)).SingleOrDefault(s=>s.TerceroId==supplierId)
+                ?? throw new ArgumentException("El proveedor no existe en esta empresa.");
+            var settings=await repo.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura el destino y las cuentas de Zeus de esta empresa.");
+            try{return Results.Ok(await transport.SupplierPreviewAsync(empresaId,settings.Configuracion,supplier,ct));}
+            catch(SqlException){return Results.Json(new{error="No fue posible consultar los maestros de Zeus. Revisa la conexión privada y los permisos del usuario SQL."},statusCode:502);}
+        }).RequireErpPermission(admin);
+        group.MapPost("/suppliers/{supplierId:long}/send",async(long empresaId,long supplierId,ZeusSupplierSendRequest input,HttpContext http,ZeusRepository repo,MasterDataRepository masters,ZeusTransport transport,TenantConnectionFactory connections,CancellationToken ct)=>
+        {
+            var supplier=(await masters.GetSuppliersAsync(empresaId,ct)).SingleOrDefault(s=>s.TerceroId==supplierId)
+                ?? throw new ArgumentException("El proveedor no existe en esta empresa.");
+            var settings=await repo.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura el destino y las cuentas de Zeus de esta empresa.");
+            if(input.Huella!=ZeusTransport.SupplierFingerprint(settings.Configuracion,supplier))throw new ArgumentException("El proveedor o la configuración de Zeus cambió. Cierra y consulta de nuevo antes de enviar.");
+            var attempt=Guid.NewGuid();
+            async Task Audit(string operation,object details,CancellationToken token){
+                await using var c=await connections.OpenAsync(empresaId,false,token);
+                await using var q=ZeusRepository.Command(c,"INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@E,@U,@Op,'ter.Tercero',@Id,@J,'ZEUS')",empresaId);
+                ZeusRepository.Add(q,"@U",Convert.ToInt64(http.Items["UsuarioId"]));ZeusRepository.Add(q,"@Op",operation);ZeusRepository.Add(q,"@Id",supplierId.ToString());ZeusRepository.Add(q,"@J",JsonSerializer.Serialize(new{intento=attempt,datos=details}));
+                await q.ExecuteNonQueryAsync(token);
+            }
+            await Audit("ZEUS_PROVEEDOR_SOLICITAR",new{proveedor=supplier.NumeroIdentificacion,destino=settings.Configuracion.BaseEsperada,parametros=input},ct);
+            ZeusSupplierSendResult result;
+            try{result=await transport.SendSupplierAsync(empresaId,settings.Configuracion,supplier,input,ct);}
+            catch(SqlException){result=new("RECHAZADO",supplier.NumeroIdentificacion,"No se pudo abrir la conexión de Zeus. Revisa la conexión privada y los permisos.");}
+            catch(ArgumentException e){result=new("RECHAZADO",supplier.NumeroIdentificacion,e.Message);}
+            using var auditTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            try{await Audit("ZEUS_PROVEEDOR_RESULTADO",result,auditTimeout.Token);}
+            catch(Exception e) when(e is SqlException or OperationCanceledException){
+                result=result with{Mensaje=result.Mensaje+" No fue posible registrar la auditoría final en el ERP; conserva este resultado y consulta el proveedor antes de repetir."};
+            }
+            return Results.Ok(result);
+        }).RequireErpPermission(admin);
         group.MapGet("/configuration",async(long empresaId,ZeusRepository repo,CancellationToken ct)=>
         {
             var result=await repo.SettingsAsync(empresaId,ct);

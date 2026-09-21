@@ -1,4 +1,33 @@
 /* Integración por empresa. Ninguna configuración ni comprobante se guarda en localStorage. */
+function zeusSupplierSendButton(supplier){
+  const button=document.createElement('button');button.type='button';button.className='button secondary';button.textContent='Enviar a Zeus';button.disabled=supplier.active===false;
+  button.addEventListener('click',async()=>{
+    button.disabled=true;const company=String(state.erpSession?.company?.id);const base=`/api/v1/companies/${company}/zeus/suppliers/${supplier.id}`;
+    let dialog;
+    try{
+      const preview=await apiRequest(`${base}/preview`);
+      if(company!==String(state.erpSession?.company?.id))return;
+      dialog=document.createElement('dialog');dialog.className='zeus-supplier-dialog';
+      const options=values=>'<option value="">Seleccionar código…</option>'+values.map(code=>`<option value="${zeusEscape(code)}">${zeusEscape(code)}</option>`).join('');
+      dialog.innerHTML=`<form><h2>Enviar proveedor a Zeus</h2><p><strong>${zeusEscape(preview.nombre)}</strong> · ${zeusEscape(preview.codigo)}</p><p>Destino: <strong>${zeusEscape(preview.baseDatos)}</strong><br>División política: ${zeusEscape(preview.divisionPolitica||'Pendiente: corregir país y ciudad en el ERP')}</p><p>${preview.proveedorExiste?'El tercero y el proveedor ya existen. No se modificarán sus datos.':preview.terceroExiste?'El tercero ya existe. Solo se creará el proveedor.':'Se crearán el tercero y el proveedor con la misma identificación.'}</p>${preview.proveedorExiste?'':`<div class="zeus-grid"><label>Zona en Zeus<select name="zona" required>${options(preview.zonas)}</select></label><label>Segmento en Zeus<select name="segmento" required>${options(preview.segmentos)}</select></label>${preview.terceroExiste?'':`<label>Categoría fiscal en Zeus<select name="categoriaFiscal" required>${options(preview.categoriasFiscales)}</select></label>`}</div>${!preview.terceroExiste&&preview.tipoPersona==='N'?'<p>Confirma los nombres y apellidos de la persona natural para Zeus.</p><div class="zeus-grid"><label>Nombres<input name="nombre1" maxlength="60" required></label><label>Apellidos<input name="apellido1" maxlength="60" required></label></div>':''}${!preview.terceroExiste&&!preview.tipoPersona?'<p>Falta confirmar el tipo de persona. Cierra y usa Editar proveedor.</p>':''}<p>La cuenta por pagar se toma de la configuración contable de esta empresa. Selecciona la categoría fiscal correcta; no se deduce del NIT.</p>`}<p>No se contabilizarán facturas ni se modificarán proveedores existentes.</p><p role="status" class="zeus-notice" hidden></p><div class="zeus-form-end"><button type="button" data-close class="button secondary">Cerrar</button>${preview.proveedorExiste?'':`<button type="submit" class="button primary" ${!preview.terceroExiste&&!preview.tipoPersona?'disabled':''}>Confirmar envío a Zeus</button>`}</div></form>`;
+      document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove());dialog.querySelector('[data-close]').addEventListener('click',()=>dialog.close());
+      dialog.querySelector('form').addEventListener('submit',async event=>{
+        event.preventDefault();if(company!==String(state.erpSession?.company?.id)){dialog.close();return;}
+        const submit=dialog.querySelector('[type="submit"]');if(submit.disabled)return;submit.disabled=true;
+        const notice=dialog.querySelector('[role="status"]');notice.hidden=false;notice.textContent='Enviando y verificando en Zeus…';
+        const payload={...Object.fromEntries(new FormData(event.currentTarget)),huella:preview.huella};
+        try{
+          const result=await apiRequest(`${base}/send`,{method:'POST',body:JSON.stringify(payload)});
+          if(company!==String(state.erpSession?.company?.id)){dialog.close();return;}
+          notice.textContent=`${result.estado} · ${result.mensaje}`;notice.classList.toggle('error',!['CREADO','EXISTENTE'].includes(result.estado));
+          if(result.estado==='RECHAZADO')submit.disabled=false;
+        }catch(error){notice.textContent=`${error.message} Cierra y consulta de nuevo antes de repetir; el servidor pudo haber recibido la solicitud.`;notice.classList.add('error');}
+      });
+      dialog.showModal();
+    }catch(error){if(company===String(state.erpSession?.company?.id))showMasterNotice(error.message,true);if(dialog)dialog.remove();}
+    finally{button.disabled=supplier.active===false;}
+  });return button;
+}
 const zeusConcepts={INVENTARIO:'Inventario',PROVEEDOR:'Cuenta por pagar · proveedor',IVA:'IVA',OTRO_IMPUESTO:'Otro impuesto',RETEFUENTE:'Retención en la fuente',RETEIVA:'Retención de IVA',RETEICA:'Retención de ICA',CUENTA_POR_COBRAR:'Cuenta por cobrar (futuro)',GASTO:'Gasto (futuro)',FLETE:'Flete (futuro)',ANTICIPO:'Anticipo (futuro)',DESCUENTO:'Descuento (futuro)',REDONDEO:'Redondeo (futuro)'};
 const zeusStates={SIN_PREPARAR:'Sin preparar',REQUIERE_REVISION:'Por revisar',PENDIENTE:'En cola',ENVIANDO:'Enviando',CONTABILIZADO:'Contabilizado',RECHAZADO:'Rechazado',INCIERTO:'Por conciliar'};
 const zeusUI={epoch:0,company:null,tab:'jobs',version:0,settings:null,jobs:[],receipts:[],offset:0,receipt:null,preview:null,dirty:false,busy:false,status:null};
