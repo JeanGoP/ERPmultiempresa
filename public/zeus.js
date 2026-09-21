@@ -82,6 +82,7 @@ async function zeusLoadTab(scope){
     let saved;try{saved=await apiRequest(`${scope.base}/configuration`);}catch(error){if(error.status!==404)throw error;}
     if(!zeusCurrent(scope))return;
     zeusUI.version=saved?.version||0;zeusUI.settings=saved?.configuracion||{habilitado:false,servidorEsperado:'',baseEsperada:'',fuente:'',serie:'',unidadNegocio:'',usuarioZeus:'',tipoFactura:'',cuentas:[],proveedores:[]};zeusUI.dirty=false;zeusRenderSettings();
+    await zeusAutoLoadSupplierChart(scope);
   }else if(zeusUI.tab==='prepare'){
     zeusUI.preview=null;zeusUI.receipt=null;
     $('#zeusContent').innerHTML='<div class="zeus-card"><h2>Entradas contabilizadas en el ERP</h2><p>Primero selecciona una factura. La fecha contable se toma de la entrada.</p><form id="zeusSearchForm" class="zeus-toolbar"><label>Factura o proveedor<input name="q" maxlength="100" placeholder="Buscar por número o nombre"></label><button type="submit" class="button secondary">Buscar</button></form><div id="zeusReceipts" class="zeus-scroll"></div></div><div id="zeusPreparation"></div>';
@@ -149,7 +150,6 @@ zeusPanel.addEventListener('click',event=>{
   void zeusRun(async scope=>{
     if(button.dataset.zeusTab){zeusUI.dirty=false;zeusUI.tab=button.dataset.zeusTab;await zeusLoadTab(scope);}
     else if(action==='refresh'){zeusUI.dirty=false;await zeusLoadStatus(scope);if(zeusCurrent(scope))await zeusLoadTab(scope);}
-    else if(action==='supplier-chart'){await zeusLoadSupplierChart(scope);}
     else if(action==='check'){if(zeusUI.dirty)throw new Error('Guarda los cambios antes de comprobar la conexión.');const result=await apiRequest(`${scope.base}/connection/check`,{method:'POST'});if(zeusCurrent(scope))zeusNotice(result.contratoDisponible?`Conexión correcta a ${result.baseDatos}. Esto no es una prueba de contabilización.`:'Conecta con SQL, pero faltan objetos del contrato Zeus.',!result.contratoDisponible);}
     else if(action==='previous'||action==='next'){zeusUI.offset=Math.max(0,zeusUI.offset+(action==='next'?100:-100));await zeusLoadJobs(scope);}
     else if(button.dataset.zeusReconcile){const result=await apiRequest(`${scope.base}/jobs/${button.dataset.zeusReconcile}/reconcile`,{method:'POST'});if(!zeusCurrent(scope))return;await zeusLoadJobs(scope);if(zeusCurrent(scope))zeusNotice(result.estado==='CONTABILIZADO'?'Comprobante encontrado y conciliado. No se realizó otro envío.':result.error||'Requiere revisión en Zeus.',result.estado!=='CONTABILIZADO');}

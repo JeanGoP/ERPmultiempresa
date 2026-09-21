@@ -8,6 +8,7 @@ const ctx=vm.createContext({zeusUI:{version:3,settings},zeusEscape:v=>String(v??
 vm.runInContext(fs.readFileSync('public/zeus-general-accounts.js','utf8'),ctx);
 (async()=>{
  const html=ctx.zeusGeneralSupplierSection(settings);assert.match(html,/Cuentas generales de la empresa/);assert.match(html,/value="2205"/);
+ assert.doesNotMatch(html,/Consultar plan de proveedores|data-zeus="supplier-chart"/,'No requiere botón de consulta');
  const rule=ctx.zeusReadGeneralSupplier(form,settings)[0];assert.equal(rule.cuenta,'220501');assert.equal(rule.centroCosto,'01');assert.equal(rule.proveedorId,null);assert.equal(rule.articuloId,null);
  form.elements.cuentaProveedorGeneral.value='';assert.throws(()=>ctx.zeusReadGeneralSupplier(form,settings));
  form.elements.habilitado.checked=false;assert.equal(ctx.zeusReadGeneralSupplier(form,{cuentas:[]}).length,0,'Permite guardar destino inicial sin habilitar');
@@ -29,5 +30,19 @@ vm.runInContext(fs.readFileSync('public/zeus-general-accounts.js','utf8'),ctx);
  assert.equal(JSON.stringify(payload.proveedores),JSON.stringify(settings.proveedores),'Conserva vínculos almacenados sin controles manuales');
  assert.equal(JSON.stringify(payload.cuentas.filter(r=>r.concepto!=='PROVEEDOR')),JSON.stringify(settings.cuentas.filter(r=>r.concepto!=='PROVEEDOR')),'Conserva otras reglas almacenadas');
  assert.equal(JSON.stringify(settings),before,'No modifica el estado original');
+ current=true;ctx.state.apiContext={};ctx.zeusUI.tab='settings';ctx.zeusNotice=()=>{};
+ ctx.document={querySelectorAll:()=>[]};
+ let chartQueries=0,configured=true,fail=false;
+ ctx.apiRequest=async url=>{
+   if(url.endsWith('/configuration'))return configured?{version:3,configuracion:settings}:null;
+   assert.ok(url.endsWith('/supplier-accounts'));chartQueries++;
+   if(fail)throw new Error('Zeus no disponible');
+   return {version:3,baseDatos:'EMPRESA',cuentas:[{codigo:'2205',nombre:'Proveedores'}]};
+ };
+ vm.runInContext(app.slice(app.indexOf('async function zeusLoadTab('),app.indexOf('async function zeusLoadJobs(')),ctx);
+ await ctx.zeusLoadTab({base:'/company/3'});assert.equal(chartQueries,1,'Abrir configuración carga las cuentas automáticamente');
+ assert.match(parts['#zeusSupplierChart'].innerHTML,/2205/);
+ fail=true;await ctx.zeusLoadTab({base:'/company/3'});assert.match(parts['#zeusSupplierChartStatus'].textContent,/Zeus no disponible/,'El fallo se informa sin impedir editar el destino');
+ configured=false;const queriesBefore=chartQueries;await ctx.zeusLoadTab({base:'/company/3'});assert.equal(chartQueries,queriesBefore,'No consulta un destino aún no guardado');
  console.log('Cuenta general Zeus: selección, dimensiones, borrador, reemplazo explícito, aislamiento y retiro de bloques sin pérdida de datos correctos.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
