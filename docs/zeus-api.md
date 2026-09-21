@@ -217,3 +217,19 @@ pertenencia de la bodega a la entrada y totales. No se distribuye por suposició
 Las otras cinco cuentas se almacenan para futuros procesos de ventas/devoluciones;
 esta entrega no activa esos procesos. Cambiar destino Zeus requiere revisar y
 guardar las cuentas nuevamente. El worker verifica otra vez el comprobante antes de enviar.
+
+## Cuenta general de proveedores
+
+En Integración Zeus → Configuración de empresa → Cuentas generales se selecciona
+una única **Cuenta por pagar a proveedores** para todas las bodegas. Se guarda como
+regla PROVEEDOR sin artículo, proveedor ni tarifa en la configuración existente;
+no requiere migración. Las dimensiones de una regla general previa se conservan.
+Las excepciones históricas por proveedor requieren confirmación explícita para
+ser sustituidas al guardar; no se modifican comprobantes ni maestros de Zeus existentes.
+
+GET `/api/v1/companies/{empresaId}/zeus/supplier-accounts` consulta `SpMae_Maecont`
+con opción A, filtrando detalle D, habilitada 1, indicador de cartera INDCPICTA=3.
+Requiere permiso de administración de configuración, destino guardado y conexión
+privada de esa empresa. PUT de configuración revalida la cuenta en Zeus y rechaza
+cuentas incompatibles o reglas particulares de proveedores. Se permite guardar
+el destino inicial sin cuenta únicamente con aprobaciones desactivadas.

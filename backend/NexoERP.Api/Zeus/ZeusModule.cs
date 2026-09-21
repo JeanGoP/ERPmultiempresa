@@ -80,8 +80,25 @@ public static class ZeusModule
             var result=await repo.SettingsAsync(empresaId,ct);
             return result is null?Results.NotFound():Results.Ok(result);
         }).RequireErpPermission(admin);
-        group.MapPut("/configuration",async(long empresaId,ZeusSettingsRequest input,HttpContext http,ZeusRepository repo,CancellationToken ct)=>
+        group.MapGet("/supplier-accounts",async(long empresaId,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
         {
+            var settings=await repo.SettingsAsync(empresaId,ct)??throw new ArgumentException("Guarda primero el destino de Zeus con las aprobaciones desactivadas.");
+            try{return Results.Ok(new{version=settings.Version,baseDatos=settings.Configuracion.BaseEsperada,cuentas=await transport.ChartAsync(empresaId,settings.Configuracion,ct,true)});}
+            catch(SqlException){return Results.Json(new{error="No fue posible consultar las cuentas de proveedores en Zeus. Revisa la conexión y el permiso EXECUTE sobre dbo.SpMae_Maecont."},statusCode:502);}
+        }).RequireErpPermission(admin);
+        group.MapPut("/configuration",async(long empresaId,ZeusSettingsRequest input,HttpContext http,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
+        {
+            if(input.Configuracion is null)throw new ArgumentException("Falta la configuración de empresa.");
+            var account=ZeusJournal.GeneralSupplierAccount(input.Configuracion);
+            if(account is not null)
+            {
+                try
+                {
+                    var chart=await transport.ChartAsync(empresaId,input.Configuracion,ct,true);
+                    if(!chart.Any(a=>a.Codigo==account.Cuenta))throw new ArgumentException("La cuenta por pagar debe ser de detalle, habilitada y de proveedores en el plan de Zeus de esta empresa.");
+                }
+                catch(SqlException){return Results.Json(new{error="No se pudo validar la cuenta general en Zeus. No se guardaron cambios."},statusCode:502);}
+            }
             await repo.SaveSettingsAsync(empresaId,Convert.ToInt64(http.Items["UsuarioId"]),input,ct);return Results.NoContent();
         }).RequireErpPermission(admin);
         group.MapGet("/concepts",()=>Results.Ok(ZeusJournal.Concepts)).RequireErpPermission(admin);

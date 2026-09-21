@@ -23,6 +23,16 @@ public sealed record ZeusSnapshot(ZeusSettings Configuracion, ZeusSource Origen,
 
 public static class ZeusJournal
 {
+    public static ZeusAccount? GeneralSupplierAccount(ZeusSettings settings)
+    {
+        Validate(settings);
+        var rules=settings.Cuentas.Where(a=>a.Concepto=="PROVEEDOR").ToArray();
+        if(rules.Length>1||rules.Any(a=>a.ArticuloId is not null||a.ProveedorId is not null||a.Tarifa is not null))
+            throw new ArgumentException("La cuenta por pagar a proveedores debe ser una única cuenta general de la empresa, sin artículo, proveedor ni tarifa específicos.");
+        if(settings.Habilitado&&rules.Length==0)
+            throw new ArgumentException("Selecciona la cuenta general por pagar a proveedores antes de habilitar aprobaciones.");
+        return rules.SingleOrDefault();
+    }
     public static readonly string[] Concepts = ["INVENTARIO", "PROVEEDOR", "CUENTA_POR_COBRAR", "IVA",
         "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "DESCUENTO", "REDONDEO"];
     public static void Validate(ZeusSettings s)

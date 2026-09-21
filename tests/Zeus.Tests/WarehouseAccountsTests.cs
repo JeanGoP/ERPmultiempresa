@@ -16,6 +16,15 @@ static class WarehouseAccountsTests
         var destination=settings with{ServidorEsperado=c.DataSource,BaseEsperada=c.Database};
         var chart=await transport.ChartAsync(1,destination,default);
         check(chart.Length==3&&chart.All(a=>a.Nombre==a.Codigo),"Plan usa opción A y filtra grupos, inactivas, cartera y bancos");
+        var supplierChart=await transport.ChartAsync(1,destination,default,true);
+        check(supplierChart.Length==1&&supplierChart[0].Codigo=="2205","Selector general solo devuelve cuentas habilitadas de proveedores");
+        check(ZeusJournal.GeneralSupplierAccount(settings)?.Cuenta=="2205","Cuenta general de empresa identificada sin bodega");
+        foreach(var invalid in new[]{settings with{Cuentas=[new("PROVEEDOR","2205",ProveedorId:10)]},settings with{Cuentas=[]},settings with{Cuentas=[new("PROVEEDOR","2205"),new("PROVEEDOR","2206")]}})
+        {
+            try{ZeusJournal.GeneralSupplierAccount(invalid);throw new Exception("Aceptó cuenta general inválida");}
+            catch(ArgumentException){check(true,"Rechaza proveedor específico, ausencia habilitada o duplicados generales");}
+        }
+        check(ZeusJournal.GeneralSupplierAccount(settings with{Habilitado=false,Cuentas=[]}) is null,"Permite configurar destino inicial sin habilitar envíos");
         try{await transport.ChartAsync(2,destination,default);throw new Exception("Compartió conexión");}catch(ArgumentException){check(true,"Plan no reutiliza conexión de otra empresa");}
         var accounts=new ZeusWarehouseAccounts("1435","2408","2408","2408","1435","1435","1435");accounts.Validate(chart);
         try{(accounts with{Ingreso="999"}).Validate(chart);throw new Exception("Aceptó cuenta inexistente");}catch(ArgumentException){check(true,"Valida las siete cuentas contra plan Zeus");}

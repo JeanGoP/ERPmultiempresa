@@ -22,7 +22,7 @@ public sealed record ZeusWarehouseConfig(int Version,string Servidor,string Base
 
 public sealed partial class ZeusTransport
 {
-    public async Task<ZeusChartAccount[]> ChartAsync(long company,ZeusSettings settings,CancellationToken ct)
+    public async Task<ZeusChartAccount[]> ChartAsync(long company,ZeusSettings settings,CancellationToken ct,bool suppliers=false)
     {
         await using var c=await OpenAsync(company,settings,ct);
         await using var q=c.CreateCommand();q.CommandType=CommandType.StoredProcedure;
@@ -42,7 +42,8 @@ public sealed partial class ZeusTransport
                 while(await r.ReadAsync(ct))
                 {
                     if(r["HABILITARCTA"] is DBNull||Convert.ToInt32(r["HABILITARCTA"])!=1||Convert.ToString(r["TIPOCTA"])?.Trim()!="D")continue;
-                    if(r["INDCPICTA"] is not DBNull&&new[]{2,3,6}.Contains(Convert.ToInt32(r["INDCPICTA"])))continue;
+                    var indicator=r["INDCPICTA"] is DBNull?0:Convert.ToInt32(r["INDCPICTA"]);
+                    if(suppliers?indicator!=3:new[]{2,3,6}.Contains(indicator))continue;
                     accounts.Add(new(Convert.ToString(r["CODICTA"])!.Trim(),Convert.ToString(r["DESCCTA"])!.Trim()));
                 }
             }while(await r.NextResultAsync(ct));
