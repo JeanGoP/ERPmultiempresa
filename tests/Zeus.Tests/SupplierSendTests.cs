@@ -39,6 +39,8 @@ static class SupplierSendTests
                 INSERT dbo.PROVEEDORES VALUES(@IDPROVE,@IDTERCERO,@RAZONCIAL,@Deshabilitado);
                 IF EXISTS(SELECT 1 FROM dbo.SupplierTestMode WHERE Mode='RETURNFAIL') RETURN 1;
                 IF EXISTS(SELECT 1 FROM dbo.SupplierTestMode WHERE Mode='LATEERROR') BEGIN SELECT 'SUCCESS'; THROW 51000,'Error despues del SELECT',1; END;
+                IF EXISTS(SELECT 1 FROM dbo.SupplierTestMode WHERE Mode='SQLERROR') EXEC('SELECT CONVERT(int,''dato-invalido'')');
+                IF EXISTS(SELECT 1 FROM dbo.SupplierTestMode WHERE Mode='SECRET') THROW 51001,'Validacion fallida password=secreto-prueba; revisar parametro',1;
                 RETURN 0;
             END
             """;await q.ExecuteNonQueryAsync();
@@ -57,9 +59,16 @@ static class SupplierSendTests
         q.CommandText="DELETE dbo.MAEZONAS";await q.ExecuteNonQueryAsync();
         check((await transport.SendSupplierAsync(1,settings,supplier,input,default)).Estado=="RECHAZADO","Zona GN inexistente bloqueada antes de crear");
         q.CommandText="INSERT dbo.MAEZONAS VALUES('GN')";await q.ExecuteNonQueryAsync();
-        foreach(var mode in new[]{"RETURNFAIL","NOINSERT","LATEERROR"}){
+        check(!ZeusTransport.SafeSupplierDiagnostic("Error: clave-real; pwd=otra-clave; revisar","Server=sql;Password=clave-real").Contains("clave-real"),"Diagnóstico oculta contraseña de conexión");
+        check(!ZeusTransport.SafeSupplierDiagnostic("Password=\"secreto;complejo\"; revisar").Contains("complejo"),"Diagnóstico oculta contraseñas entre comillas");
+        foreach(var mode in new[]{"RETURNFAIL","NOINSERT","LATEERROR","SQLERROR","SECRET"}){
             q.CommandText="UPDATE dbo.SupplierTestMode SET Mode=@M";q.Parameters.AddWithValue("@M",mode);await q.ExecuteNonQueryAsync();q.Parameters.Clear();
-            check((await transport.SendSupplierAsync(1,settings,supplier,input,default)).Estado=="RECHAZADO","Rechazo de proveedor: "+mode);
+            var rejected=await transport.SendSupplierAsync(1,settings,supplier,input,default);
+            check(rejected.Estado=="RECHAZADO","Rechazo de proveedor: "+mode);
+            if(mode=="RETURNFAIL")check(rejected.Mensaje.Contains("Código de retorno: 1"),"Informa código de retorno del procedimiento");
+            if(mode=="SQLERROR")check(rejected.Mensaje.Contains("SQL 245")&&rejected.Mensaje.Contains("dbo.spMae_Proveedores")&&rejected.Mensaje.Contains("línea"),"Informa número SQL, etapa y línea del fallo real");
+            if(mode=="LATEERROR")check(rejected.Mensaje.Contains("SQL 51000")&&rejected.Mensaje.Contains("Error despues del SELECT"),"Conserva causa SQL posterior a un resultado aparente");
+            if(mode=="SECRET")check(!rejected.Mensaje.Contains("secreto-prueba")&&rejected.Mensaje.Contains("[oculto]"),"No expone secretos en el rechazo");
             q.CommandText="SELECT (SELECT COUNT(*) FROM dbo.TERCEROS)+(SELECT COUNT(*) FROM dbo.PROVEEDORES)";
             check(Convert.ToInt32(await q.ExecuteScalarAsync())==0,"Rollback de ambos maestros: "+mode);
         }

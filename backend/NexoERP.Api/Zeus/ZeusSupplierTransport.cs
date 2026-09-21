@@ -10,6 +10,21 @@ public sealed record ZeusSupplierSendResult(string Estado,string Codigo,string M
 
 public sealed partial class ZeusTransport
 {
+    internal static string SafeSupplierDiagnostic(string message,string? connectionString=null)
+    {
+        if(!string.IsNullOrWhiteSpace(connectionString))
+        {
+            try
+            {
+                var secret=new SqlConnectionStringBuilder(connectionString).Password;
+                if(!string.IsNullOrEmpty(secret))message=message.Replace(secret,"[oculto]",StringComparison.Ordinal);
+            }
+            catch(ArgumentException){ /* Nunca incluir la conexión inválida en el diagnóstico. */ }
+        }
+        message=System.Text.RegularExpressions.Regex.Replace(message,
+            "(?i)(password|pwd|contraseña|connectionstring)\\s*[:=]\\s*(\"[^\"]*\"|'[^']*'|[^;\\r\\n]+)","$1=[oculto]");
+        return message.Length>900?message[..900]+"…":message;
+    }
     public const string SupplierZone="GN", SupplierSegment="OTROS", SupplierFiscalCategory="OTROS";
     public static string SupplierFingerprint(ZeusSettings settings,SupplierResponse supplier)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{settings,supplier,zona=SupplierZone,segmento=SupplierSegment,categoriaFiscal=SupplierFiscalCategory}))));
     internal static string IdentificationCode(string type)=>type switch {
@@ -74,7 +89,7 @@ public sealed partial class ZeusTransport
         SupplierCode(s);
         await using var c=await OpenAsync(company,settings,ct);
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
-        bool committing=false;
+        bool committing=false;var stage="bloqueo y consulta del proveedor";
         try {
             await using var q=c.CreateCommand();q.Transaction=tx;q.CommandTimeout=90;
             q.CommandText="SET XACT_ABORT ON; DECLARE @R int; EXEC @R=sys.sp_getapplock @Resource=@Lock,@LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=15000; IF @R<0 THROW 51750,'No fue posible bloquear el proveedor.',1;";
@@ -107,14 +122,16 @@ public sealed partial class ZeusTransport
                 """;
             q.Parameters.AddWithValue("@Division",s.DivisionPoliticaZeus!);q.Parameters.AddWithValue("@Zona",SupplierZone);q.Parameters.AddWithValue("@Segmento",SupplierSegment);
             q.Parameters.AddWithValue("@Cuenta",account!);q.Parameters.AddWithValue("@CrearTercero",!existing.Third);q.Parameters.AddWithValue("@TipoId",identification);q.Parameters.AddWithValue("@Fiscal",SupplierFiscalCategory);
+            stage="validación de maestros (división política, zona, segmento, cuenta y categoría fiscal)";
             await q.ExecuteNonQueryAsync(ct);
             async Task Call(string procedure,Dictionary<string,object?> parameters){
+                stage=procedure;
                 await using var cmd=c.CreateCommand();cmd.Transaction=tx;cmd.CommandTimeout=90;cmd.CommandType=CommandType.StoredProcedure;cmd.CommandText=procedure;
                 foreach(var (name,value) in parameters)cmd.Parameters.AddWithValue(name,value??DBNull.Value);
                 cmd.Parameters.AddWithValue("@Op","I");cmd.Parameters.AddWithValue("@ManejaTransaccionalidad","N");
                 var result=cmd.Parameters.Add("@RETURN_VALUE",SqlDbType.Int);result.Direction=ParameterDirection.ReturnValue;
                 await using(var reader=await cmd.ExecuteReaderAsync(ct))do{while(await reader.ReadAsync(ct)){}}while(await reader.NextResultAsync(ct));
-                if(result.Value is not int code||code!=0)throw new ArgumentException($"{procedure} rechazó la creación. No se confirmó el envío.");
+                if(result.Value is not int code||code!=0)throw new ArgumentException($"{procedure} rechazó la creación. Código de retorno: {result.Value}. No se confirmó el envío.");
             }
             Dictionary<string,object?> Common()=>new(){["@IDTERCERO"]=s.NumeroIdentificacion,["@DIRECCION"]=s.Direccion,["@CIUDAD"]=s.Ciudad,["@TELEFONO"]=s.Telefono??"",["@EMAIL"]=s.Correo??"",["@DIVPOLITICA"]=s.DivisionPoliticaZeus,["@CODIGODANE"]=s.CiudadCodigo,["@SEGMENTO"]=SupplierSegment,["@Usuario"]=settings.UsuarioZeus,["@Tipo"]="N",["@Deshabilitado"]=0};
             if(!existing.Third){
@@ -125,15 +142,26 @@ public sealed partial class ZeusTransport
             var supplier=Common();supplier["@IDPROVE"]=s.NumeroIdentificacion;supplier["@RAZONCIAL"]=s.RazonSocial;supplier["@IDZONA"]=SupplierZone;supplier["@CODICTA"]=account;
             supplier["@WEBSITE"]=s.SitioWeb??"";supplier["@CONTACTO"]=s.ContactoNombre??"";supplier["@DIPLAZO"]=(short)0;supplier["@CUPOCRE"]=0m;
             await Call("dbo.spMae_Proveedores",supplier);
+            stage="verificación de tercero y proveedor creados";
             var verified=await SupplierExists(c,tx,s.NumeroIdentificacion,ct);
             if(!verified.Third||!verified.Supplier)throw new ArgumentException("Zeus no creó los registros esperados; se revierte la operación.");
-            committing=true;await tx.CommitAsync(ct);
+            stage="confirmación de la transacción";committing=true;await tx.CommitAsync(ct);
             return new("CREADO",s.NumeroIdentificacion,"Proveedor confirmado en Zeus. No se contabilizó ninguna factura.");
         } catch(Exception error) when(error is SqlException or ArgumentException or InvalidOperationException or OperationCanceledException){
             var uncertain=committing;
             if(!committing)try{await tx.RollbackAsync(CancellationToken.None);}catch{uncertain=true;}
-            var message=error is ArgumentException?error.Message:error is SqlException sql&&sql.Number is >=51751 and <=51756?sql.Message:error is SqlException business&&business.Number==50000?"Zeus: "+business.Message[..Math.Min(500,business.Message.Length)]:"Zeus rechazó o interrumpió la creación. Revisa permisos, datos y procedimientos con soporte.";
-            return new(uncertain?"INCIERTO":"RECHAZADO",s.NumeroIdentificacion,uncertain?"No se pudo confirmar el resultado. Consulta de nuevo el proveedor en Zeus antes de otro intento.":message);
+            string detail;
+            if(error is SqlException sql)
+            {
+                var errors=sql.Errors.Cast<SqlError>().Where(e=>e.Number!=3621).Take(3);
+                detail=string.Join(" | ",errors.Select(e=>$"SQL {e.Number} · {(!string.IsNullOrWhiteSpace(e.Procedure)?e.Procedure:stage)} · línea {e.LineNumber}: {e.Message}"));
+                if(string.IsNullOrEmpty(detail))detail=$"SQL {sql.Number}: {sql.Message}";
+            }
+            else detail=error is ArgumentException?error.Message:error is OperationCanceledException?"La operación fue cancelada o excedió el tiempo disponible.":"La conexión o la transacción dejó de estar disponible.";
+            var message=SafeSupplierDiagnostic($"Etapa: {stage}. {detail}",configuration[$"Zeus:Companies:{company}:ConnectionString"]);
+            return new(uncertain?"INCIERTO":"RECHAZADO",s.NumeroIdentificacion,uncertain?
+                "No se pudo confirmar el resultado. Consulta de nuevo el proveedor en Zeus antes de otro intento. "+message:
+                message+" Se revirtió la transacción; no se confirmó la creación.");
         }
     }
 }

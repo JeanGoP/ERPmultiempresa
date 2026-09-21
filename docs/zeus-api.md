@@ -233,3 +233,17 @@ Requiere permiso de administración de configuración, destino guardado y conexi
 privada de esa empresa. PUT de configuración revalida la cuenta en Zeus y rechaza
 cuentas incompatibles o reglas particulares de proveedores. Se permite guardar
 el destino inicial sin cuenta únicamente con aprobaciones desactivadas.
+
+## Diagnóstico al crear proveedores
+
+Desde la versión 2026.09.21.7, un rechazo incluye etapa, número SQL,
+procedimiento y línea cuando SQL Server los proporciona. También muestra códigos
+de retorno distintos de cero. Se conservan hasta tres errores SQL, sin el mensaje
+genérico 3621 de fin de instrucción, y se limita el detalle a 900 caracteres.
+La contraseña de la conexión y las asignaciones de contraseñas se ocultan antes
+de responder y de guardar la auditoría existente.
+
+RECHAZADO indica rollback confirmado; INCIERTO conserva la advertencia de consultar
+antes de repetir cuando no se puede confirmar el commit o rollback. El diagnóstico
+no reintenta ni crea proveedores por sí solo. Se debe desplegar el backend y
+consultar primero el proveedor antes de solicitar nuevamente su creación.
