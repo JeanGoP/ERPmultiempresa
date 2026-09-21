@@ -78,6 +78,8 @@ public sealed class ZeusRepository(TenantConnectionFactory connections)
             if(r.GetString(7).Trim()!="COP" || r.GetDecimal(8)!=0)
                 throw new ArgumentException("Esta versión exige COP y facturas sin cargos globales; se requiere distribución contable explícita para otros casos.");
         }
+        q.CommandText="SELECT COUNT(*) FROM core.ZeusBodegaCuenta WITH(HOLDLOCK) WHERE EmpresaId=@E";
+        var byWarehouse=Convert.ToInt32(await q.ExecuteScalarAsync(ct))>0;
         q.CommandText="""
             SELECT l.ArticuloId,l.TotalNeto,l.Retencion,l.Clasificacion,l.Cargo,
               (SELECT COUNT(*) FROM inv.RecepcionMercanciaLinea rl WHERE rl.EmpresaId=l.EmpresaId AND rl.RecepcionMercanciaId=@R AND rl.DocumentoProveedorLineaId=l.DocumentoProveedorLineaId)
@@ -95,6 +97,27 @@ public sealed class ZeusRepository(TenantConnectionFactory connections)
             }
         }
         if(lines.Count==0 || lines.Count>1000) throw new ArgumentException("La entrada debe tener entre 1 y 1000 líneas.");
+        if(byWarehouse)
+        {
+            q.CommandText="""
+                SELECT COALESCE(rl.BodegaId,r.BodegaId),z.Configuracion,z.Servidor,z.BaseDatos
+                FROM comp.DocumentoProveedorLinea l WITH(HOLDLOCK)
+                JOIN inv.RecepcionMercanciaLinea rl WITH(HOLDLOCK) ON rl.EmpresaId=l.EmpresaId AND rl.DocumentoProveedorLineaId=l.DocumentoProveedorLineaId AND rl.RecepcionMercanciaId=@R
+                JOIN inv.RecepcionMercancia r WITH(HOLDLOCK) ON r.EmpresaId=rl.EmpresaId AND r.RecepcionMercanciaId=rl.RecepcionMercanciaId
+                LEFT JOIN core.ZeusBodegaCuenta z WITH(HOLDLOCK) ON z.EmpresaId=rl.EmpresaId AND z.BodegaId=COALESCE(rl.BodegaId,r.BodegaId)
+                WHERE l.EmpresaId=@E AND l.DocumentoProveedorId=@D ORDER BY l.NumeroLinea;
+                """;
+            await using var r=await q.ExecuteReaderAsync(ct);int index=0;
+            while(await r.ReadAsync(ct))
+            {
+                if(r.IsDBNull(1))throw new ArgumentException($"Configura las cuentas de la bodega {r.GetInt64(0)} antes de preparar el comprobante.");
+                if(!string.Equals(r.GetString(2),settings.ServidorEsperado,StringComparison.OrdinalIgnoreCase)||!string.Equals(r.GetString(3),settings.BaseEsperada,StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException("El destino Zeus cambió. Revisa y guarda nuevamente las cuentas de las bodegas.");
+                var accounts=JsonSerializer.Deserialize<ZeusWarehouseAccounts>(r.GetString(1))!;
+                lines[index]=lines[index] with{BodegaId=r.GetInt64(0),CuentaInventario=accounts.Inventario,CuentaIvaCompras=accounts.IvaCompras};index++;
+            }
+            if(index!=lines.Count)throw new ArgumentException("La distribución de bodegas no coincide con la entrada.");
+        }
         return ZeusJournal.Build(settings,new(receipt,supplier,invoice,date,issued,due,total,taxes,withholding,lines.ToArray(),division),input);
     }
     public static string Fingerprint(ZeusSnapshot snapshot)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(SerializeSnapshot(snapshot))));
@@ -209,7 +232,7 @@ public sealed class ZeusRepository(TenantConnectionFactory connections)
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
         var taxes=expected.Movimientos.Where(m=>m.Regla.Concepto is "IVA" or "OTRO_IMPUESTO")
-            .Select(m=>new ZeusTax(m.Regla.Concepto,m.Tarifa,Math.Abs(m.Base),Math.Abs(m.Valor))).ToArray();
+            .Select(m=>new ZeusTax(m.Regla.Concepto,m.Tarifa,Math.Abs(m.Base),Math.Abs(m.Valor),m.BodegaId)).ToArray();
         var withholdings=expected.Movimientos.Where(m=>m.Regla.Concepto is "RETEFUENTE" or "RETEIVA" or "RETEICA")
             .Select(m=>new ZeusTax(m.Regla.Concepto,m.Tarifa,Math.Abs(m.Base),Math.Abs(m.Valor))).ToArray();
         try

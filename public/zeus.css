@@ -4,3 +4,4 @@
 .zeus-supplier-dialog::backdrop { background: rgba(0,0,0,.4); }
 .zeus-supplier-dialog label { display: grid; gap: 8px; }
 .zeus-supplier-dialog select, .zeus-supplier-dialog input { width: 100%; min-width: 0; padding: 10px; }
+.warehouse-account-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 18px; }

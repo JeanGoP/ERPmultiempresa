@@ -10,14 +10,14 @@ public sealed record ZeusSettings(bool Habilitado, string ServidorEsperado, stri
     string Serie, string UnidadNegocio, string UsuarioZeus, string TipoFactura,
     ZeusAccount[] Cuentas, ZeusSupplier[] Proveedores);
 public sealed record ZeusSettingsRequest(int Version, ZeusSettings Configuracion);
-public sealed record ZeusTax(string Concepto, decimal Tarifa, decimal Base, decimal Valor);
+public sealed record ZeusTax(string Concepto, decimal Tarifa, decimal Base, decimal Valor,long? BodegaId=null);
 public sealed record ZeusPreviewRequest(ZeusTax[] Impuestos, ZeusTax[] Retenciones);
 public sealed record ZeusApproveRequest(ZeusTax[] Impuestos, ZeusTax[] Retenciones, string Huella);
-public sealed record ZeusSourceLine(long ArticuloId, decimal Base);
+public sealed record ZeusSourceLine(long ArticuloId, decimal Base,long? BodegaId=null,string? CuentaInventario=null,string? CuentaIvaCompras=null);
 public sealed record ZeusSource(long RecepcionId, long ProveedorId, string Factura, DateTime FechaContable,
     DateTime FechaFactura, DateTime Vencimiento, decimal Total, decimal Impuestos, decimal Retenciones,
     ZeusSourceLine[] Lineas,string? DivisionPoliticaZeus=null);
-public sealed record ZeusMovement(ZeusAccount Regla, decimal Valor, decimal Base = 0, decimal Tarifa = 0);
+public sealed record ZeusMovement(ZeusAccount Regla, decimal Valor, decimal Base = 0, decimal Tarifa = 0,long? BodegaId=null);
 public sealed record ZeusSnapshot(ZeusSettings Configuracion, ZeusSource Origen, ZeusSupplier Proveedor,
     ZeusMovement[] Movimientos);
 
@@ -72,7 +72,7 @@ public static class ZeusJournal
         {
             if(line.Base<=0 || decimal.Round(line.Base,2)!=line.Base)
                 throw new ArgumentException("Esta versión requiere bases positivas con máximo dos decimales; revisa descuentos y redondeos.");
-            lines.Add(new(Resolve("INVENTARIO",line.ArticuloId),line.Base));
+            lines.Add(new(line.CuentaInventario is null?Resolve("INVENTARIO",line.ArticuloId):new ZeusAccount("INVENTARIO",line.CuentaInventario),line.Base,BodegaId:line.BodegaId));
         }
         void Taxes(ZeusTax[] taxes, bool withholding)
         {
@@ -83,10 +83,26 @@ public static class ZeusJournal
                     || decimal.Round(tax.Base,2)!=tax.Base || decimal.Round(tax.Valor,2)!=tax.Valor
                     || Math.Abs(decimal.Round(tax.Base*tax.Tarifa/100,2,MidpointRounding.AwayFromZero)-tax.Valor)>0.01m)
                     throw new ArgumentException("Impuesto inválido: revisa concepto, base, tarifa y valor (máximo dos decimales).");
-                lines.Add(new(Resolve(tax.Concepto,rate:tax.Tarifa),withholding?-tax.Valor:tax.Valor,withholding?-tax.Base:tax.Base,tax.Tarifa));
+                ZeusAccount rule;long? warehouse=null;
+                if(tax.Concepto=="IVA"&&source.Lineas.Any(l=>l.CuentaIvaCompras is not null))
+                {
+                    var candidates=source.Lineas.Where(l=>tax.BodegaId is null||l.BodegaId==tax.BodegaId).ToArray();
+                    if(candidates.Length==0||candidates.Any(l=>l.CuentaIvaCompras is null)||candidates.Select(l=>l.CuentaIvaCompras).Distinct().Count()!=1)
+                        throw new ArgumentException("Distribuye el IVA por bodega en el desglose: las bodegas tienen cuentas de IVA distintas.");
+                    rule=new ZeusAccount("IVA",candidates[0].CuentaIvaCompras!,tax.Tarifa);warehouse=tax.BodegaId;
+                }
+                else
+                {
+                    if(tax.BodegaId is not null)throw new ArgumentException("La asignación por bodega solo aplica al IVA de compras con cuentas de bodega configuradas.");
+                    rule=Resolve(tax.Concepto,rate:tax.Tarifa);
+                }
+                lines.Add(new(rule,withholding?-tax.Valor:tax.Valor,withholding?-tax.Base:tax.Base,tax.Tarifa,warehouse));
             }
         }
         Taxes(input.Impuestos,false); Taxes(input.Retenciones,true);
+        foreach(var allocation in input.Impuestos.Where(t=>t.Concepto=="IVA"&&t.BodegaId.HasValue).GroupBy(t=>t.BodegaId))
+            if(allocation.Sum(t=>t.Base)>source.Lineas.Where(l=>l.BodegaId==allocation.Key).Sum(l=>l.Base))
+                throw new ArgumentException("La base de IVA asignada supera el valor de mercancía de esa bodega.");
         if(input.Impuestos.Sum(t=>t.Valor)!=source.Impuestos || input.Retenciones.Sum(t=>t.Valor)!=source.Retenciones)
             throw new ArgumentException("El desglose no coincide con los impuestos o retenciones guardados en la factura.");
         if(source.Total<=0 || lines.Sum(l=>l.Valor)!=source.Total)

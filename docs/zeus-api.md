@@ -188,3 +188,32 @@ Tras desplegar el backend de `publish/`, probar con un solo proveedor en la base
 pruebas configurada. Las pruebas automáticas usan exclusivamente una base desechable
 LocalDB, con procedimientos simulados; no demuestran permisos o compatibilidad de la
 instalación remota real.
+# Cuentas por bodega (migración 052)
+
+En **Datos maestros → Bodegas → Configuración contable**, un administrador con
+`SEGURIDAD.PERMISOS.ADMINISTRAR` selecciona las siete cuentas por empresa y bodega.
+El backend consulta `dbo.SpMae_Maecont @Op='A'` en el destino privado de esa empresa.
+El usuario SQL requiere permiso EXECUTE. No se ejecutan las opciones de creación,
+modificación ni eliminación del procedimiento suministrado.
+
+GET/PUT `/api/v1/companies/{empresaId}/zeus/warehouses/{bodegaId}/accounts` consultan
+y guardan inventario, IVA compras, IVA ventas, IVA devolución ventas, ingreso,
+costo de venta y devolución en venta. Se validan códigos de detalle habilitados,
+excluyendo cartera y bancos. No se crea ninguna cuenta en Zeus.
+La configuración queda en `core.ZeusBodegaCuenta`, con RLS, FK compuesta, versión,
+destino y auditoría. Cambios concurrentes o envíos pendientes/inciertos impiden guardar.
+
+La primera bodega configurada activa el uso de cuentas de bodega para las nuevas
+preparaciones de la empresa: deben configurarse todas las bodegas que intervengan.
+Se toma `RecepcionMercanciaLinea.BodegaId` o la bodega general de la entrada,
+no la ubicación actual tras un traslado. Inventario e IVA compras sustituyen
+las cuentas generales de esos conceptos; proveedores y retenciones siguen en
+configuración de empresa. Empresas todavía sin bodegas configuradas mantienen
+sus reglas anteriores. No se modifican comprobantes históricos.
+
+En el desglose IVA puede indicarse `bodegaId`; es obligatorio distribuirlo si
+las cuentas de las bodegas son diferentes. Se comprueban tarifa, base, valor,
+pertenencia de la bodega a la entrada y totales. No se distribuye por suposición.
+Las otras cinco cuentas se almacenan para futuros procesos de ventas/devoluciones;
+esta entrega no activa esos procesos. Cambiar destino Zeus requiere revisar y
+guardar las cuentas nuevamente. El worker verifica otra vez el comprobante antes de enviar.

@@ -485,6 +485,12 @@ function renderMasterView() {
   const query=elements.masterSearch.value.trim().toLocaleLowerCase('es-CO');
   if(state.masterView==='suppliers'){const count=renderSupplierMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
   if(state.masterView==='articles'){const count=renderArticleMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
+  if(state.masterView==='warehouses'){
+    const warehouses=data.warehouses.filter(x=>!query||`${x.code} ${x.name}`.toLocaleLowerCase('es-CO').includes(query));
+    const table=buildDataTable(['Código','Nombre','Ubicaciones','Tránsito','Estado','Contabilidad'],warehouses.map(x=>[x.code,x.name,x.locations?'Sí':'No',x.transit?'Sí':'No',activeLabel(x.active),'']));
+    table.querySelectorAll('tbody tr').forEach((row,index)=>{if(warehouses[index]&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR'))row.lastElementChild.append(warehouseAccountsButton(warehouses[index]));});
+    elements.masterTable.replaceChildren(table);elements.masterCount.textContent=`${warehouses.length} bodegas`;return;
+  }
   if(state.masterView==='brands'){
     if(data.brandsError){elements.masterTable.replaceChildren(emptyMessage(`No se pudo cargar el catálogo de marcas. Si acabas de actualizar, publica el backend preparado. ${data.brandsError}`));elements.masterCount.textContent='Consulta no disponible';return;}
     const brands=(data.brands||[]).filter(x=>!query||`${x.nombre} ${activeLabel(x.activa)}`.toLocaleLowerCase('es-CO').includes(query));

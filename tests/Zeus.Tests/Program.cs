@@ -143,6 +143,11 @@ if(args.Contains("--sql"))
             }
         }
         Check(true,"Migración 049 ejecutable e idempotente en base aislada");
+        q.CommandText="CREATE TABLE inv.Bodega(EmpresaId bigint,BodegaId bigint,Activa bit,PRIMARY KEY(EmpresaId,BodegaId));INSERT inv.Bodega VALUES(1,1,1),(1,2,1),(2,3,1);ALTER TABLE inv.RecepcionMercancia ADD BodegaId bigint;ALTER TABLE inv.RecepcionMercanciaLinea ADD BodegaId bigint;EXEC('UPDATE inv.RecepcionMercancia SET BodegaId=1');";await q.ExecuteNonQueryAsync();
+        var warehouseMigration=await File.ReadAllTextAsync(Path.Combine(dir!.FullName,"database","migrations","052_warehouse_zeus_accounts.sql"));
+        for(var pass=0;pass<2;pass++)foreach(var batch in System.Text.RegularExpressions.Regex.Split(warehouseMigration,@"(?im)^\s*GO\s*$"))
+        {if(string.IsNullOrWhiteSpace(batch))continue;q.CommandText=batch;await q.ExecuteNonQueryAsync();}
+        Check(true,"Migración 052 ejecutable e idempotente en base aislada");
         q.CommandText="ALTER TABLE ter.Tercero ADD PaisCodigo nvarchar(10),CiudadCodigo nvarchar(20)";await q.ExecuteNonQueryAsync();
         var divisionMigration=await File.ReadAllTextAsync(Path.Combine(dir!.FullName,"database","migrations","051_supplier_zeus_political_division.sql"));
         for(var pass=0;pass<2;pass++)foreach(var batch in System.Text.RegularExpressions.Regex.Split(divisionMigration,@"(?im)^\s*GO\s*$"))
@@ -213,6 +218,7 @@ if(args.Contains("--sql"))
         Check(await repository.ClaimAsync(default) is null,"Un envío abandonado no vuelve a la cola");
         q.CommandText="SELECT Estado FROM core.ZeusEnvio WHERE ZeusEnvioId="+jobId;
         Check((string)(await q.ExecuteScalarAsync())! == "INCIERTO","Envío abandonado exige conciliación");
+        await WarehouseAccountsTests.Run(cs,settings,source,input,Check);
         await CompanySecurityTests.Run(cs,dir!.FullName,Check);
         await SupplierSendTests.Run(cs,Check);
     }
