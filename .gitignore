@@ -8,6 +8,8 @@ backend/NexoERP.Api/appsettings.*.local.json
 node_modules/
 backend/**/bin/
 backend/**/obj/
+tests/**/bin/
+tests/**/obj/
 publish/
 .tmp-*/
 *.dll

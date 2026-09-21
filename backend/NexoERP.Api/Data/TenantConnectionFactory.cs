@@ -16,6 +16,7 @@ public sealed class TenantConnectionFactory(IConfiguration configuration)
         {
             await using var context = connection.CreateCommand();
             context.CommandText = """
+                SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
                 EXEC sys.sp_set_session_context @key=N'EmpresaId', @value=NULL;
                 EXEC sys.sp_set_session_context @key=N'BypassRls', @value=NULL;
                 EXEC sys.sp_set_session_context @key=N'EmpresaId', @value=@EmpresaId;

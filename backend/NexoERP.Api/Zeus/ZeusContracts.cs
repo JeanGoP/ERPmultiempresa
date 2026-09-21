@@ -1,0 +1,98 @@
+using System.Globalization;
+
+namespace NexoERP.Api.Zeus;
+
+public sealed record ZeusAccount(string Concepto, string Cuenta, decimal? Tarifa = null, long? ArticuloId = null,
+    long? ProveedorId = null, string CentroCosto = "", string Auxiliar = "", string Item = "",
+    string Presupuesto = "", string Reserva = "");
+public sealed record ZeusSupplier(long ProveedorId, string CodigoProveedor, string CodigoTercero);
+public sealed record ZeusSettings(bool Habilitado, string ServidorEsperado, string BaseEsperada, string Fuente,
+    string Serie, string UnidadNegocio, string UsuarioZeus, string TipoFactura,
+    ZeusAccount[] Cuentas, ZeusSupplier[] Proveedores);
+public sealed record ZeusSettingsRequest(int Version, ZeusSettings Configuracion);
+public sealed record ZeusTax(string Concepto, decimal Tarifa, decimal Base, decimal Valor);
+public sealed record ZeusPreviewRequest(ZeusTax[] Impuestos, ZeusTax[] Retenciones);
+public sealed record ZeusApproveRequest(ZeusTax[] Impuestos, ZeusTax[] Retenciones, string Huella);
+public sealed record ZeusSourceLine(long ArticuloId, decimal Base);
+public sealed record ZeusSource(long RecepcionId, long ProveedorId, string Factura, DateTime FechaContable,
+    DateTime FechaFactura, DateTime Vencimiento, decimal Total, decimal Impuestos, decimal Retenciones,
+    ZeusSourceLine[] Lineas);
+public sealed record ZeusMovement(ZeusAccount Regla, decimal Valor, decimal Base = 0, decimal Tarifa = 0);
+public sealed record ZeusSnapshot(ZeusSettings Configuracion, ZeusSource Origen, ZeusSupplier Proveedor,
+    ZeusMovement[] Movimientos);
+
+public static class ZeusJournal
+{
+    public static readonly string[] Concepts = ["INVENTARIO", "PROVEEDOR", "CUENTA_POR_COBRAR", "IVA",
+        "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "DESCUENTO", "REDONDEO"];
+    public static void Validate(ZeusSettings s)
+    {
+        Text(s.ServidorEsperado, 150); Text(s.BaseEsperada, 128); Text(s.Fuente, 2);
+        if(s.Fuente.Length != 2 || s.Serie is null || s.Serie.Length != 2 || s.Serie.Any(c=>c<'0'||c>'9'))
+            throw new ArgumentException("Fuente y serie deben tener dos caracteres; la serie debe ser numérica.");
+        Text(s.UnidadNegocio, 20); Text(s.UsuarioZeus, 20); Text(s.TipoFactura, 10);
+        if(s.Cuentas is null || s.Proveedores is null || s.Cuentas.Length>2000 || s.Proveedores.Length>10000)
+            throw new ArgumentException("Configuración de cuentas y proveedores inválida.");
+        foreach(var a in s.Cuentas)
+        {
+            if(a is null || !Concepts.Contains(a.Concepto) || a.Tarifa is <0 or >100 || (a.Tarifa.HasValue && decimal.Round(a.Tarifa.Value,4)!=a.Tarifa.Value) || a.ArticuloId is <=0 || a.ProveedorId is <=0)
+                throw new ArgumentException("Regla contable inválida.");
+            Text(a.Cuenta, 20); Text(a.CentroCosto, 20, true); Text(a.Auxiliar, 20, true);
+            Text(a.Item, 20, true); Text(a.Presupuesto, 20, true); Text(a.Reserva, 20, true);
+        }
+        if(s.Cuentas.GroupBy(a=>(a.Concepto,a.Tarifa,a.ArticuloId,a.ProveedorId)).Any(g=>g.Count()>1))
+            throw new ArgumentException("Hay reglas contables duplicadas.");
+        if(s.Proveedores.Any(p=>p is null || p.ProveedorId<=0) || s.Proveedores.GroupBy(p=>p.ProveedorId).Any(g=>g.Count()>1))
+            throw new ArgumentException("Proveedores inválidos o duplicados.");
+        foreach(var p in s.Proveedores) { Text(p.CodigoProveedor, 20); Text(p.CodigoTercero, 20); }
+    }
+    private static void Text(string? value, int max, bool empty=false)
+    {
+        if(value is null || (!empty && string.IsNullOrWhiteSpace(value)) || value.Length>max || value.Any(char.IsControl))
+            throw new ArgumentException($"Código obligatorio o longitud inválida (máximo {max}).");
+    }
+    public static ZeusSnapshot Build(ZeusSettings s, ZeusSource source, ZeusPreviewRequest input)
+    {
+        Validate(s);
+        if(input.Impuestos is null || input.Retenciones is null || input.Impuestos.Length+input.Retenciones.Length>100)
+            throw new ArgumentException("Envía el desglose de impuestos y retenciones, incluso si está vacío.");
+        var supplier=s.Proveedores.SingleOrDefault(p=>p.ProveedorId==source.ProveedorId)
+            ?? throw new ArgumentException("Falta homologar el proveedor y tercero de Zeus.");
+        if(source.Factura.Length>20) throw new ArgumentException("La factura excede los 20 caracteres admitidos por este adaptador.");
+        ZeusAccount Resolve(string concept, long? article=null, decimal? rate=null)
+        {
+            var rules=s.Cuentas.Where(a=>a.Concepto==concept && a.Tarifa==rate
+                && (a.ArticuloId is null || a.ArticuloId==article)
+                && (a.ProveedorId is null || a.ProveedorId==source.ProveedorId))
+                .OrderByDescending(a=>(a.ArticuloId.HasValue?2:0)+(a.ProveedorId.HasValue?1:0)).ToArray();
+            return rules.FirstOrDefault() ?? throw new ArgumentException($"Falta cuenta para {concept}, artículo {article}, tarifa {rate}.");
+        }
+        var lines=new List<ZeusMovement>();
+        foreach(var line in source.Lineas)
+        {
+            if(line.Base<=0 || decimal.Round(line.Base,2)!=line.Base)
+                throw new ArgumentException("Esta versión requiere bases positivas con máximo dos decimales; revisa descuentos y redondeos.");
+            lines.Add(new(Resolve("INVENTARIO",line.ArticuloId),line.Base));
+        }
+        void Taxes(ZeusTax[] taxes, bool withholding)
+        {
+            foreach(var tax in taxes)
+            {
+                if(tax is null || !(withholding ? new[]{"RETEFUENTE","RETEIVA","RETEICA"} : new[]{"IVA","OTRO_IMPUESTO"}).Contains(tax.Concepto)
+                    || tax.Tarifa<=0 || tax.Tarifa>100 || decimal.Round(tax.Tarifa,4)!=tax.Tarifa || tax.Base<=0 || tax.Valor<=0
+                    || decimal.Round(tax.Base,2)!=tax.Base || decimal.Round(tax.Valor,2)!=tax.Valor
+                    || Math.Abs(decimal.Round(tax.Base*tax.Tarifa/100,2,MidpointRounding.AwayFromZero)-tax.Valor)>0.01m)
+                    throw new ArgumentException("Impuesto inválido: revisa concepto, base, tarifa y valor (máximo dos decimales).");
+                lines.Add(new(Resolve(tax.Concepto,rate:tax.Tarifa),withholding?-tax.Valor:tax.Valor,withholding?-tax.Base:tax.Base,tax.Tarifa));
+            }
+        }
+        Taxes(input.Impuestos,false); Taxes(input.Retenciones,true);
+        if(input.Impuestos.Sum(t=>t.Valor)!=source.Impuestos || input.Retenciones.Sum(t=>t.Valor)!=source.Retenciones)
+            throw new ArgumentException("El desglose no coincide con los impuestos o retenciones guardados en la factura.");
+        if(source.Total<=0 || lines.Sum(l=>l.Valor)!=source.Total)
+            throw new ArgumentException("Las bases, impuestos y retenciones no cuadran con el total por pagar. No se generan ajustes automáticos.");
+        lines.Add(new(Resolve("PROVEEDOR"),-source.Total));
+        return new(s,source,supplier,lines.ToArray());
+    }
+    public static string Number(decimal value)=>value.ToString("0.####",CultureInfo.InvariantCulture);
+}

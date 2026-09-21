@@ -10,6 +10,7 @@ using NexoERP.Api.MasterData;
 using NexoERP.Api.Purchasing;
 using NexoERP.Api.Production;
 using NexoERP.Api.Security;
+using NexoERP.Api.Zeus;
 
 LoadDotEnv();
 var builder = WebApplication.CreateBuilder(args);
@@ -34,9 +35,10 @@ builder.Services.AddSingleton<ProductionOperationsRepository>();
 builder.Services.AddSingleton<OperationalMetrics>();
 builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
+builder.Services.AddZeus();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.16.1";
+const string ReleaseVersion="2026.09.21.1";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -663,6 +665,7 @@ app.MapPost("/api/v1/companies/{empresaId:long}/inventory/movements/{id:long}/re
     return Results.Ok(await operations.ReverseMovementAsync(empresaId,id,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct));
 }).RequireErpPermission("INVENTARIO.AJUSTE.REVERSAR");
 
+app.MapZeus();
 app.Run();
 
 static void LoadDotEnv()

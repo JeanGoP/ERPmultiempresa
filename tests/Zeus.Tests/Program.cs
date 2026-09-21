@@ -1,0 +1,198 @@
+using System.Globalization;
+using System.Xml.Linq;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
+using NexoERP.Api.Zeus;
+using NexoERP.Api.Data;
+
+int count=0;
+void Check(bool condition,string name) { if(!condition) throw new Exception(name); Console.WriteLine("OK: "+name);count++; }
+void Reject(Action action,string name) { try { action(); } catch(ArgumentException) { Check(true,name);return; } throw new Exception("No rechazó: "+name); }
+var settings=new ZeusSettings(true,"server","db","01","01","01","ERP","FA",
+    [new("INVENTARIO","1435"),new("PROVEEDOR","2205"),new("IVA","2408",19),new("RETEFUENTE","2365",2.5m)],
+    [new(10,"P10","N10")]);
+var source=new ZeusSource(20,10,"F&123",new(2026,9,21),new(2026,2,1),new(2026,3,1),116.5m,19,2.5m,[new(50,100)]);
+var input=new ZeusPreviewRequest([new("IVA",19,100,19)],[new("RETEFUENTE",2.5m,100,2.5m)]);
+var journal=ZeusJournal.Build(settings,source,input);
+Check(journal.Movimientos.Sum(m=>m.Valor)==0,"Cuadre exacto con retención");
+Check(journal.Movimientos.Last().Valor==-116.5m,"Proveedor por valor neto");
+Check(journal.Movimientos.Single(m=>m.Regla.Concepto=="RETEFUENTE").Base==-100,"Base de retención con signo de crédito");
+Reject(()=>ZeusJournal.Build(settings,source,input with{Impuestos=[]}),"Rechaza impuesto omitido");
+Reject(()=>ZeusJournal.Build(settings,source,input with{Retenciones=[]}),"Rechaza retención omitida");
+Reject(()=>ZeusJournal.Build(settings,source with{Total=120},input),"No inventa redondeo para cuadrar");
+Reject(()=>ZeusJournal.Build(settings,source,input with{Impuestos=[new("IVA",19,100,18)]}),"Verifica base por tarifa");
+Reject(()=>ZeusJournal.Build(settings,source,input with{Retenciones=[new("AUTORRETENCION",2.5m,100,2.5m)]}),"No confunde autorretenciones");
+Reject(()=>ZeusJournal.Build(settings with{Proveedores=[]},source,input),"Requiere homologación por empresa");
+Reject(()=>ZeusJournal.Build(settings with{Cuentas=[new("PROVEEDOR","2205")]},source,input),"Bloquea cuentas faltantes");
+Reject(()=>ZeusJournal.Validate(settings with{Serie="A1"}),"Serie numérica estricta");
+Reject(()=>ZeusJournal.Validate(settings with{Cuentas=[..settings.Cuentas,settings.Cuentas[0]]}),"Rechaza reglas ambiguas");
+Reject(()=>ZeusJournal.Build(settings,source with{Lineas=[new(50,100.001m)]},input),"No trunca importes");
+var specific=settings with{Cuentas=[..settings.Cuentas,new("INVENTARIO","143501",ArticuloId:50),new("PROVEEDOR","220510",ProveedorId:10)]};
+var resolved=ZeusJournal.Build(specific,source,input);
+Check(resolved.Movimientos[0].Regla.Cuenta=="143501","Prioridad de artículo");
+Check(resolved.Movimientos.Last().Regla.Cuenta=="220510","Prioridad de proveedor");
+var other=settings with{Cuentas=[..settings.Cuentas.Where(a=>a.Concepto!="IVA"),new("IVA","240899",19)]};
+Check(ZeusJournal.Build(other,source,input).Movimientos[1].Regla.Cuenta=="240899","Configuración de otra empresa independiente");
+var key=Guid.NewGuid();var xml=ZeusXml.Build(journal,key);var root=XElement.Parse(xml);
+var doc=root.Element("Documento")!;var header=doc.Element("Document")!;var lines=doc.Elements("Transac").ToArray();
+Check(root.Name=="ZEUS_SQL" && lines.Length==4,"Contrato XML y número de movimientos");
+Check(header.Element("NUMEDCTO")!.Value=="01NUEVO","Solicitud de consecutivo Zeus");
+Check(header.Element("DESCDCTO")!.Value==ZeusXml.Marker(key),"Clave estable en comprobante");
+Check(lines[0].Element("NUMEFAC")!.Value=="F&123","Escape XML de factura");
+Check(lines[0].Element("FECHATRA")!.Value=="2026/09/21" && lines[0].Element("Fechafact")!.Value=="2026/02/01","Fecha contable distinta de factura");
+Check(doc.Element("Lineas") is null,"No activa escenarios fiscales de ventas");
+var original=CultureInfo.CurrentCulture;
+try { CultureInfo.CurrentCulture=new("es-CO");Check(ZeusXml.Build(journal,key)==xml,"Decimales independientes de cultura"); } finally { CultureInfo.CurrentCulture=original; }
+var unicode=journal with{Origen=source with{Factura="Ñ-123"}};
+Check(ZeusXml.Build(unicode,key).All(c=>c<=127) && XElement.Parse(ZeusXml.Build(unicode,key)).Descendants("NUMEFAC").First().Value=="Ñ-123","Unicode conservado en varchar XML");
+Check(ZeusRepository.Fingerprint(journal)==ZeusRepository.Fingerprint(journal),"Huella estable");
+Check(ZeusRepository.Fingerprint(journal)!=ZeusRepository.Fingerprint(resolved),"Huella detecta cambio de cuentas");
+Check(ZeusRepository.Fingerprint(journal)==ZeusRepository.Fingerprint(journal with{Origen=source with{Total=116.5000m}}),"Huella ignora ceros decimales sin cambio de valor");
+if(args.Contains("--sql"))
+{
+    // Únicamente una base desechable propia en LocalDB; jamás usa .env ni Zeus remoto.
+    var db="NexoZeusTests_"+Guid.NewGuid().ToString("N");
+    await using var admin=new SqlConnection("Server=(localdb)\\MSSQLLocalDB;Database=master;Integrated Security=True;TrustServerCertificate=True");
+    await admin.OpenAsync();await using var setup=admin.CreateCommand();setup.CommandText=$"CREATE DATABASE [{db}]";await setup.ExecuteNonQueryAsync();
+    setup.CommandText=$"ALTER DATABASE [{db}] SET READ_COMMITTED_SNAPSHOT ON";await setup.ExecuteNonQueryAsync();
+    var cs=$"Server=(localdb)\\MSSQLLocalDB;Database={db};Integrated Security=True;TrustServerCertificate=True";
+    try
+    {
+        await using var c=new SqlConnection(cs);await c.OpenAsync();await using var q=c.CreateCommand();
+        q.CommandText="""
+            CREATE TABLE dbo.DOCUMENT(FNTEDCTO varchar(2),NUMEDCTO varchar(10),FECHDCTO varchar(10),DESCDCTO varchar(120),SUDBDCTO money,SUCRDCTO money);
+            CREATE TABLE dbo.TRANSAC(IDFUENTE varchar(2),NUMDOCTRA varchar(10),CODICTA varchar(20),VALORTRA money,STATUSTRA varchar(2),BU varchar(20));
+            CREATE TABLE dbo.TestMode(Mode varchar(20));INSERT dbo.TestMode VALUES('OK');
+            CREATE TABLE dbo.MAECONT(CODICTA varchar(20),HABILITARCTA bit,TIPOCTA char(1),INDCPICTA int);
+            INSERT dbo.MAECONT VALUES('1435',1,'D',1),('2408',1,'D',1),('2365',1,'D',1),('2205',1,'D',3);
+            """;await q.ExecuteNonQueryAsync();
+        q.CommandText="""
+            CREATE PROCEDURE dbo.spWSG_Contabilidad @Iden int,@XML varchar(max) AS
+            BEGIN
+              SET NOCOUNT ON;
+              IF @Iden<>16 THROW 51990,'Iden incorrecto',1;
+              IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='NOINSERT') RETURN 0;
+              IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='RETURNFAIL') RETURN 3;
+              DECLARE @X xml=CONVERT(xml,@XML);
+              INSERT dbo.DOCUMENT
+              SELECT x.value('(FNTEDCTO/text())[1]','varchar(2)'),'0100000001',x.value('(FECHDCTO/text())[1]','varchar(10)'),x.value('(DESCDCTO/text())[1]','varchar(120)'),119,119
+              FROM @X.nodes('/ZEUS_SQL/Documento/Document') d(x);
+              INSERT dbo.TRANSAC SELECT x.value('(IDFUENTE/text())[1]','varchar(2)'),'0100000001',x.value('(CODICTA/text())[1]','varchar(20)'),x.value('(VALORTRA/text())[1]','money'),'XA',x.value('(BU/text())[1]','varchar(20)')
+              FROM @X.nodes('/ZEUS_SQL/Documento/Transac') d(x);
+              IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='WRONGTOTAL') UPDATE dbo.DOCUMENT SET SUDBDCTO=120;
+              IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='WRONGACCOUNT') UPDATE dbo.TRANSAC SET CODICTA='999';
+              SELECT '01' Fuente,'0100000001' Documento;
+              IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='LATEERROR') THROW 51991,'Fallo despues del SELECT',1;
+              RETURN 0;
+            END
+            """;await q.ExecuteNonQueryAsync();
+        var conf=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["Zeus:Companies:1:ConnectionString"]=cs}).Build();
+        var transport=new ZeusTransport(conf);
+        var testJournal=journal with{Configuracion=settings with{ServidorEsperado="(localdb)\\MSSQLLocalDB",BaseEsperada=db}};
+        var sent=await transport.SendAsync(1,testJournal,key,default);
+        Check(sent.Estado=="CONTABILIZADO" && sent.Documento=="0100000001","Transporte confirma después de verificar y commit");
+        var repeated=await transport.SendAsync(1,testJournal,key,default);
+        q.CommandText="SELECT COUNT(*) FROM dbo.DOCUMENT";
+        Check(repeated.Estado=="CONTABILIZADO" && Convert.ToInt32(await q.ExecuteScalarAsync())==1,"Reenvío con misma clave no duplica");
+        Check((await transport.ReconcileAsync(1,testJournal,key,default)).Estado=="CONTABILIZADO","Conciliación de éxito incierto");
+        Check((await transport.ReconcileAsync(1,testJournal,Guid.NewGuid(),default)).Estado=="INCIERTO","Ausencia no autoriza reenvío");
+        Check((await transport.SendAsync(2,testJournal,Guid.NewGuid(),default)).Estado=="RECHAZADO","No comparte conexión con otra empresa");
+        Check((await transport.SendAsync(1,testJournal with{Configuracion=testJournal.Configuracion with{BaseEsperada="otra"}},Guid.NewGuid(),default)).Estado=="RECHAZADO","Bloquea destino diferente");
+        foreach(var mode in new[]{"NOINSERT","RETURNFAIL","WRONGTOTAL","WRONGACCOUNT","LATEERROR"})
+        {
+            q.CommandText="DELETE dbo.TRANSAC;DELETE dbo.DOCUMENT;UPDATE dbo.TestMode SET Mode=@Mode";q.Parameters.Clear();q.Parameters.AddWithValue("@Mode",mode);await q.ExecuteNonQueryAsync();
+            var failed=await transport.SendAsync(1,testJournal,Guid.NewGuid(),default);
+            q.CommandText="SELECT COUNT(*) FROM dbo.DOCUMENT";
+            Check(failed.Estado!="CONTABILIZADO" && Convert.ToInt32(await q.ExecuteScalarAsync())==0,"Rollback y sin falso éxito: "+mode);
+        }
+        q.Parameters.Clear();
+        q.CommandText="""
+            EXEC('CREATE SCHEMA core');EXEC('CREATE SCHEMA inv');EXEC('CREATE SCHEMA seg');EXEC('CREATE SCHEMA comp');EXEC('CREATE SCHEMA audit');
+            CREATE TABLE core.SchemaMigration(MigrationId varchar(50) PRIMARY KEY,Descripcion nvarchar(250));
+            CREATE TABLE core.Empresa(EmpresaId bigint PRIMARY KEY);INSERT core.Empresa VALUES(1),(2);
+            CREATE TABLE seg.Usuario(UsuarioId bigint PRIMARY KEY);INSERT seg.Usuario VALUES(1);
+            CREATE TABLE core.Probe(EmpresaId bigint);
+            CREATE TABLE inv.RecepcionMercancia(RecepcionMercanciaId bigint PRIMARY KEY,EmpresaId bigint,Estado varchar(15),TerceroId bigint,DocumentoProveedorId bigint,FechaContable date,UNIQUE(EmpresaId,RecepcionMercanciaId));
+            CREATE TABLE comp.DocumentoProveedor(DocumentoProveedorId bigint,EmpresaId bigint,NumeroDocumento varchar(50),FechaDocumento date,FechaVencimiento date,TotalPagar decimal(20,4),ImpuestoTotal decimal(20,4),Moneda char(3),CargoTotal decimal(20,4),Estado varchar(15));
+            CREATE TABLE comp.DocumentoProveedorLinea(DocumentoProveedorLineaId bigint,EmpresaId bigint,DocumentoProveedorId bigint,NumeroLinea int,ArticuloId bigint,TotalNeto decimal(20,4),Retencion decimal(20,4),Clasificacion varchar(25),Cargo decimal(20,4));
+            CREATE TABLE inv.RecepcionMercanciaLinea(EmpresaId bigint,RecepcionMercanciaId bigint,DocumentoProveedorLineaId bigint);
+            CREATE TABLE audit.Evento(EmpresaId bigint,UsuarioId bigint NULL,Operacion varchar(50),Entidad varchar(100),EntidadId nvarchar(100),ValoresPosteriores nvarchar(max),AplicacionOrigen varchar(50));
+            INSERT inv.RecepcionMercancia VALUES(20,1,'VALIDADA',10,100,'20260921');
+            INSERT comp.DocumentoProveedor VALUES(100,1,'F&123','20260201','20260301',116.5,19,'COP',0,'CONTABILIZADO');
+            INSERT comp.DocumentoProveedorLinea VALUES(1000,1,100,1,50,100,2.5,'INVENTARIO',0);
+            INSERT inv.RecepcionMercanciaLinea VALUES(1,20,1000);
+            """;await q.ExecuteNonQueryAsync();
+        q.CommandText="""
+            CREATE FUNCTION seg.fn_EmpresaAccess(@EmpresaId bigint) RETURNS TABLE WITH SCHEMABINDING AS
+            RETURN SELECT 1 permitido WHERE @EmpresaId=TRY_CONVERT(bigint,SESSION_CONTEXT(N'EmpresaId')) OR TRY_CONVERT(bit,SESSION_CONTEXT(N'BypassRls'))=1;
+            """;await q.ExecuteNonQueryAsync();
+        q.CommandText="CREATE SECURITY POLICY seg.EmpresaSecurityPolicy ADD FILTER PREDICATE seg.fn_EmpresaAccess(EmpresaId) ON core.Probe WITH(STATE=ON)";
+        await q.ExecuteNonQueryAsync();
+        var dir=new DirectoryInfo(AppContext.BaseDirectory);
+        while(dir is not null && !Directory.Exists(Path.Combine(dir.FullName,"database","migrations"))) dir=dir.Parent;
+        var migration=await File.ReadAllTextAsync(Path.Combine(dir!.FullName,"database","migrations","049_zeus_integration.sql"));
+        for(var pass=0;pass<2;pass++)
+        {
+            foreach(var batch in System.Text.RegularExpressions.Regex.Split(migration,@"(?im)^\s*GO\s*$"))
+            {
+                if(string.IsNullOrWhiteSpace(batch)) continue;
+                q.CommandText=batch;await q.ExecuteNonQueryAsync();
+            }
+        }
+        Check(true,"Migración 049 ejecutable e idempotente en base aislada");
+        var erpConf=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["ConnectionStrings:NexoErp"]=cs}).Build();
+        var repository=new ZeusRepository(new TenantConnectionFactory(erpConf));
+        await repository.SaveSettingsAsync(1,1,new(0,settings),default);
+        Check((await repository.SettingsAsync(1,default))?.Version==1,"Configuración persistida con versión");
+        Check(await repository.SettingsAsync(2,default) is null,"Lectura no cruza empresas");
+        try { await repository.SaveSettingsAsync(1,1,new(0,settings),default);throw new Exception("Versión obsoleta aceptada"); }
+        catch(SqlException e) when(e.Number==51702) {Check(true,"Bloquea versión obsoleta");}
+        q.CommandText="EXEC sys.sp_set_session_context @key=N'EmpresaId',@value=1; BEGIN TRANSACTION; UPDATE inv.RecepcionMercancia SET Estado='CONTABILIZADA' WHERE RecepcionMercanciaId=20; SELECT COUNT(*) FROM core.ZeusEnvio;";
+        Check(Convert.ToInt32(await q.ExecuteScalarAsync())==1,"Trigger encola en transacción de entrada");
+        q.CommandText="ROLLBACK;SELECT COUNT(*) FROM core.ZeusEnvio";
+        Check(Convert.ToInt32(await q.ExecuteScalarAsync())==0,"Rollback de entrada elimina tarea pendiente");
+        q.CommandText="UPDATE inv.RecepcionMercancia SET Estado='CONTABILIZADA' WHERE RecepcionMercanciaId=20";await q.ExecuteNonQueryAsync();
+        var preview=await repository.PreviewAsync(1,20,input,default);
+        Check(preview is not null,"Vista previa usa consultas reales del repositorio");
+        var approve=new ZeusApproveRequest(input.Impuestos,input.Retenciones,ZeusRepository.Fingerprint(journal));
+        var jobId=await repository.ApproveAsync(1,20,1,approve,default);
+        Check(jobId==await repository.ApproveAsync(1,20,1,approve,default),"Aprobación repetida devuelve mismo envío");
+        try { await repository.ApproveAsync(2,20,1,approve,default);throw new Exception("Aprobó otra empresa"); }
+        catch(ArgumentException) { Check(true,"No aprueba entrada de otra empresa"); }
+        try { await repository.ApproveAsync(1,20,1,approve with{Huella="obsoleta"},default);throw new Exception("Aprobó huella obsoleta"); }
+        catch(ArgumentException) { Check(true,"Rechaza vista previa obsoleta"); }
+        try { await repository.SaveSettingsAsync(1,1,new(1,settings),default);throw new Exception("Cambió destino pendiente"); }
+        catch(SqlException e) when(e.Number==51701) { Check(true,"Destino bloqueado mientras hay envío pendiente"); }
+        q.CommandText="EXEC sys.sp_set_session_context @key=N'EmpresaId',@value=2;SELECT COUNT(*) FROM core.ZeusEnvio";
+        Check(Convert.ToInt32(await q.ExecuteScalarAsync())==0,"RLS oculta envíos de otra empresa incluso sin WHERE");
+        q.CommandText="UPDATE core.ZeusEnvio SET Estado='INCIERTO' WHERE ZeusEnvioId="+jobId+";SELECT @@ROWCOUNT";
+        Check(Convert.ToInt32(await q.ExecuteScalarAsync())==0,"RLS impide modificar envío ajeno");
+        q.CommandText="EXEC sys.sp_set_session_context @key=N'EmpresaId',@value=1;UPDATE core.ZeusEnvio SET Estado='INCIERTO' WHERE ZeusEnvioId="+jobId;await q.ExecuteNonQueryAsync();
+        try { await repository.ApproveAsync(1,20,1,approve,default);throw new Exception("Reenvió resultado incierto"); }
+        catch(SqlException e) when(e.Number==51704) {Check(true,"Resultado incierto bloquea reenvío");}
+        var fromPreview=System.Text.Json.JsonSerializer.Deserialize<ZeusSnapshot>(System.Text.Json.JsonSerializer.SerializeToElement(preview).GetProperty("comprobante"))!;
+        Check(await repository.EligibleAsync(1,fromPreview,default),"Worker comprueba snapshot contra datos actuales");
+        q.CommandText="UPDATE comp.DocumentoProveedor SET TotalPagar=120";await q.ExecuteNonQueryAsync();
+        Check(!await repository.EligibleAsync(1,fromPreview,default),"Worker bloquea importes modificados después de aprobar");
+        q.CommandText="UPDATE comp.DocumentoProveedor SET TotalPagar=116.5;UPDATE core.ZeusEnvio SET Estado='PENDIENTE' WHERE ZeusEnvioId="+jobId;await q.ExecuteNonQueryAsync();
+        var claims=await Task.WhenAll(repository.ClaimAsync(default),repository.ClaimAsync(default));
+        Check(claims.Count(x=>x is not null)==1,"Dos workers no toman el mismo envío");
+        try {q.CommandText="UPDATE inv.RecepcionMercancia SET Estado='REVERTIDA' WHERE RecepcionMercanciaId=20";await q.ExecuteNonQueryAsync();throw new Exception("Revirtió durante envío");}
+        catch(SqlException e) when(e.Number==51705) {Check(true,"Bloquea reversa unilateral durante envío Zeus");}
+        await repository.FinishAsync(2,jobId,"CONTABILIZADO","01","0100000001",null,default);
+        q.CommandText="SELECT Estado FROM core.ZeusEnvio WHERE ZeusEnvioId="+jobId;
+        Check((string)(await q.ExecuteScalarAsync())! == "ENVIANDO","No confirma resultado de otra empresa");
+        await repository.FinishAsync(1,jobId,"RECHAZADO",null,null,"Prueba",default);
+        Check(await repository.ApproveAsync(1,20,1,approve,default)==jobId,"Rechazo confirmado permite nueva aprobación");
+        await repository.ClaimAsync(default);
+        q.CommandText="UPDATE core.ZeusEnvio SET ActualizadoEnUtc=DATEADD(minute,-20,SYSUTCDATETIME()) WHERE ZeusEnvioId="+jobId;await q.ExecuteNonQueryAsync();
+        Check(await repository.ClaimAsync(default) is null,"Un envío abandonado no vuelve a la cola");
+        q.CommandText="SELECT Estado FROM core.ZeusEnvio WHERE ZeusEnvioId="+jobId;
+        Check((string)(await q.ExecuteScalarAsync())! == "INCIERTO","Envío abandonado exige conciliación");
+    }
+    finally
+    {
+        SqlConnection.ClearAllPools();setup.CommandText=$"ALTER DATABASE [{db}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{db}]";await setup.ExecuteNonQueryAsync();
+    }
+}
+Console.WriteLine($"{count} comprobaciones Zeus correctas.");
