@@ -140,6 +140,7 @@ public sealed partial class ZeusTransport
                 await Call("dbo.spMae_Terceros",p);
             }
             var supplier=Common();supplier["@IDPROVE"]=s.NumeroIdentificacion;supplier["@RAZONCIAL"]=s.RazonSocial;supplier["@IDZONA"]=SupplierZone;supplier["@CODICTA"]=account;
+            supplier["@CodAlterno"]=s.NumeroIdentificacion;
             supplier["@WEBSITE"]=s.SitioWeb??"";supplier["@CONTACTO"]=s.ContactoNombre??"";supplier["@DIPLAZO"]=(short)0;supplier["@CUPOCRE"]=0m;
             await Call("dbo.spMae_Proveedores",supplier);
             stage="verificación de tercero y proveedor creados";

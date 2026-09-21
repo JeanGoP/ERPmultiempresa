@@ -10,7 +10,7 @@ static class SupplierSendTests
         await using var c=new SqlConnection(cs);await c.OpenAsync();await using var q=c.CreateCommand();
         q.CommandText="""
             CREATE TABLE dbo.TERCEROS(IDTERCERO varchar(25) PRIMARY KEY,NOMBRETER varchar(250),Deshabilitado int);
-            CREATE TABLE dbo.PROVEEDORES(IDPROVE varchar(10) PRIMARY KEY,IDTERCERO varchar(25),RAZONCIAL varchar(250),Deshabilitado int);
+            CREATE TABLE dbo.PROVEEDORES(IDPROVE varchar(10) PRIMARY KEY,IDTERCERO varchar(25),RAZONCIAL varchar(250),Deshabilitado int,CODALTERNO varchar(25) NOT NULL);
             CREATE TABLE dbo.DIVPOLITICA(IDDIVPOLITICA varchar(25),TIPODIVPOLITICA char(1)); INSERT dbo.DIVPOLITICA VALUES('5708001','D');
             CREATE TABLE dbo.MAEZONAS(IDZONA varchar(3));INSERT dbo.MAEZONAS VALUES('GN');
             CREATE TABLE dbo.SEGMENTO(IDSEGMENTO varchar(16),TIPOSEGMENTO char(1));INSERT dbo.SEGMENTO VALUES('OTROS','D');
@@ -32,11 +32,11 @@ static class SupplierSendTests
             CREATE PROCEDURE dbo.spMae_Proveedores @Op varchar(5),@ManejaTransaccionalidad varchar(1),
                 @IDTERCERO varchar(25),@DIRECCION varchar(250),@CIUDAD varchar(40),@TELEFONO varchar(25),@EMAIL varchar(60),
                 @DIVPOLITICA varchar(25),@CODIGODANE varchar(25),@SEGMENTO varchar(16),@Usuario varchar(15),@Tipo char(1),@Deshabilitado int,
-                @IDPROVE varchar(10),@RAZONCIAL varchar(250),@IDZONA varchar(3),@CODICTA varchar(16),@WEBSITE varchar(60),@CONTACTO varchar(40),@DIPLAZO smallint,@CUPOCRE money
+                @IDPROVE varchar(10),@RAZONCIAL varchar(250),@IDZONA varchar(3),@CODICTA varchar(16),@WEBSITE varchar(60),@CONTACTO varchar(40),@DIPLAZO smallint,@CUPOCRE money,@CodAlterno varchar(25)=NULL
             AS BEGIN
                 IF @Op<>'I' OR @ManejaTransaccionalidad<>'N' OR @IDPROVE<>@IDTERCERO OR @IDZONA<>'GN' OR @SEGMENTO<>'OTROS' THROW 51000,'Contrato proveedor incorrecto',1;
                 IF EXISTS(SELECT 1 FROM dbo.SupplierTestMode WHERE Mode='NOINSERT') RETURN 0;
-                INSERT dbo.PROVEEDORES VALUES(@IDPROVE,@IDTERCERO,@RAZONCIAL,@Deshabilitado);
+                INSERT dbo.PROVEEDORES VALUES(@IDPROVE,@IDTERCERO,@RAZONCIAL,@Deshabilitado,@CodAlterno);
                 IF EXISTS(SELECT 1 FROM dbo.SupplierTestMode WHERE Mode='RETURNFAIL') RETURN 1;
                 IF EXISTS(SELECT 1 FROM dbo.SupplierTestMode WHERE Mode='LATEERROR') BEGIN SELECT 'SUCCESS'; THROW 51000,'Error despues del SELECT',1; END;
                 IF EXISTS(SELECT 1 FROM dbo.SupplierTestMode WHERE Mode='SQLERROR') EXEC('SELECT CONVERT(int,''dato-invalido'')');
@@ -75,6 +75,8 @@ static class SupplierSendTests
         q.CommandText="UPDATE dbo.SupplierTestMode SET Mode='OK'";await q.ExecuteNonQueryAsync();
         var concurrent=await Task.WhenAll(transport.SendSupplierAsync(1,settings,supplier,input,default),transport.SendSupplierAsync(1,settings,supplier,input,default));
         check(concurrent.Count(x=>x.Estado=="CREADO")==1&&concurrent.Count(x=>x.Estado=="EXISTENTE")==1,"Envíos concurrentes crean un solo proveedor");
+        q.CommandText="SELECT CODALTERNO FROM dbo.PROVEEDORES WHERE IDPROVE='802019690'";
+        check((string)(await q.ExecuteScalarAsync())! == supplier.NumeroIdentificacion,"Código alterno obligatorio coincide con la identificación, sin agregar dígito de verificación");
         check((await transport.SendSupplierAsync(1,settings,supplier with{RazonSocial="No sobrescribir"},new(),default)).Estado=="EXISTENTE","Repetición sin parámetros no modifica maestros");
         q.CommandText="SELECT NOMBRETER FROM dbo.TERCEROS";check((string)(await q.ExecuteScalarAsync())! == supplier.RazonSocial,"Nombre original conservado");
         q.CommandText="DELETE dbo.PROVEEDORES";await q.ExecuteNonQueryAsync();
