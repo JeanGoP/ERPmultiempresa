@@ -26,7 +26,7 @@ public sealed partial class ZeusTransport
         return message.Length>900?message[..900]+"…":message;
     }
     public const string SupplierZone="GN", SupplierSegment="OTROS", SupplierFiscalCategory="OTROS";
-    public static string SupplierFingerprint(ZeusSettings settings,SupplierResponse supplier)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{settings,supplier,zona=SupplierZone,segmento=SupplierSegment,categoriaFiscal=SupplierFiscalCategory}))));
+    public static string SupplierFingerprint(ZeusSettings settings,SupplierResponse supplier)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{settings,supplier=supplier with{ZeusEstado=null,ZeusMensaje=null},zona=SupplierZone,segmento=SupplierSegment,categoriaFiscal=SupplierFiscalCategory}))));
     internal static string IdentificationCode(string type)=>type switch {
         "NIT"=>"31","CC"=>"13","CE"=>"22","RC"=>"11","TI"=>"12","TE"=>"21","PAS"=>"41","DE"=>"42","OTRO"=>"00",
         _=>throw new ArgumentException("El tipo de identificación no tiene equivalencia confirmada en Zeus.")};

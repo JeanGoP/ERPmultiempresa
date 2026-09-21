@@ -12,6 +12,7 @@ public static class ZeusModule
     {
         services.AddScoped<ZeusRepository>();services.AddSingleton<ZeusTransport>();
         services.AddScoped<ZeusWarehouseRepository>();
+        services.AddScoped<ZeusSupplierSync>();services.AddHostedService<ZeusSupplierWorker>();
         services.AddHostedService<ZeusWorker>();
     }
     public static void MapZeus(this WebApplication app)
@@ -50,7 +51,7 @@ public static class ZeusModule
             try{return Results.Ok(await transport.SupplierPreviewAsync(empresaId,settings.Configuracion,supplier,ct));}
             catch(SqlException){return Results.Json(new{error="No fue posible consultar los maestros de Zeus. Revisa la conexión privada y los permisos del usuario SQL."},statusCode:502);}
         }).RequireErpPermission(admin);
-        group.MapPost("/suppliers/{supplierId:long}/send",async(long empresaId,long supplierId,ZeusSupplierSendRequest input,HttpContext http,ZeusRepository repo,MasterDataRepository masters,ZeusTransport transport,TenantConnectionFactory connections,CancellationToken ct)=>
+        group.MapPost("/suppliers/{supplierId:long}/send",async(long empresaId,long supplierId,ZeusSupplierSendRequest input,HttpContext http,ZeusRepository repo,MasterDataRepository masters,ZeusTransport transport,TenantConnectionFactory connections,ZeusSupplierSync sync,CancellationToken ct)=>
         {
             var supplier=(await masters.GetSuppliersAsync(empresaId,ct)).SingleOrDefault(s=>s.TerceroId==supplierId)
                 ?? throw new ArgumentException("El proveedor no existe en esta empresa.");
@@ -65,11 +66,13 @@ public static class ZeusModule
             }
             await Audit("ZEUS_PROVEEDOR_SOLICITAR",new{proveedor=supplier.NumeroIdentificacion,destino=settings.Configuracion.BaseEsperada,parametros=input,zona=ZeusTransport.SupplierZone,segmento=ZeusTransport.SupplierSegment,categoriaFiscal=ZeusTransport.SupplierFiscalCategory},ct);
             ZeusSupplierSendResult result;
+            var job=await sync.StartManualAsync(empresaId,supplierId,Convert.ToInt64(http.Items["UsuarioId"]),settings.Configuracion,ct);
             try{result=await transport.SendSupplierAsync(empresaId,settings.Configuracion,supplier,input,ct);}
             catch(SqlException){result=new("RECHAZADO",supplier.NumeroIdentificacion,"No se pudo abrir la conexión de Zeus. Revisa la conexión privada y los permisos.");}
             catch(ArgumentException e){result=new("RECHAZADO",supplier.NumeroIdentificacion,e.Message);}
+            catch(OperationCanceledException){result=new("INCIERTO",supplier.NumeroIdentificacion,"Se interrumpió el envío. Consulta el proveedor antes de repetir.");}
             using var auditTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            try{await Audit("ZEUS_PROVEEDOR_RESULTADO",result,auditTimeout.Token);}
+            try{await sync.FinishAsync(job,result,auditTimeout.Token);}
             catch(Exception e) when(e is SqlException or OperationCanceledException){
                 result=result with{Mensaje=result.Mensaje+" No fue posible registrar la auditoría final en el ERP; conserva este resultado y consulta el proveedor antes de repetir."};
             }

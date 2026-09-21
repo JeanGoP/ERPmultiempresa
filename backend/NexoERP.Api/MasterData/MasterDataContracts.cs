@@ -4,7 +4,7 @@ public sealed record SupplierResponse(
     long TerceroId,string TipoIdentificacion,string NumeroIdentificacion,string? DigitoVerificacion,string RazonSocial,
     string? NombreComercial,string? CodigoResponsabilidadFiscal,string? RegimenFiscalCodigo,string? RegimenFiscalNombre,
     string? Direccion,string? CiudadCodigo,string? Ciudad,string? DepartamentoCodigo,string? Departamento,string? CodigoPostal,
-    string? PaisCodigo,string? Pais,string? ContactoNombre,string? Telefono,string? Correo,string? SitioWeb,string? DatosXmlJson,bool Activo,string? DivisionPoliticaZeus=null);
+    string? PaisCodigo,string? Pais,string? ContactoNombre,string? Telefono,string? Correo,string? SitioWeb,string? DatosXmlJson,bool Activo,string? DivisionPoliticaZeus=null,string? ZeusEstado=null,string? ZeusMensaje=null);
 public sealed record UnitOfMeasureResponse(long UnidadMedidaId,string Codigo,string Nombre,string Simbolo,bool Activa);
 public sealed record ArticleResponse(long ArticuloId,string Codigo,string Descripcion,string Tipo,bool ManejaInventario,long UnidadBaseId,string UnidadBase,bool ManejaLote,bool ManejaSerial,bool RequiereVencimiento,decimal? PesoBaseKg,decimal? VolumenBaseM3,bool Activo,string? Marca);
 public sealed record ItemMappingResponse(long HomologacionArticuloProveedorId,long TerceroId,string ProveedorIdentificacion,string Proveedor,string CodigoExterno,string? DescripcionExterna,long ArticuloId,string ArticuloCodigo,string Articulo,string? UnidadCodigo,decimal FactorAUnidadBase,bool Activa);

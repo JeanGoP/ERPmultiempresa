@@ -358,7 +358,7 @@ async function loadApiCompanyContext() {
     renderCompanyOptions(companies);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);
     state.apiContext={ warehouses,periods,accountingPeriods,accounts,permissions,permissionCodes:new Set(permissions.map(permissionCode)),masterData:{
       brands:brands.rows,brandsError:brands.error,
-      suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,active:x.activo})),
+      suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,zeusEstado:x.zeusEstado,zeusMensaje:x.zeusMensaje,active:x.activo})),
       units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
       articles:articles.map(x=>({id:x.articuloId,code:x.codigo,description:x.descripcion,brand:x.marca,type:x.tipo,unitId:x.unidadBaseId,inventory:x.manejaInventario,lot:x.manejaLote,serial:x.manejaSerial,expiry:x.requiereVencimiento,active:x.activo})),
       warehouses:warehouses.map(x=>({id:x.bodegaId,code:x.codigo,name:x.nombre,locations:x.usaUbicaciones,transit:x.esTransito,active:true})),
@@ -384,8 +384,8 @@ async function ensureApiSupplier(invoice) {
   const persisted=await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/suppliers`);
   const supplier=persisted.find(x=>String(x.terceroId)===String(saved.id)&&x.numeroIdentificacion===identification);
   if(!supplier)throw new Error('La API respondió que guardó el proveedor, pero una lectura nueva de SQL Server no lo encontró.');
-  if(state.apiContext)state.apiContext.masterData.suppliers=persisted.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,active:x.activo}));
-  return state.apiContext?.masterData.suppliers.find(x=>String(x.id)===String(saved.id))||{id:supplier.terceroId,name:supplier.razonSocial,identification:supplier.numeroIdentificacion};
+  if(state.apiContext)state.apiContext.masterData.suppliers=persisted.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,zeusEstado:x.zeusEstado,zeusMensaje:x.zeusMensaje,active:x.activo}));
+  return state.apiContext?.masterData.suppliers.find(x=>String(x.id)===String(saved.id))||{id:supplier.terceroId,name:supplier.razonSocial,identification:supplier.numeroIdentificacion,zeusEstado:supplier.zeusEstado,zeusMensaje:supplier.zeusMensaje};
 }
 
 async function persistAnalyzedSupplier(invoice) {
@@ -393,7 +393,7 @@ async function persistAnalyzedSupplier(invoice) {
   try {
     const supplier=await ensureApiSupplier(invoice);
     if(!elements.masterDataModule.hidden&&state.masterView==='suppliers')renderMasterView();
-    showSuccess(`Proveedor ${supplier.name} confirmado en SQL Server con ID ${supplier.id}.`);
+    showSuccess(`Proveedor ${supplier.name} confirmado en SQL Server (ERP). Zeus: ${zeusSupplierSyncText(supplier)}. Consulta el estado en Maestros → Proveedores.`);
   } catch(error) {
     showError(`El XML fue analizado, pero el proveedor no se guardó en la base de datos. ${error.message}`);
   }
@@ -463,14 +463,14 @@ function renderArticleMasterTable(data,query) {
 
 function renderSupplierMasterTable(data,query) {
   const suppliers=data.suppliers.filter((supplier)=>!query||Object.values(supplier).join(' ').toLocaleLowerCase('es-CO').includes(query));
-  const table=document.createElement('table');const head=document.createElement('thead');head.innerHTML='<tr><th>Identificación</th><th>Proveedor</th><th>Ubicación</th><th>Contacto</th><th>Estado</th><th>Acciones</th></tr>';const body=document.createElement('tbody');
+  const table=document.createElement('table');const head=document.createElement('thead');head.innerHTML='<tr><th>Identificación</th><th>Proveedor</th><th>Ubicación</th><th>Contacto</th><th>Estado</th><th>Envío a Zeus</th><th>Acciones</th></tr>';const body=document.createElement('tbody');
   suppliers.forEach((supplier)=>{
-    const row=document.createElement('tr');const values=[`${supplier.identificationType} ${supplier.identification}${supplier.verificationDigit?`-${supplier.verificationDigit}`:''}`,[supplier.name,supplier.commercialName].filter(Boolean).join(' · '),[supplier.address,supplier.city,supplier.department,supplier.country].filter(Boolean).join(' · ')||'—',[supplier.contactName,supplier.phone,supplier.email].filter(Boolean).join(' · ')||'—',activeLabel(supplier.active)];
+    const row=document.createElement('tr');const values=[`${supplier.identificationType} ${supplier.identification}${supplier.verificationDigit?`-${supplier.verificationDigit}`:''}`,[supplier.name,supplier.commercialName].filter(Boolean).join(' · '),[supplier.address,supplier.city,supplier.department,supplier.country].filter(Boolean).join(' · ')||'—',[supplier.contactName,supplier.phone,supplier.email].filter(Boolean).join(' · ')||'—',activeLabel(supplier.active),zeusSupplierSyncText(supplier)];
     values.forEach((value)=>{const cell=document.createElement('td');cell.textContent=value;row.append(cell);});
     const actions=document.createElement('td');actions.className='master-row-actions';const edit=masterActionButton('Editar','edit',supplier.id);delete edit.dataset.masterArticleAction;edit.dataset.masterSupplierAction='edit';const remove=masterActionButton('Eliminar','delete',supplier.id,true);delete remove.dataset.masterArticleAction;remove.dataset.masterSupplierAction='delete';actions.append(edit,remove);if(hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR'))actions.append(zeusSupplierSendButton(supplier));row.append(actions);body.append(row);
   });
-  if(!suppliers.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=6;cell.className='empty';cell.textContent='No hay proveedores que coincidan con la búsqueda.';row.append(cell);body.append(row);}
-  table.append(head,body);elements.masterTable.replaceChildren(table);return suppliers.length;
+  if(!suppliers.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=7;cell.className='empty';cell.textContent='No hay proveedores que coincidan con la búsqueda.';row.append(cell);body.append(row);}
+  table.append(head,body);const refresh=document.createElement('button');refresh.type='button';refresh.className='button secondary';refresh.textContent='Actualizar estado de proveedores';refresh.addEventListener('click',async()=>{const company=state.erpSession?.company?.id;refresh.disabled=true;try{await loadApiCompanyContext();if(company===state.erpSession?.company?.id&&state.masterView==='suppliers')renderMasterView();}catch(error){showMasterNotice(error.message,true);}finally{refresh.disabled=false;}});elements.masterTable.replaceChildren(refresh,table);return suppliers.length;
 }
 
 function showMasterNotice(message,isError=false) {

@@ -247,3 +247,30 @@ RECHAZADO indica rollback confirmado; INCIERTO conserva la advertencia de consul
 antes de repetir cuando no se puede confirmar el commit o rollback. El diagnóstico
 no reintenta ni crea proveedores por sí solo. Se debe desplegar el backend y
 consultar primero el proveedor antes de solicitar nuevamente su creación.
+
+## Envío automático desde XML (migración 053)
+
+`POST master-data/suppliers/from-xml` guarda el tercero y un trabajo en
+`core.ZeusProveedorEnvio` en una misma transacción ERP. La respuesta no espera
+al servidor Zeus. La creación manual de maestros no encola automáticamente.
+Cada empresa/proveedor tiene un único trabajo; reimportar no duplica ni reactiva
+envíos fallidos o inciertos. Solo se procesan proveedores importados después de
+desplegar esta versión; no se envían todos los maestros históricos.
+
+Un worker separado del despachador de facturas procesa la cola cada cinco segundos.
+No depende de habilitar aprobaciones contables ni de `Zeus:Enabled`: únicamente
+crea/verifica maestros en la conexión privada correspondiente a la empresa.
+Conserva el destino al importar y bloquea el envío si cambió antes de procesarlo.
+Si faltan configuración, datos o conexión, el proveedor permanece en ERP y el
+estado y la causa quedan visibles en el maestro. Personas naturales que requieran
+confirmar nombres/apellidos se completan mediante el envío manual; no se inventan.
+
+Estados: EN_COLA, ENVIANDO, CREADO, EXISTENTE, PENDIENTE e INCIERTO. Los dos últimos
+no tienen reintentos automáticos. Los envíos interrumpidos durante más de diez
+minutos pasan a INCIERTO. Se usa una clave de intento para ignorar respuestas tardías.
+El botón Enviar a Zeus primero consulta el destino; si ya existe, Actualizar estado
+en ERP confirma esa situación sin modificarlo. Los envíos manual y automático
+comparten bloqueo e idempotencia por identificación. Actualizar estado de proveedores
+refresca el listado, sin enviar nada.
+
+No se crean comprobantes ni se contabilizan facturas durante este proceso.

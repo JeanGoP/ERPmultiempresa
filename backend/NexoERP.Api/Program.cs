@@ -38,7 +38,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddZeus();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.21.8";
+const string ReleaseVersion="2026.09.21.9";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -257,7 +257,7 @@ app.MapPost("/api/v1/companies/{empresaId:long}/master-data/suppliers", async (l
 app.MapPost("/api/v1/companies/{empresaId:long}/master-data/suppliers/from-xml", async (long empresaId,SaveSupplierRequest input,HttpContext context,MasterDataRepository masters,CancellationToken ct) =>
 {
     if(string.IsNullOrWhiteSpace(input.NumeroIdentificacion)||string.IsNullOrWhiteSpace(input.RazonSocial)) return Results.ValidationProblem(new Dictionary<string,string[]> { ["proveedor"]=["El XML debe informar identificación y razón social del proveedor."] });
-    return Results.Ok(await masters.SaveSupplierAsync(empresaId,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct));
+    return Results.Ok(await masters.SaveSupplierAsync(empresaId,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct,fromXml:true));
 }).RequireErpPermission("COMPRAS.DOCUMENTO.CREAR");
 
 app.MapPut("/api/v1/companies/{empresaId:long}/master-data/suppliers/{terceroId:long}", async (long empresaId,long terceroId,SaveSupplierRequest input,HttpContext context,MasterDataRepository masters,CancellationToken ct) =>

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
 using NexoERP.Api.Inventory;
+using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.MasterData;
 
@@ -16,15 +17,17 @@ public sealed class MasterDataRepository(TenantConnectionFactory connections)
             SELECT TerceroId,TipoIdentificacion,NumeroIdentificacion,DigitoVerificacion,RazonSocial,
                    NombreComercial,CodigoResponsabilidadFiscal,RegimenFiscalCodigo,RegimenFiscalNombre,
                    Direccion,CiudadCodigo,Ciudad,DepartamentoCodigo,Departamento,CodigoPostal,PaisCodigo,Pais,
-                   ContactoNombre,Telefono,Correo,SitioWeb,DatosXmlJson,Activo,DivisionPoliticaZeus
-            FROM ter.Tercero WHERE EmpresaId=@EmpresaId AND EsProveedor=1 ORDER BY RazonSocial;
+                   ContactoNombre,Telefono,Correo,SitioWeb,DatosXmlJson,Activo,DivisionPoliticaZeus,
+                   (SELECT z.Estado FROM core.ZeusProveedorEnvio z WHERE z.EmpresaId=t.EmpresaId AND z.TerceroId=t.TerceroId),
+                   (SELECT z.Mensaje FROM core.ZeusProveedorEnvio z WHERE z.EmpresaId=t.EmpresaId AND z.TerceroId=t.TerceroId)
+            FROM ter.Tercero t WHERE EmpresaId=@EmpresaId AND EsProveedor=1 ORDER BY RazonSocial;
             """;
         Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
         await using var reader=await command.ExecuteReaderAsync(ct); var result=new List<SupplierResponse>();
         while(await reader.ReadAsync(ct)) result.Add(new(
             reader.GetInt64(0),reader.GetString(1),reader.GetString(2),reader.IsDBNull(3)?null:reader.GetString(3),reader.GetString(4),
             Text(reader,5),Text(reader,6),Text(reader,7),Text(reader,8),Text(reader,9),Text(reader,10),Text(reader,11),Text(reader,12),Text(reader,13),
-            Text(reader,14),Text(reader,15),Text(reader,16),Text(reader,17),Text(reader,18),Text(reader,19),Text(reader,20),Text(reader,21),reader.GetBoolean(22),Text(reader,23)));
+            Text(reader,14),Text(reader,15),Text(reader,16),Text(reader,17),Text(reader,18),Text(reader,19),Text(reader,20),Text(reader,21),reader.GetBoolean(22),Text(reader,23),Text(reader,24),Text(reader,25)));
         return result;
     }
 
@@ -65,13 +68,13 @@ public sealed class MasterDataRepository(TenantConnectionFactory connections)
         while(await reader.ReadAsync(ct)) result.Add(new(reader.GetInt64(0),reader.GetInt64(1),reader.GetString(2),reader.GetString(3),reader.GetString(4),reader.IsDBNull(5)?null:reader.GetString(5),reader.GetInt64(6),reader.GetString(7),reader.GetString(8),reader.IsDBNull(9)?null:reader.GetString(9),reader.GetDecimal(10),reader.GetBoolean(11))); return result;
     }
 
-    public Task<MasterSaveResponse> SaveSupplierAsync(long e,SaveSupplierRequest r,CancellationToken ct,long? supplierId=null)=>ExecuteSaveAsync(e,"ter.usp_GuardarProveedor",r.UsuarioId,ct,c=>
+    public Task<MasterSaveResponse> SaveSupplierAsync(long e,SaveSupplierRequest r,CancellationToken ct,long? supplierId=null,bool fromXml=false)=>ExecuteSaveAsync(e,"ter.usp_GuardarProveedor",r.UsuarioId,ct,c=>
     {
         Add(c,"@TerceroId",SqlDbType.BigInt,supplierId);Add(c,"@TipoIdentificacion",SqlDbType.VarChar,r.TipoIdentificacion,10);Add(c,"@NumeroIdentificacion",SqlDbType.NVarChar,r.NumeroIdentificacion,30);Add(c,"@DigitoVerificacion",SqlDbType.Char,r.DigitoVerificacion,1);Add(c,"@RazonSocial",SqlDbType.NVarChar,r.RazonSocial,200);
         Add(c,"@NombreComercial",SqlDbType.NVarChar,r.NombreComercial,200);Add(c,"@CodigoResponsabilidadFiscal",SqlDbType.NVarChar,r.CodigoResponsabilidadFiscal,100);Add(c,"@RegimenFiscalCodigo",SqlDbType.NVarChar,r.RegimenFiscalCodigo,20);Add(c,"@RegimenFiscalNombre",SqlDbType.NVarChar,r.RegimenFiscalNombre,100);
         Add(c,"@Direccion",SqlDbType.NVarChar,r.Direccion,300);Add(c,"@CiudadCodigo",SqlDbType.NVarChar,r.CiudadCodigo,20);Add(c,"@Ciudad",SqlDbType.NVarChar,r.Ciudad,100);Add(c,"@DepartamentoCodigo",SqlDbType.NVarChar,r.DepartamentoCodigo,20);Add(c,"@Departamento",SqlDbType.NVarChar,r.Departamento,100);Add(c,"@CodigoPostal",SqlDbType.NVarChar,r.CodigoPostal,20);Add(c,"@PaisCodigo",SqlDbType.NVarChar,r.PaisCodigo,10);Add(c,"@Pais",SqlDbType.NVarChar,r.Pais,100);
         Add(c,"@ContactoNombre",SqlDbType.NVarChar,r.ContactoNombre,150);Add(c,"@Telefono",SqlDbType.NVarChar,r.Telefono,50);Add(c,"@Correo",SqlDbType.NVarChar,r.Correo,254);Add(c,"@SitioWeb",SqlDbType.NVarChar,r.SitioWeb,300);Add(c,"@DatosXmlJson",SqlDbType.NVarChar,r.DatosXmlJson,-1);
-    });
+    },fromXml);
 
     public async Task DeleteSupplierAsync(long empresaId,long supplierId,long actorId,CancellationToken ct)
     {
@@ -230,11 +233,25 @@ public sealed class MasterDataRepository(TenantConnectionFactory connections)
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private async Task<MasterSaveResponse> ExecuteSaveAsync(long e,string procedure,long? userId,CancellationToken ct,Action<SqlCommand> parameters)
+    private async Task<MasterSaveResponse> ExecuteSaveAsync(long e,string procedure,long? userId,CancellationToken ct,Action<SqlCommand> parameters,bool enqueueSupplier=false)
     {
         await using var connection=await connections.OpenAsync(e,false,ct); await using var command=connection.CreateCommand(); command.CommandType=CommandType.StoredProcedure; command.CommandText=procedure;
+        await using var tx=enqueueSupplier?(SqlTransaction)await connection.BeginTransactionAsync(ct):null;
+        command.Transaction=tx;
         Add(command,"@EmpresaId",SqlDbType.BigInt,e); parameters(command); Add(command,"@UsuarioId",SqlDbType.BigInt,userId);
-        await using var reader=await command.ExecuteReaderAsync(ct); if(!await reader.ReadAsync(ct)) throw new InvalidOperationException("La operación maestra no devolvió resultado."); return new(reader.GetInt64(0),reader.GetBoolean(1));
+        MasterSaveResponse saved;
+        await using(var reader=await command.ExecuteReaderAsync(ct))
+        {
+            if(!await reader.ReadAsync(ct))throw new InvalidOperationException("La operación maestra no devolvió resultado.");
+            saved=new(reader.GetInt64(0),reader.GetBoolean(1));
+            do{while(await reader.ReadAsync(ct)){}}while(await reader.NextResultAsync(ct));
+        }
+        if(tx is not null)
+        {
+            await ZeusSupplierSync.EnqueueAsync(connection,tx,e,saved.Id,userId??throw new ArgumentException("Falta el usuario que importa el XML."),ct);
+            await tx.CommitAsync(ct);
+        }
+        return saved;
     }
     private static string? Text(SqlDataReader reader,int ordinal)=>reader.IsDBNull(ordinal)?null:reader.GetString(ordinal);
     private static void Add(SqlCommand c,string name,SqlDbType type,object? value,int size=0){var p=size>0?new SqlParameter(name,type,size):new SqlParameter(name,type);p.Value=value??DBNull.Value;c.Parameters.Add(p);}

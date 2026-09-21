@@ -13,8 +13,12 @@ const context=vm.createContext({state:{erpSession:{company:{id:3}}},
     dialog=el;el.parts={'[data-close]':element(),'form':element(),'[type="submit"]':element(),'[role="status"]':element()};el.querySelector=key=>el.parts[key];el.showModal=()=>{el.open=true;};el.close=()=>{el.open=false;el.events.close();};
   }return el;}}
 });
-vm.runInContext(source.slice(source.indexOf('function zeusSupplierSendButton'),source.indexOf('const zeusConcepts')),context);
+vm.runInContext(source.slice(source.indexOf('function zeusSupplierSyncText'),source.indexOf('const zeusConcepts')),context);
 (async()=>{
+  assert.match(context.zeusSupplierSyncText({zeusEstado:'PENDIENTE',zeusMensaje:'Cuenta no configurada'}),/Pendiente de envío.*Cuenta no configurada/);
+  assert.match(context.zeusSupplierSyncText({zeusEstado:'INCIERTO'}),/Requiere verificar/);
+  assert.match(context.zeusSupplierSyncText({zeusEstado:'EN_COLA'}),/En cola/);
+  assert.match(context.zeusSupplierSyncText({zeusEstado:'CREADO'}),/Creado en Zeus/);
   const button=context.zeusSupplierSendButton({id:21,active:true});await button.events.click();
   assert.equal(calls.length,1);assert.match(calls[0].url,/companies\/3\/zeus\/suppliers\/21\/preview$/);
   assert.equal(calls[0].options,undefined,'Abrir consulta no crea registros');
@@ -31,7 +35,7 @@ vm.runInContext(source.slice(source.indexOf('function zeusSupplierSendButton'),s
   context.state.erpSession.company.id=3;result={estado:'INCIERTO',mensaje:'Consultar antes de repetir'};
   await button.events.click();await dialog.parts.form.events.submit({preventDefault(){},currentTarget:{}});
   assert.ok(dialog.parts['[type="submit"]'].disabled,'Incierto exige nueva consulta');
-  preview={...preview,proveedorExiste:true};await button.events.click();assert.doesNotMatch(dialog.innerHTML,/type="submit"/,'Existente no ofrece recrear');
+  preview={...preview,proveedorExiste:true};await button.events.click();assert.match(dialog.innerHTML,/Actualizar estado en ERP/,'Existente permite confirmar el estado sin recrear');
   assert.ok(context.zeusSupplierSendButton({id:22,active:false}).disabled);
   console.log('UI envío Zeus: consulta sin escritura, confirmación, huella, empresa, éxito e incierto correctos.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

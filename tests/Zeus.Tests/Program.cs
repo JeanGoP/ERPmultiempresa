@@ -221,6 +221,7 @@ if(args.Contains("--sql"))
         await WarehouseAccountsTests.Run(cs,settings,source,input,Check);
         await CompanySecurityTests.Run(cs,dir!.FullName,Check);
         await SupplierSendTests.Run(cs,Check);
+        await SupplierSyncTests.Run(cs,dir!.FullName,Check);
     }
     finally
     {
