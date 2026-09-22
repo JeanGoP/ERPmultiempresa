@@ -1,4 +1,8 @@
 /*
+    ATENCION: este archivo sigue siendo un reinicio PARCIAL por empresa.
+    Para blanquear TODO el ERP conservando solo MOTOCENTRO y un superadministrador,
+    utilice reset-erp-testing.sql (vista previa y confirmacion obligatorias).
+
     Reinicio controlado para una demostracion de compras e inventario.
     Compatible con el esquema hasta la migracion 043.
 
