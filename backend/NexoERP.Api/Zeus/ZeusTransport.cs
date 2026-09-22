@@ -86,6 +86,14 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
             await q.ExecuteNonQueryAsync(ct);
             var existing=await VerifyAsync(c,tx,s,key,ct);
             if(existing is not null) { await tx.RollbackAsync(CancellationToken.None);return new("CONTABILIZADO",s.Configuracion.Fuente,existing); }
+            if(s.Proveedor.CodigoProveedor==s.Proveedor.CodigoTercero)
+            {
+                (bool Third,bool Supplier) master;
+                try { master=await SupplierExists(c,tx,s.Proveedor.CodigoProveedor,ct); }
+                catch(ArgumentException error) { throw new InvalidOperationException(SafeSupplierDiagnostic(error.Message,c.ConnectionString)); }
+                if(!master.Third||!master.Supplier)
+                    throw new InvalidOperationException("El tercero o proveedor no existe en Zeus. Envía el proveedor desde el maestro y vuelve a preparar la entrada.");
+            }
             q.CommandText="""
                 IF EXISTS(SELECT 1 FROM OPENJSON(@Accounts) WITH(Cuenta varchar(20),Proveedor bit) a
                     LEFT JOIN dbo.MAECONT m ON m.CODICTA=a.Cuenta

@@ -15,7 +15,7 @@ static class SupplierSyncTests
             ALTER TABLE ter.Tercero ALTER COLUMN EmpresaId bigint NOT NULL;
             ALTER TABLE ter.Tercero ALTER COLUMN TerceroId bigint NOT NULL;
             ALTER TABLE ter.Tercero ADD CONSTRAINT UQ_TestTercero UNIQUE(EmpresaId,TerceroId);
-            ALTER TABLE ter.Tercero ADD TipoIdentificacion varchar(10),NumeroIdentificacion nvarchar(30),DigitoVerificacion char(1),
+            ALTER TABLE ter.Tercero ADD TipoIdentificacion varchar(10),DigitoVerificacion char(1),
               NombreComercial nvarchar(200),CodigoResponsabilidadFiscal nvarchar(100),RegimenFiscalCodigo nvarchar(20),RegimenFiscalNombre nvarchar(100),
               Direccion nvarchar(300),Ciudad nvarchar(100),DepartamentoCodigo nvarchar(20),Departamento nvarchar(100),CodigoPostal nvarchar(20),Pais nvarchar(100),
               ContactoNombre nvarchar(150),Telefono nvarchar(50),Correo nvarchar(254),SitioWeb nvarchar(300),DatosXmlJson nvarchar(max),EsProveedor bit NOT NULL DEFAULT 1,Activo bit NOT NULL DEFAULT 1;

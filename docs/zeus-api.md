@@ -274,3 +274,10 @@ comparten bloqueo e idempotencia por identificación. Actualizar estado de prove
 refresca el listado, sin enviar nada.
 
 No se crean comprobantes ni se contabilizan facturas durante este proceso.
+# Preparación de entradas con proveedor existente y cargos por línea
+
+Desde la versión `2026.09.21.10`, si no existe una homologación histórica, la preparación usa `NumeroIdentificacion` del proveedor ERP como código de proveedor y tercero Zeus. No guarda una homologación manual ni crea maestros al contabilizar. Antes de llamar al procedimiento contable se verifica que ambos maestros existan, estén habilitados y compartan esa identificación; las homologaciones históricas se conservan.
+
+Los cargos de línea se admiten cuando `TotalNeto = SubtotalBruto - Descuento + Cargo`. Se contabiliza el neto una sola vez. Los cargos globales, servicios y diferencias de cuadre siguen requiriendo revisión; no se crean ajustes automáticos.
+
+Después de desplegar el backend, usar **Integración Zeus → Preparar comprobante**, seleccionar la entrada, revisar el desglose de impuestos y el destino, generar la vista previa y aprobar. La aprobación pone el envío en cola: comprobar su resultado y número de comprobante en **Seguimiento**. El despachador remoto requiere `Zeus__Enabled=true`; la conexión privada sigue configurándose exclusivamente en el servidor. No reenviar estados inciertos sin conciliar.

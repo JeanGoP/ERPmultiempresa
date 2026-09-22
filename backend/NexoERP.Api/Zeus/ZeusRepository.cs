@@ -61,7 +61,7 @@ public sealed class ZeusRepository(TenantConnectionFactory connections)
         var settings=JsonSerializer.Deserialize<ZeusSettings>(json)!;
         q.CommandText="""
             SELECT r.TerceroId,d.NumeroDocumento,r.FechaContable,d.FechaDocumento,COALESCE(d.FechaVencimiento,d.FechaDocumento),
-                d.TotalPagar,d.ImpuestoTotal,d.Moneda,d.CargoTotal,d.DocumentoProveedorId,t.DivisionPoliticaZeus
+                d.TotalPagar,d.ImpuestoTotal,d.Moneda,d.CargoTotal,d.DocumentoProveedorId,t.DivisionPoliticaZeus,t.NumeroIdentificacion
             FROM inv.RecepcionMercancia r WITH(HOLDLOCK)
             JOIN comp.DocumentoProveedor d WITH(HOLDLOCK) ON d.EmpresaId=r.EmpresaId AND d.DocumentoProveedorId=r.DocumentoProveedorId
             JOIN ter.Tercero t WITH(HOLDLOCK) ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
@@ -75,6 +75,13 @@ public sealed class ZeusRepository(TenantConnectionFactory connections)
             supplier=r.GetInt64(0);invoice=r.GetString(1);date=r.GetDateTime(2);issued=r.GetDateTime(3);due=r.GetDateTime(4);
             total=r.GetDecimal(5);taxes=r.GetDecimal(6);document=r.GetInt64(9);
             division=r.IsDBNull(10)?null:r.GetString(10);
+            if(!settings.Proveedores.Any(p=>p.ProveedorId==supplier))
+            {
+                var identification=r.GetString(11);
+                if(string.IsNullOrWhiteSpace(identification)||identification.Length>10||identification.Any(c=>!char.IsAsciiLetterOrDigit(c)))
+                    throw new ArgumentException("Revisa la identificación del proveedor: Zeus requiere máximo 10 caracteres, sin espacios, puntos ni guiones.");
+                settings=settings with{Proveedores=[..settings.Proveedores,new(supplier,identification,identification)]};
+            }
             if(r.GetString(7).Trim()!="COP" || r.GetDecimal(8)!=0)
                 throw new ArgumentException("Esta versión exige COP y facturas sin cargos globales; se requiere distribución contable explícita para otros casos.");
         }
@@ -82,7 +89,8 @@ public sealed class ZeusRepository(TenantConnectionFactory connections)
         var byWarehouse=Convert.ToInt32(await q.ExecuteScalarAsync(ct))>0;
         q.CommandText="""
             SELECT l.ArticuloId,l.TotalNeto,l.Retencion,l.Clasificacion,l.Cargo,
-              (SELECT COUNT(*) FROM inv.RecepcionMercanciaLinea rl WHERE rl.EmpresaId=l.EmpresaId AND rl.RecepcionMercanciaId=@R AND rl.DocumentoProveedorLineaId=l.DocumentoProveedorLineaId)
+              (SELECT COUNT(*) FROM inv.RecepcionMercanciaLinea rl WHERE rl.EmpresaId=l.EmpresaId AND rl.RecepcionMercanciaId=@R AND rl.DocumentoProveedorLineaId=l.DocumentoProveedorLineaId),
+              l.SubtotalBruto,l.Descuento
             FROM comp.DocumentoProveedorLinea l WITH(HOLDLOCK) WHERE l.EmpresaId=@E AND l.DocumentoProveedorId=@D ORDER BY l.NumeroLinea;
             """;
         Add(q,"@D",document);
@@ -91,8 +99,11 @@ public sealed class ZeusRepository(TenantConnectionFactory connections)
         {
             while(await r.ReadAsync(ct))
             {
-                if(r.IsDBNull(0) || r.GetString(3)!="INVENTARIO" || r.GetDecimal(4)!=0 || r.GetInt32(5)!=1)
-                    throw new ArgumentException("Solo se admiten facturas completas de mercancía, sin servicios ni cargos por distribuir.");
+                if(r.IsDBNull(0) || r.GetString(3)!="INVENTARIO" || r.GetInt32(5)!=1)
+                    throw new ArgumentException("Solo se admiten facturas completas de mercancía, sin servicios por distribuir.");
+                // TotalNeto ya contiene el cargo de línea: nunca sumarlo otra vez.
+                if(r.GetDecimal(4)<0 || r.GetDecimal(1)!=r.GetDecimal(6)-r.GetDecimal(7)+r.GetDecimal(4))
+                    throw new ArgumentException("El neto de la línea no coincide con subtotal menos descuento más cargo. Revisa la factura antes de enviarla a Zeus.");
                 lines.Add(new(r.GetInt64(0),r.GetDecimal(1))); withholding+=r.GetDecimal(2);
             }
         }

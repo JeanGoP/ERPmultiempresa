@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Xml.Linq;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
@@ -31,6 +32,9 @@ var specific=settings with{Cuentas=[..settings.Cuentas,new("INVENTARIO","143501"
 var resolved=ZeusJournal.Build(specific,source,input);
 Check(resolved.Movimientos[0].Regla.Cuenta=="143501","Prioridad de artículo");
 Check(resolved.Movimientos.Last().Regla.Cuenta=="220510","Prioridad de proveedor");
+var co446643=source with{Factura="CO446643",Total=815501.05m,Impuestos=130206.05m,Retenciones=0,Lineas=[new(122,327426m,1,"143501001","240810008"),new(123,357869m,1,"143501001","240810008")]};
+var coJournal=ZeusJournal.Build(settings,co446643,new([new("IVA",19,685295m,130206.05m)],[]));
+Check(coJournal.Movimientos.Where(m=>m.Valor>0).Sum(m=>m.Valor)==815501.05m&&coJournal.Movimientos.Sum(m=>m.Valor)==0,"CO446643 cuadra inventario e IVA sin duplicar cargos");
 var other=settings with{Cuentas=[..settings.Cuentas.Where(a=>a.Concepto!="IVA"),new("IVA","240899",19)]};
 Check(ZeusJournal.Build(other,source,input).Movimientos[1].Regla.Cuenta=="240899","Configuración de otra empresa independiente");
 var key=Guid.NewGuid();var xml=ZeusXml.Build(journal,key);var root=XElement.Parse(xml);
@@ -124,6 +128,8 @@ if(args.Contains("--sql"))
             INSERT comp.DocumentoProveedor VALUES(100,1,'F&123','20260201','20260301',116.5,19,'COP',0,'CONTABILIZADO');
             INSERT comp.DocumentoProveedorLinea VALUES(1000,1,100,1,50,100,2.5,'INVENTARIO',0);
             INSERT inv.RecepcionMercanciaLinea VALUES(1,20,1000);
+            ALTER TABLE ter.Tercero ADD NumeroIdentificacion nvarchar(30) NOT NULL DEFAULT '901528333';
+            ALTER TABLE comp.DocumentoProveedorLinea ADD SubtotalBruto decimal(20,4) NOT NULL DEFAULT 100,Descuento decimal(20,4) NOT NULL DEFAULT 0;
             """;await q.ExecuteNonQueryAsync();
         q.CommandText="""
             CREATE FUNCTION seg.fn_EmpresaAccess(@EmpresaId bigint) RETURNS TABLE WITH SCHEMABINDING AS
@@ -173,6 +179,16 @@ if(args.Contains("--sql"))
         q.CommandText="UPDATE inv.RecepcionMercancia SET Estado='CONTABILIZADA' WHERE RecepcionMercanciaId=20";await q.ExecuteNonQueryAsync();
         var preview=await repository.PreviewAsync(1,20,input,default);
         Check(preview is not null,"Vista previa usa consultas reales del repositorio");
+        q.CommandText="UPDATE core.ZeusConfiguracion SET Configuracion=JSON_MODIFY(Configuracion,'$.Proveedores',JSON_QUERY('[]')) WHERE EmpresaId=1;UPDATE comp.DocumentoProveedorLinea SET Cargo=5,SubtotalBruto=110,Descuento=15";await q.ExecuteNonQueryAsync();
+        var automatic=System.Text.Json.JsonSerializer.SerializeToElement(await repository.PreviewAsync(1,20,input,default)).GetProperty("comprobante").Deserialize<ZeusSnapshot>()!;
+        Check(automatic.Proveedor==new ZeusSupplier(10,"901528333","901528333"),"Sin homologación manual usa la identificación ERP como proveedor y tercero");
+        Check(automatic.Movimientos[0].Valor==100&&automatic.Movimientos.Sum(m=>m.Valor)==0,"Cargo incluido en neto no se suma dos veces");
+        Check(await repository.EligibleAsync(1,automatic,default),"Worker reconstruye identidad automática y cargos incluidos");
+        q.CommandText="UPDATE comp.DocumentoProveedorLinea SET Cargo=6";await q.ExecuteNonQueryAsync();
+        try{await repository.PreviewAsync(1,20,input,default);throw new Exception("Aceptó cargo sin cuadrar");}catch(ArgumentException){Check(true,"Rechaza neto inconsistente con cargo");}
+        q.CommandText="UPDATE comp.DocumentoProveedorLinea SET Cargo=0,SubtotalBruto=100,Descuento=0;UPDATE ter.Tercero SET NumeroIdentificacion='901-528333'";await q.ExecuteNonQueryAsync();
+        try{await repository.PreviewAsync(1,20,input,default);throw new Exception("Aceptó NIT inválido");}catch(ArgumentException){Check(true,"No altera ni recorta identificación inválida");}
+        q.CommandText="UPDATE ter.Tercero SET NumeroIdentificacion='901528333';UPDATE core.ZeusConfiguracion SET Configuracion=@Restore WHERE EmpresaId=1";q.Parameters.AddWithValue("@Restore",System.Text.Json.JsonSerializer.Serialize(settings));await q.ExecuteNonQueryAsync();q.Parameters.Clear();
         q.CommandText="UPDATE ter.Tercero SET PaisCodigo='CO',CiudadCodigo='05001'";await q.ExecuteNonQueryAsync();
         var divisionPreview=System.Text.Json.JsonSerializer.Serialize(await repository.PreviewAsync(1,20,input,default));
         Check(divisionPreview.Contains("\"DivisionPoliticaZeus\":\"5705001\""),"Vista previa Zeus lleva división del proveedor de la empresa");
@@ -221,6 +237,12 @@ if(args.Contains("--sql"))
         await WarehouseAccountsTests.Run(cs,settings,source,input,Check);
         await CompanySecurityTests.Run(cs,dir!.FullName,Check);
         await SupplierSendTests.Run(cs,Check);
+        var identityJournal=testJournal with{Proveedor=new(10,"901528333","901528333")};
+        Check((await transport.SendAsync(1,identityJournal,Guid.NewGuid(),default)).Estado=="RECHAZADO","Contabilización rechaza proveedor inexistente sin crearlo");
+        q.CommandText="INSERT dbo.TERCEROS VALUES('901528333','Prueba',0);INSERT dbo.PROVEEDORES VALUES('901528333','901528333','Prueba',1,'901528333')";await q.ExecuteNonQueryAsync();
+        Check((await transport.SendAsync(1,identityJournal,Guid.NewGuid(),default)).Estado=="RECHAZADO","Contabilización rechaza proveedor deshabilitado");
+        q.CommandText="UPDATE dbo.PROVEEDORES SET Deshabilitado=0 WHERE IDPROVE='901528333';UPDATE dbo.TestMode SET Mode='OK';DELETE dbo.TRANSAC;DELETE dbo.DOCUMENT";await q.ExecuteNonQueryAsync();
+        Check((await transport.SendAsync(1,identityJournal,Guid.NewGuid(),default)).Estado=="CONTABILIZADO","Contabiliza con tercero y proveedor existentes de igual identificación");
         await SupplierSyncTests.Run(cs,dir!.FullName,Check);
     }
     finally
