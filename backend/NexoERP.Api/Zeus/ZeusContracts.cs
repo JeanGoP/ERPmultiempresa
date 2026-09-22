@@ -8,7 +8,9 @@ public sealed record ZeusAccount(string Concepto, string Cuenta, decimal? Tarifa
 public sealed record ZeusSupplier(long ProveedorId, string CodigoProveedor, string CodigoTercero);
 public sealed record ZeusSettings(bool Habilitado, string ServidorEsperado, string BaseEsperada, string Fuente,
     string Serie, string UnidadNegocio, string UsuarioZeus, string TipoFactura,
-    ZeusAccount[] Cuentas, ZeusSupplier[] Proveedores);
+    ZeusAccount[] Cuentas, ZeusSupplier[] Proveedores,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ZeusSourceRoute[]? FuentesAutomaticas=null,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? SucursalOperacion=null);
 public sealed record ZeusSettingsRequest(int Version, ZeusSettings Configuracion);
 public sealed record ZeusTax(string Concepto, decimal Tarifa, decimal Base, decimal Valor,long? BodegaId=null);
 public sealed record ZeusPreviewRequest(ZeusTax[] Impuestos, ZeusTax[] Retenciones);
@@ -56,6 +58,7 @@ public static class ZeusJournal
         "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "DESCUENTO", "REDONDEO"];
     public static void Validate(ZeusSettings s)
     {
+        ZeusRouting.Validate(s.FuentesAutomaticas);
         Text(s.ServidorEsperado, 150); Text(s.BaseEsperada, 128); Text(s.Fuente, 2);
         if(s.Fuente.Length != 2 || s.Serie is null || s.Serie.Length != 2 || s.Serie.Any(c=>c<'0'||c>'9'))
             throw new ArgumentException("Fuente y serie deben tener dos caracteres; la serie debe ser numérica.");

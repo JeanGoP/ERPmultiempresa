@@ -26,6 +26,14 @@ public static class ZeusModule
             catch(ArgumentException e) { return Results.BadRequest(new {error=e.Message}); }
             catch(InvalidOperationException) { return Results.Conflict(new {error="Zeus no confirmó los datos esperados; requiere revisión."}); }
         });
+        group.MapGet("/routing-users",async(long empresaId,TenantConnectionFactory connections,CancellationToken ct)=>
+        {
+            await using var c=await connections.OpenAsync(empresaId,false,ct);
+            await using var q=ZeusRepository.Command(c,"SELECT u.UsuarioId,u.NombreCompleto FROM seg.Usuario u WHERE u.Activo=1 AND (u.EsSuperAdministrador=1 OR EXISTS(SELECT 1 FROM seg.UsuarioEmpresaRol ur WHERE ur.EmpresaId=@E AND ur.UsuarioId=u.UsuarioId AND ur.Activo=1)) ORDER BY u.NombreCompleto",empresaId);
+            await using var reader=await q.ExecuteReaderAsync(ct);var users=new List<object>();
+            while(await reader.ReadAsync(ct))users.Add(new{usuarioId=reader.GetInt64(0),nombre=reader.GetString(1)});
+            return Results.Ok(users);
+        }).RequireErpPermission(admin);
         group.MapGet("/warehouses/{warehouseId:long}/accounts",async(long empresaId,long warehouseId,ZeusWarehouseRepository warehouses,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
         {
             var saved=await warehouses.GetAsync(empresaId,warehouseId,ct);
@@ -130,8 +138,8 @@ public static class ZeusModule
             try { return Results.Ok(await transport.CheckAsync(empresaId,settings.Configuracion,ct)); }
             catch(SqlException) { return Results.Json(new {error="No se pudo verificar la conexión o el contrato de Zeus."},statusCode:502); }
         }).RequireErpPermission(admin);
-        group.MapPost("/receipts/{receiptId:long}/preview",async(long empresaId,long receiptId,ZeusPreviewRequest input,ZeusRepository repo,CancellationToken ct)=>
-            Results.Ok(await repo.PreviewAsync(empresaId,receiptId,input,ct))).RequireErpPermission(posting);
+        group.MapPost("/receipts/{receiptId:long}/preview",async(long empresaId,long receiptId,ZeusPreviewRequest input,HttpContext http,ZeusRepository repo,CancellationToken ct)=>
+            Results.Ok(await repo.PreviewAsync(empresaId,receiptId,input,ct,Convert.ToInt64(http.Items["UsuarioId"])))).RequireErpPermission(posting);
         group.MapPost("/receipts/{receiptId:long}/approve",async(long empresaId,long receiptId,ZeusApproveRequest input,HttpContext http,ZeusRepository repo,CancellationToken ct)=>
         {
             var id=await repo.ApproveAsync(empresaId,receiptId,Convert.ToInt64(http.Items["UsuarioId"]),input,ct);

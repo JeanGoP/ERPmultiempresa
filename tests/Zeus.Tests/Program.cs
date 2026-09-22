@@ -17,6 +17,7 @@ var input=new ZeusPreviewRequest([new("IVA",19,100,19)],[new("RETEFUENTE",2.5m,1
 var journal=ZeusJournal.Build(settings,source,input);
 TaxRoundingTests.Run(Check,Reject,settings,source);
 LineRoundingTests.Run(Check,settings,source);
+RoutingTests.Run(Check,Reject,settings);
 var generalRetention=settings with{Cuentas=[..settings.Cuentas.Where(a=>a.Concepto!="RETEFUENTE"),new("RETEFUENTE","236599")]};
 Check(ZeusJournal.Build(generalRetention,source,input).Movimientos.Single(m=>m.Regla.Concepto=="RETEFUENTE").Regla.Cuenta=="236599","Retención usa cuenta general de empresa cuando no hay tarifa específica");
 var rateRetention=generalRetention with{Cuentas=[..generalRetention.Cuentas,new("RETEFUENTE","236525",2.5m)]};

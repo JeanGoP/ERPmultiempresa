@@ -36,9 +36,16 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
     public async Task SaveSettingsAsync(long company,long user,ZeusSettingsRequest input,CancellationToken ct)
     {
         if(input.Configuracion is null) throw new ArgumentException("Falta la configuración.");
+        input=input with{Configuracion=input.Configuracion with{SucursalOperacion=null}};
         ZeusJournal.Validate(input.Configuracion);
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
+        foreach(var assigned in (input.Configuracion.FuentesAutomaticas??[]).SelectMany(r=>r.Usuarios).Distinct())
+        {
+            await using var member=Command(c,"SELECT COUNT(*) FROM seg.Usuario u WHERE u.UsuarioId=@A AND u.Activo=1 AND (u.EsSuperAdministrador=1 OR EXISTS(SELECT 1 FROM seg.UsuarioEmpresaRol ur WHERE ur.EmpresaId=@E AND ur.UsuarioId=u.UsuarioId AND ur.Activo=1))",company,tx);
+            Add(member,"@A",assigned);
+            if(Convert.ToInt32(await member.ExecuteScalarAsync(ct))==0)throw new ArgumentException("Una fuente está asignada a un usuario inactivo o ajeno a la empresa.");
+        }
         await using var q=Command(c,"""
             IF EXISTS(SELECT 1 FROM core.ZeusEnvio WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND Estado IN('PENDIENTE','ENVIANDO','INCIERTO'))
                 THROW 51701,'Hay envios pendientes o inciertos; resuelvelos antes de cambiar la configuracion.',1;
@@ -54,11 +61,24 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
         Add(q,"@V",input.Version); Add(q,"@U",user); Add(q,"@J",JsonSerializer.Serialize(input.Configuracion));
         await q.ExecuteNonQueryAsync(ct); await tx.CommitAsync(ct);
     }
-    private static async Task<ZeusSnapshot> BuildAsync(SqlConnection c,SqlTransaction tx,long company,long receipt,ZeusPreviewRequest input,CancellationToken ct)
+    private static async Task<ZeusSnapshot> BuildAsync(SqlConnection c,SqlTransaction tx,long company,long receipt,ZeusPreviewRequest input,CancellationToken ct,long user=0)
     {
         await using var q=Command(c,"SELECT Configuracion FROM core.ZeusConfiguracion WITH(HOLDLOCK) WHERE EmpresaId=@E",company,tx);
         var json=await q.ExecuteScalarAsync(ct) as string ?? throw new ArgumentException("Configura primero la integración de esta empresa.");
         var settings=JsonSerializer.Deserialize<ZeusSettings>(json)!;
+        await using(var frozen=Command(c,"SELECT Snapshot FROM core.ZeusEnvio WITH(HOLDLOCK) WHERE EmpresaId=@E AND RecepcionMercanciaId=@Receipt",company,tx))
+        {
+            Add(frozen,"@Receipt",receipt);
+            var saved=await frozen.ExecuteScalarAsync(ct) as string;
+            if(saved is not null)
+            {
+                var previous=JsonSerializer.Deserialize<ZeusSnapshot>(saved)!.Configuracion;
+                if(previous.ServidorEsperado!=settings.ServidorEsperado||previous.BaseEsperada!=settings.BaseEsperada)
+                    throw new ArgumentException("El destino Zeus del documento cambió. Requiere conciliación antes de reenviar.");
+                settings=settings with{Fuente=previous.Fuente,Serie=previous.Serie,SucursalOperacion=previous.SucursalOperacion};
+            }
+            else settings=ZeusRouting.Resolve(settings,user,"ENTRADA_MERCANCIA");
+        }
         q.CommandText="""
             SELECT r.TerceroId,d.NumeroDocumento,r.FechaContable,d.FechaDocumento,COALESCE(d.FechaVencimiento,d.FechaDocumento),
                 d.TotalPagar,d.ImpuestoTotal,d.Moneda,d.CargoTotal,d.DocumentoProveedorId,t.DivisionPoliticaZeus,t.NumeroIdentificacion,t.RazonSocial,d.XmlOriginal
@@ -135,11 +155,11 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
         return ZeusJournal.Build(settings,new(receipt,supplier,invoice,date,issued,due,total,taxes,withholding,lines.ToArray(),division,supplierName),input);
     }
     public static string Fingerprint(ZeusSnapshot snapshot)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(SerializeSnapshot(snapshot))));
-    public async Task<object> PreviewAsync(long company,long receipt,ZeusPreviewRequest input,CancellationToken ct)
+    public async Task<object> PreviewAsync(long company,long receipt,ZeusPreviewRequest input,CancellationToken ct,long user=0)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
-        var result=await BuildAsync(c,tx,company,receipt,input,ct);
+        var result=await BuildAsync(c,tx,company,receipt,input,ct,user);
         await tx.CommitAsync(ct);
         return new { huella=Fingerprint(result),comprobante=result,debito=result.Movimientos.Where(l=>l.Valor>0).Sum(l=>l.Valor),credito=-result.Movimientos.Where(l=>l.Valor<0).Sum(l=>l.Valor),validadoEnZeus=false };
     }
@@ -147,7 +167,7 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
-        var snapshot=await BuildAsync(c,tx,company,receipt,new(input.Impuestos,input.Retenciones),ct);
+        var snapshot=await BuildAsync(c,tx,company,receipt,new(input.Impuestos,input.Retenciones),ct,user);
         if(!snapshot.Configuracion.Habilitado) throw new ArgumentException("El envío a Zeus está desactivado para esta empresa.");
         if(input.Huella!=Fingerprint(snapshot)) throw new ArgumentException("La vista previa cambió; revísala y aprueba su nueva huella.");
         await using var q=Command(c,"""

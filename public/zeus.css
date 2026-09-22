@@ -2,6 +2,8 @@
 @media(max-width:700px){.zeus-heading{align-items:flex-start}.zeus-heading h1{font-size:28px}.zeus-card{padding:16px}.zeus-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.zeus-grid{grid-template-columns:1fr}.zeus-toolbar label{min-width:0;width:100%}.zeus-tabs button{padding:12px 8px}.zeus-form-end{align-items:stretch;flex-direction:column}.zeus-pagination{font-size:12px}.zeus-scroll table{min-width:700px}}
 .zeus-supplier-dialog { width: min(760px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; padding: 24px; border: 1px solid var(--line); border-radius: 16px; color: var(--ink); background: var(--surface); }
 .zeus-supplier-dialog::backdrop { background: rgba(0,0,0,.4); }
+.zeus-source-rule { padding: 12px; margin: 12px 0; border: 1px solid #d8e2dd; border-radius: 8px; }
+#zeusSettingsForm .zeus-source-rule select[multiple] { height: 88px; }
 .zeus-supplier-dialog label { display: grid; gap: 8px; }
 .zeus-supplier-dialog select, .zeus-supplier-dialog input { width: 100%; min-width: 0; padding: 10px; }
 

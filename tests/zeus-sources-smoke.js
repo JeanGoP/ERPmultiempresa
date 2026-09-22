@@ -1,0 +1,14 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const context=vm.createContext({zeusEscape:s=>String(s).replaceAll('<','&lt;'),zeusUI:{},$:()=>null});
+vm.runInContext(fs.readFileSync('public/zeus-sources.js','utf8'),context);
+const html=context.zeusSourcesSection({fuentesAutomaticas:[{sucursal:'Norte<script>',movimiento:'ENTRADA_MERCANCIA',fuente:'13',serie:'00',usuarios:[7]}]});
+assert.match(html,/Fuentes automáticas/);assert.match(html,/Norte&lt;script>/);assert.match(html,/value="13"/);assert.match(html,/value="7" selected/);
+assert.match(html,/preparación/);assert.match(html,/Predeterminada del movimiento/);
+assert.equal(context.zeusReadSources({fuentesAutomaticas:null}),null);
+const row=(user,scope='users')=>({querySelector:selector=>{const name=selector.match(/name=([^\]]+)/)[1];return name==='sourceUsers'?{selectedOptions:user.map(value=>({value}))}:{value:({sourceBranch:'Principal',sourceMovement:'ENTRADA_MERCANCIA',sourceCode:'12',sourceSeries:'00',sourceScope:scope})[name]};}});
+context.$=()=>({});context.document={querySelectorAll:()=>[row(['7'])]};
+assert.equal(context.zeusReadSources({})[0].usuarios[0],7);
+context.document.querySelectorAll=()=>[row(['7']),row(['7'])];assert.throws(()=>context.zeusReadSources({}),/dos fuentes/);
+context.document.querySelectorAll=()=>[row([])];assert.throws(()=>context.zeusReadSources({}),/Selecciona/);
+context.document.querySelectorAll=()=>[row([],'default'),row([],'default')];assert.throws(()=>context.zeusReadSources({}),/predeterminada/);
+console.log('Fuentes automáticas UI: persistencia, escape, asignación explícita y ambigüedad verificados.');

@@ -38,7 +38,7 @@ public sealed partial class ZeusRepository
                 xml=reader.IsDBNull(0)?null:reader.GetString(0);retention=reader.GetDecimal(1);
                 await reader.NextResultAsync(ct);while(await reader.ReadAsync(ct))warehouses.Add(reader.GetString(0),reader.IsDBNull(1)?null:reader.GetInt64(1));
             }
-            snapshot=await BuildAsync(c,tx,company,receipt,ZeusXmlTaxes.Parse(xml,warehouses,retention),ct);
+            snapshot=await BuildAsync(c,tx,company,receipt,ZeusXmlTaxes.Parse(xml,warehouses,retention),ct,user);
         }
         catch(ArgumentException e)
         {
