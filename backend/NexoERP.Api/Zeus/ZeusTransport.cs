@@ -1,5 +1,5 @@
 using System.Data;
-using System.Text.Json;
+using System.Xml.Linq;
 using Microsoft.Data.SqlClient;
 
 namespace NexoERP.Api.Zeus;
@@ -95,14 +95,20 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
                     throw new InvalidOperationException("El tercero o proveedor no existe en Zeus. Envía el proveedor desde el maestro y vuelve a preparar la entrada.");
             }
             q.CommandText="""
-                IF EXISTS(SELECT 1 FROM OPENJSON(@Accounts) WITH(Cuenta varchar(20),Proveedor bit) a
+                IF EXISTS(SELECT 1 FROM
+                    (SELECT n.value('@Cuenta','varchar(20)') Cuenta,n.value('@Proveedor','bit') Proveedor
+                     FROM @Accounts.nodes('/Cuentas/Cuenta') x(n)) a
                     LEFT JOIN dbo.MAECONT m ON m.CODICTA=a.Cuenta
                     WHERE m.CODICTA IS NULL OR ISNULL(m.HABILITARCTA,0)<>1 OR ISNULL(m.TIPOCTA,'')<>'D'
                        OR (a.Proveedor=1 AND ISNULL(m.INDCPICTA,0)<>3)
                        OR (a.Proveedor=0 AND m.INDCPICTA IN(2,3,6)))
                     THROW 51711,'Cuenta no habilitada o incompatible con su concepto en la entrada.',1;
                 """;
-            q.Parameters.Add("@Accounts",SqlDbType.NVarChar,-1).Value=JsonSerializer.Serialize(s.Movimientos.Select(m=>new {Cuenta=m.Regla.Cuenta,Proveedor=m.Regla.Concepto=="PROVEEDOR"}));
+            // Zeus puede conservar compatibilidad 100: XML evita depender de OPENJSON (130+).
+            q.Parameters.Add("@Accounts",SqlDbType.Xml).Value=new XElement("Cuentas",s.Movimientos
+                .Select(m=>(m.Regla.Cuenta,Proveedor:m.Regla.Concepto=="PROVEEDOR")).Distinct()
+                .Select(a=>new XElement("Cuenta",new XAttribute("Cuenta",a.Cuenta),new XAttribute("Proveedor",a.Proveedor?1:0))))
+                .ToString(SaveOptions.DisableFormatting);
             await q.ExecuteNonQueryAsync(ct);q.Parameters.Clear();
             q.CommandText="dbo.spWSG_Contabilidad";q.CommandType=CommandType.StoredProcedure;
             q.Parameters.Add("@Iden",SqlDbType.Int).Value=16;

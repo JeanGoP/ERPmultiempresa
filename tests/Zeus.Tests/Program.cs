@@ -94,8 +94,12 @@ if(args.Contains("--sql"))
         var conf=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["Zeus:Companies:1:ConnectionString"]=cs}).Build();
         var transport=new ZeusTransport(conf);
         var testJournal=journal with{Configuracion=settings with{ServidorEsperado="(localdb)\\MSSQLLocalDB",BaseEsperada=db}};
+        setup.CommandText=$"ALTER DATABASE [{db}] SET COMPATIBILITY_LEVEL=100";await setup.ExecuteNonQueryAsync();
+        q.CommandText="SELECT * FROM OPENJSON(N'[]') WITH(Cuenta varchar(20),Proveedor bit)";
+        try{await q.ExecuteNonQueryAsync();throw new Exception("No reprodujo incompatibilidad");}
+        catch(SqlException e)when(e.Number is 319 or 208){Check(true,"Reproduce fallo de consulta anterior con compatibilidad Zeus 100");}
         var sent=await transport.SendAsync(1,testJournal,key,default);
-        Check(sent.Estado=="CONTABILIZADO" && sent.Documento=="0100000001","Transporte confirma después de verificar y commit");
+        Check(sent.Estado=="CONTABILIZADO" && sent.Documento=="0100000001","Compatibilidad 100: transporte confirma después de verificar y commit");
         var repeated=await transport.SendAsync(1,testJournal,key,default);
         q.CommandText="SELECT COUNT(*) FROM dbo.DOCUMENT";
         Check(repeated.Estado=="CONTABILIZADO" && Convert.ToInt32(await q.ExecuteScalarAsync())==1,"Reenvío con misma clave no duplica");
@@ -111,6 +115,15 @@ if(args.Contains("--sql"))
             Check(failed.Estado!="CONTABILIZADO" && Convert.ToInt32(await q.ExecuteScalarAsync())==0,"Rollback y sin falso éxito: "+mode);
         }
         q.Parameters.Clear();
+        q.CommandText="UPDATE dbo.TestMode SET Mode='OK'";await q.ExecuteNonQueryAsync();
+        foreach(var account in new[]{"999","2205","1435&<"})
+        {
+            var invalid=testJournal with{Movimientos=testJournal.Movimientos.Select((m,i)=>i==0?m with{Regla=m.Regla with{Cuenta=account}}:m).ToArray()};
+            var rejected=await transport.SendAsync(1,invalid,Guid.NewGuid(),default);
+            Check(rejected.Estado=="RECHAZADO"&&rejected.Error!.Contains("51711"),"Compatibilidad 100: rechaza cuenta inexistente, incompatible o especial sin perder validación: "+account);
+        }
+        q.CommandText="SELECT COUNT(*) FROM dbo.DOCUMENT";Check(Convert.ToInt32(await q.ExecuteScalarAsync())==0,"Cuentas rechazadas no dejan comprobantes en compatibilidad 100");
+        setup.CommandText=$"ALTER DATABASE [{db}] SET COMPATIBILITY_LEVEL=150";await setup.ExecuteNonQueryAsync();
         q.CommandText="""
             EXEC('CREATE SCHEMA core');EXEC('CREATE SCHEMA inv');EXEC('CREATE SCHEMA seg');EXEC('CREATE SCHEMA comp');EXEC('CREATE SCHEMA audit');
             CREATE TABLE core.SchemaMigration(MigrationId varchar(50) PRIMARY KEY,Descripcion nvarchar(250));
