@@ -48,7 +48,7 @@ static class AutomaticPostingTests
         q.CommandText="DELETE core.ZeusEnvio;UPDATE core.ZeusConfiguracion SET Configuracion=@Routes WHERE EmpresaId=1";
         var routed=settings with{FuentesAutomaticas=[new("Norte","ENTRADA_MERCANCIA","13","01",[1])]};
         q.Parameters.AddWithValue("@Routes",JsonSerializer.Serialize(routed));await q.ExecuteNonQueryAsync();q.Parameters.Clear();
-        check((await repo.RetryAutomaticAsync(1,20,1,default)).Estado=="PENDIENTE","Entrada usa asignación automática del usuario");
+        check((await repo.RetryAutomaticAsync(1,20,1,default)).Estado=="PENDIENTE","Entrada usa fuente automática de su sucursal");
         q.CommandText="SELECT Snapshot FROM core.ZeusEnvio WHERE EmpresaId=1 AND RecepcionMercanciaId=20";
         var routedSnapshot=JsonSerializer.Deserialize<ZeusSnapshot>((string)(await q.ExecuteScalarAsync())!)!;
         check(routedSnapshot.Configuracion.Fuente=="13"&&routedSnapshot.Configuracion.Serie=="01"&&routedSnapshot.Configuracion.SucursalOperacion=="Norte","Fuente, serie y sucursal quedan guardadas en el comprobante");
@@ -61,7 +61,7 @@ static class AutomaticPostingTests
         check(retried.Configuracion.Fuente=="13"&&retried.Configuracion.Serie=="01","Cambiar configuración no redirige comprobantes ya preparados");
         check(await repo.EligibleAsync(1,retried,default),"Reintento con fuente original sigue siendo elegible");
         try{await repo.SaveSettingsAsync(1,1,new(1,settings with{FuentesAutomaticas=[new("Ajena","ENTRADA_MERCANCIA","14","00",[999999])]}),default);throw new Exception("Aceptó usuario ajeno");}
-        catch(ArgumentException){check(true,"Configuración rechaza usuarios inexistentes o ajenos antes de guardar");}
+        catch(ArgumentException){check(true,"Configuración rechaza sucursal inexistente antes de guardar");}
         check((await purchasing.PostReceiptAsync(1,20,new(1,null),default)).YaExistia,"Repetición de botón no duplica contabilización ERP");
         q.CommandText="SELECT COUNT(*) FROM core.ZeusEnvio WHERE EmpresaId=1 AND RecepcionMercanciaId=20";check(Convert.ToInt32(await q.ExecuteScalarAsync())==1,"Una sola cola Zeus por entrada");
         q.CommandText="UPDATE core.ZeusEnvio SET Estado='INCIERTO'";await q.ExecuteNonQueryAsync();

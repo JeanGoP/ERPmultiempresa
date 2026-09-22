@@ -33,6 +33,11 @@ public sealed class BranchCatalogRepository(TenantConnectionFactory connections)
         {
             q.CommandText="SELECT Nombre FROM core.Sucursal WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND SucursalId=@Id";ZeusRepository.Add(q,"@Id",id.Value);
             var previous=await q.ExecuteScalarAsync(ct) as string??throw new ArgumentException("Sucursal no encontrada en esta empresa.");
+            if(!input.Activa)
+            {
+                q.CommandText="SELECT COUNT(*) FROM inv.Bodega WHERE EmpresaId=@E AND SucursalId=@Id AND Activa=1";
+                if(Convert.ToInt32(await q.ExecuteScalarAsync(ct))>0)throw new ArgumentException("La sucursal tiene bodegas activas asignadas. Reasígnalas antes de desactivarla.");
+            }
             var routes=json is null?[]:JsonSerializer.Deserialize<ZeusSettings>(json)!.FuentesAutomaticas??[];
             if(routes.Any(r=>(r.SucursalId==id||r.SucursalId is null&&string.Equals(r.Sucursal.Trim(),previous,StringComparison.OrdinalIgnoreCase))&&(!input.Activa||r.SucursalId is null&&input.Nombre!=previous)))
                 throw new ArgumentException("La sucursal está asignada a fuentes automáticas. Actualiza esas asignaciones antes de desactivarla; para renombrar una asignación antigua, guarda primero la configuración de fuentes con el selector.");

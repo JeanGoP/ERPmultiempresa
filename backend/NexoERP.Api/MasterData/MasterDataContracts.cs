@@ -18,5 +18,5 @@ public sealed record SaveSupplierRequest(
 public sealed record SaveUnitRequest(string Codigo,string Nombre,string Simbolo,long? UsuarioId);
 public sealed record SaveArticleRequest(string Codigo,string Descripcion,string Tipo,long UnidadBaseId,bool ManejaInventario,bool ManejaLote,bool ManejaSerial,bool RequiereVencimiento,decimal? PesoBaseKg,decimal? VolumenBaseM3,long? UsuarioId);
 public sealed record SaveArticleUnitRequest(long UnidadMedidaId,decimal FactorAUnidadBase,bool EsUnidadCompra,bool EsUnidadVenta,long? UsuarioId);
-public sealed record SaveWarehouseRequest(string Codigo,string Nombre,bool UsaUbicaciones,bool EsTransito,long? UsuarioId);
+public sealed record SaveWarehouseRequest(string Codigo,string Nombre,bool UsaUbicaciones,bool EsTransito,long? UsuarioId,long? SucursalId=null);
 public sealed record SaveItemMappingRequest(long TerceroId,string CodigoExterno,string? DescripcionExterna,long ArticuloId,long? UnidadMedidaId,decimal FactorAUnidadBase,long? UsuarioId);

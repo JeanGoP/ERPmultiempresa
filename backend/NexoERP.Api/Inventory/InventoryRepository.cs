@@ -62,7 +62,7 @@ public sealed class InventoryRepository(TenantConnectionFactory connections)
         await using var connection = await connections.OpenAsync(empresaId, false, cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT BodegaId, Codigo, Nombre, UsaUbicaciones, EsTransito
+            SELECT BodegaId, Codigo, Nombre, UsaUbicaciones, EsTransito,SucursalId
             FROM inv.Bodega
             WHERE EmpresaId=@EmpresaId AND Activa=1
             ORDER BY Nombre;
@@ -71,7 +71,7 @@ public sealed class InventoryRepository(TenantConnectionFactory connections)
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var result = new List<WarehouseResponse>();
         while (await reader.ReadAsync(cancellationToken))
-            result.Add(new(reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetBoolean(3), reader.GetBoolean(4)));
+            result.Add(new(reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetBoolean(3), reader.GetBoolean(4),reader.IsDBNull(5)?null:reader.GetInt64(5)));
         return result;
     }
 

@@ -38,7 +38,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddZeus();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.22.2";
+const string ReleaseVersion="2026.09.22.3";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -525,6 +525,7 @@ app.MapPost("/api/v1/companies/{empresaId:long}/receipts/{recepcionId:long}/post
     {
         return Results.Ok(await purchasing.PostReceiptAsync(empresaId, recepcionId, input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) }, cancellationToken));
     }
+    catch(ArgumentException error){return Results.BadRequest(new{error=error.Message});}
     catch (SqlException error) when (error.Number is >= 51500 and <= 51599)
     {
         return Results.Conflict(new { error = error.Message, code = error.Number });

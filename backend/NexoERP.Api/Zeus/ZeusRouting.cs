@@ -19,17 +19,17 @@ public static class ZeusRouting
         {
             if(group.GroupBy(r=>r.Sucursal.Trim(),StringComparer.OrdinalIgnoreCase).Any(g=>g.Select(r=>(r.Fuente,r.Serie)).Distinct().Count()>1))
                 throw new ArgumentException("Una sucursal debe tener la misma fuente y serie para el mismo movimiento.");
-            if(group.Count(r=>r.Usuarios.Length==0)>1||group.SelectMany(r=>r.Usuarios).GroupBy(u=>u).Any(g=>g.Count()>1))
-                throw new ArgumentException("Cada movimiento admite una sola fuente predeterminada y una sola asignación por usuario.");
+            if(group.Where(r=>r.SucursalId.HasValue).GroupBy(r=>r.SucursalId).Any(g=>g.Select(r=>(r.Fuente,r.Serie)).Distinct().Count()>1))
+                throw new ArgumentException("Cada sucursal y movimiento admite una sola fuente y serie.");
         }
     }
-    public static ZeusSettings Resolve(ZeusSettings settings,long user,string movement)
+    public static ZeusSettings Resolve(ZeusSettings settings,long branch,string movement,string? branchName=null)
     {
         Validate(settings.FuentesAutomaticas);
         var rules=(settings.FuentesAutomaticas??[]).Where(r=>r.Movimiento==movement).ToArray();
         if(rules.Length==0)return settings;
-        var route=rules.SingleOrDefault(r=>r.Usuarios.Contains(user))??rules.SingleOrDefault(r=>r.Usuarios.Length==0)
-            ??throw new ArgumentException("El usuario no tiene una fuente automática asignada para este movimiento. Configúrala en Integración Zeus → Fuentes automáticas.");
+        var route=rules.FirstOrDefault(r=>r.SucursalId==branch||r.SucursalId is null&&string.Equals(r.Sucursal.Trim(),branchName?.Trim(),StringComparison.OrdinalIgnoreCase))
+            ??throw new ArgumentException("La sucursal no tiene fuente para este movimiento. Configúrala en Integración Zeus → Fuentes automáticas.");
         return settings with{Fuente=route.Fuente,Serie=route.Serie,SucursalOperacion=route.Sucursal};
     }
 }

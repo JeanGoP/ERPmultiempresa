@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Globalization;
 using NexoERP.Api.MasterData;
+using NexoERP.Api.Purchasing;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
 
@@ -48,7 +49,7 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             foreach(var route in input.Configuracion.FuentesAutomaticas)
             {
                 var branch=await BranchCatalogRepository.ResolveAsync(c,tx,company,route,ct);
-                routes.Add(route with{SucursalId=branch.Id,Sucursal=branch.Nombre});
+                routes.Add(route with{SucursalId=branch.Id,Sucursal=branch.Nombre,Usuarios=[]});
             }
             input=input with{Configuracion=input.Configuracion with{FuentesAutomaticas=routes.ToArray()}};
             ZeusRouting.Validate(input.Configuracion.FuentesAutomaticas);
@@ -92,15 +93,12 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             }
             else
             {
-                var resolved=ZeusRouting.Resolve(settings,user,"ENTRADA_MERCANCIA");
                 var rules=(settings.FuentesAutomaticas??[]).Where(r=>r.Movimiento=="ENTRADA_MERCANCIA").ToArray();
-                var route=rules.SingleOrDefault(r=>r.Usuarios.Contains(user))??rules.SingleOrDefault(r=>r.Usuarios.Length==0);
-                if(route is not null)
+                if(rules.Length>0)
                 {
-                    var branch=await BranchCatalogRepository.ResolveAsync(c,tx,company,route,ct);
-                    resolved=resolved with{SucursalOperacion=branch.Nombre};
+                    var branch=await ReceiptBranch.ResolveAsync(c,tx,company,receipt,null,ct);
+                    settings=ZeusRouting.Resolve(settings,branch.Id,"ENTRADA_MERCANCIA",branch.Name) with{SucursalOperacion=branch.Name};
                 }
-                settings=resolved;
             }
         }
         q.CommandText="""

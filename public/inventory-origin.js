@@ -22,13 +22,25 @@ async function chooseReceiptWarehouses(path){
     form.append(originField('Bodega general',general));
     const table=buildDataTable(['Artículo','Cantidad','Bodega de llegada'],rows.map(x=>[x.codigo+' · '+x.descripcion,x.cantidad,'']));
     const selects=rows.map((x,i)=>{const select=originWarehouseSelect(x.bodegaId);select.setAttribute('aria-label','Bodega para '+x.codigo);table.querySelectorAll('tbody tr')[i].lastElementChild.append(select);return select;});
-    general.addEventListener('change',()=>selects.forEach(x=>{x.value=general.value;}));
+    const branch=document.createElement('select');const branchField=originField('Sucursal que registra la entrada',branch);branchField.hidden=true;
+    const branchError=document.createElement('p');branchError.className='login-error';branchError.setAttribute('role','alert');
+    const refreshBranch=()=>{
+      const ids=selects.map(select=>state.apiContext?.warehouses?.find(w=>w.bodegaId===Number(select.value))?.sucursalId);
+      const unique=[...new Set(ids.filter(Boolean))];const old=branch.value;branch.replaceChildren(new Option('Selecciona sucursal…',''));
+      unique.forEach(id=>{const item=state.apiContext?.masterData?.branches?.find(b=>b.id===id&&b.activa);if(item)branch.add(new Option(item.codigo+' · '+item.nombre,id));});
+      branchField.hidden=unique.length<=1;branch.required=unique.length>1;
+      branch.value=unique.length===1?String(unique[0]):unique.includes(Number(old))?old:'';
+      branchError.textContent=ids.some(id=>!id)||branch.options.length!==unique.length+1?'Asigna una sucursal activa a cada bodega en Datos maestros → Bodegas.':'';
+    };
+    selects.forEach(select=>select.addEventListener('change',refreshBranch));
+    general.addEventListener('change',()=>{selects.forEach(x=>{x.value=general.value;});refreshBranch();});
     const scroll=document.createElement('div');scroll.className='origin-scroll';scroll.append(table);form.append(scroll);
+    form.append(branchField,branchError);refreshBranch();
     const actions=document.createElement('div');actions.className='saved-detail-actions';
     const cancel=document.createElement('button');cancel.type='button';cancel.className='button secondary';cancel.textContent='Cancelar';cancel.onclick=()=>dialog.close();
     const confirm=document.createElement('button');confirm.type='submit';confirm.className='button primary';confirm.textContent='Confirmar bodegas y contabilizar';actions.append(cancel,confirm);form.append(actions);dialog.append(form);
     let completed=false;
-    form.onsubmit=event=>{event.preventDefault();if(company!==state.erpSession?.company?.id){dialog.close();return;}completed=true;resolve(rows.map((x,i)=>({recepcionMercanciaLineaId:x.recepcionMercanciaLineaId,bodegaId:Number(selects[i].value)})));dialog.close();};
+    form.onsubmit=event=>{event.preventDefault();if(company!==state.erpSession?.company?.id){dialog.close();return;}refreshBranch();if(branchError.textContent||!branch.value)return;completed=true;resolve({bodegas:rows.map((x,i)=>({recepcionMercanciaLineaId:x.recepcionMercanciaLineaId,bodegaId:Number(selects[i].value)})),sucursalId:Number(branch.value)});dialog.close();};
     dialog.addEventListener('close',()=>{dialog.remove();if(!completed)reject(new Error('Contabilización cancelada. El borrador se conserva.'));},{once:true});dialog.showModal();
   });
 }

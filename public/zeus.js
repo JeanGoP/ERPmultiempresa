@@ -88,7 +88,7 @@ async function zeusLoadTab(scope){
     if(!zeusCurrent(scope))return;
     zeusUI.version=saved?.version||0;zeusUI.settings=saved?.configuracion||{habilitado:false,servidorEsperado:'',baseEsperada:'',fuente:'',serie:'',unidadNegocio:'',usuarioZeus:'',tipoFactura:'',cuentas:[],proveedores:[]};zeusUI.dirty=false;zeusRenderSettings();
     await Promise.all([zeusAutoLoadSupplierChart(scope),zeusAutoLoadRetentionChart(scope)]);
-    if(typeof zeusLoadSourceUsers==='function')await zeusLoadSourceUsers(scope);
+    if(typeof zeusLoadSourceBranches==='function')await zeusLoadSourceBranches(scope);
   }else if(zeusUI.tab==='prepare'){
     zeusUI.preview=null;zeusUI.receipt=null;
     $('#zeusContent').innerHTML='<div class="zeus-card"><h2>Entradas contabilizadas en el ERP</h2><p>Primero selecciona una factura. La fecha contable se toma de la entrada.</p><form id="zeusSearchForm" class="zeus-toolbar"><label>Factura o proveedor<input name="q" maxlength="100" placeholder="Buscar por número o nombre"></label><button type="submit" class="button secondary">Buscar</button></form><div id="zeusReceipts" class="zeus-scroll"></div></div><div id="zeusPreparation"></div>';

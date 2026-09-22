@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using NexoERP.Api.Data;
 using NexoERP.Api.MasterData;
 using NexoERP.Api.Zeus;
+using NexoERP.Api.Purchasing;
 
 static class BranchCatalogTests
 {
@@ -15,6 +16,10 @@ static class BranchCatalogTests
         q.Parameters.AddWithValue("@J",JsonSerializer.Serialize(settings with{FuentesAutomaticas=[new("Norte","ENTRADA_MERCANCIA","13","01",[1])]}));await q.ExecuteNonQueryAsync();q.Parameters.Clear();
         var migration=await File.ReadAllTextAsync(Path.Combine(root,"database","migrations","055_company_branches.sql"));
         for(var pass=0;pass<2;pass++)foreach(var batch in Regex.Split(migration,@"(?im)^\s*GO\s*$")){if(string.IsNullOrWhiteSpace(batch))continue;q.CommandText=batch;await q.ExecuteNonQueryAsync();}
+        q.CommandText="ALTER TABLE inv.Bodega ADD Codigo nvarchar(30),Nombre nvarchar(120),UsaUbicaciones bit NOT NULL DEFAULT 0,EsTransito bit NOT NULL DEFAULT 0";await q.ExecuteNonQueryAsync();
+        var routingMigration=await File.ReadAllTextAsync(Path.Combine(root,"database","migrations","056_receipt_branch_routing.sql"));
+        for(var pass=0;pass<2;pass++)foreach(var batch in Regex.Split(routingMigration,@"(?im)^\s*GO\s*$")){if(string.IsNullOrWhiteSpace(batch))continue;q.CommandText=batch;await q.ExecuteNonQueryAsync();}
+        check(true,"Migración 056 idempotente y relaciones por empresa creadas");
         var factory=new TenantConnectionFactory(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{{"ConnectionStrings:NexoErp",cs}}).Build());
         var repo=new BranchCatalogRepository(factory);
         var migrated=(await repo.ListAsync(1,default)).Single();
@@ -44,5 +49,25 @@ static class BranchCatalogTests
         }
         q.CommandText="SELECT COUNT(*) FROM core.Sucursal WHERE EmpresaId=2";check(Convert.ToInt32(await q.ExecuteScalarAsync())==0,"RLS filtra catálogo aun consultando empresa ajena directamente");
         q.CommandText="SELECT COUNT(*) FROM audit.Evento WHERE Operacion='GUARDAR_SUCURSAL'";check(Convert.ToInt32(await q.ExecuteScalarAsync())>=3,"Cambios de sucursales quedan auditados");
+        q.CommandText="UPDATE inv.Bodega SET SucursalId=@B WHERE EmpresaId=1";q.Parameters.AddWithValue("@B",migrated.Id);await q.ExecuteNonQueryAsync();q.Parameters.Clear();
+        var south=await repo.SaveAsync(1,null,new("SUR","Sur",true),1,default);
+        await using(var tenant=await factory.OpenAsync(1,false,default))
+        {
+            await using var tx=(SqlTransaction)await tenant.BeginTransactionAsync();
+            var automatic=await ReceiptBranch.ResolveAsync(tenant,tx,1,20,null,default);
+            check(automatic.Id==migrated.Id,"Bodega única determina sucursal automáticamente");
+            await using var edit=tenant.CreateCommand();edit.Transaction=tx;
+            edit.CommandText="INSERT inv.RecepcionMercanciaLinea(EmpresaId,RecepcionMercanciaId,DocumentoProveedorLineaId,BodegaId) VALUES(1,20,9999,2)";await edit.ExecuteNonQueryAsync();
+            check((await ReceiptBranch.ResolveAsync(tenant,tx,1,20,null,default)).Id==migrated.Id,"Varias bodegas de una sucursal no requieren escoger");
+            edit.CommandText="UPDATE inv.Bodega SET SucursalId=@South WHERE EmpresaId=1 AND BodegaId=2";edit.Parameters.AddWithValue("@South",south);await edit.ExecuteNonQueryAsync();
+            await Reject(async()=>{await ReceiptBranch.ResolveAsync(tenant,tx,1,20,null,default);},"Bodegas de distintas sucursales requieren sucursal contable");
+            await Reject(async()=>{await ReceiptBranch.ResolveAsync(tenant,tx,1,20,id,default);},"No acepta sucursal ajena a la distribución");
+            check((await ReceiptBranch.ResolveAsync(tenant,tx,1,20,south,default)).Id==south,"Permite elegir sucursal participante en entrada mixta");
+            await ReceiptBranch.SaveAsync(tenant,tx,1,20,south,1,default);
+            edit.CommandText="UPDATE inv.Bodega SET SucursalId=NULL WHERE EmpresaId=1";await edit.ExecuteNonQueryAsync();
+            check((await ReceiptBranch.ResolveAsync(tenant,tx,1,20,null,default)).Id==south,"Sucursal guardada no cambia al reasignar bodegas");
+            await Reject(async()=>{await ReceiptBranch.ResolveAsync(tenant,tx,1,20,migrated.Id,default);},"No permite cambiar sucursal fijada de la entrada");
+            await tx.RollbackAsync();
+        }
     }
 }

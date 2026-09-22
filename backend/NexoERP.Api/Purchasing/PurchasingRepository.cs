@@ -940,6 +940,11 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             result=new(reader.GetInt64(0),reader.GetString(1),reader.GetInt32(2),reader.GetBoolean(3));
             do { while(await reader.ReadAsync(cancellationToken)){} } while(await reader.NextResultAsync(cancellationToken));
         }
+        if(!result.YaExistia)
+        {
+            var branch=await ReceiptBranch.ResolveAsync(connection,transaction,empresaId,recepcionId,input.SucursalId,cancellationToken);
+            await ReceiptBranch.SaveAsync(connection,transaction,empresaId,recepcionId,branch.Id,input.UsuarioId??throw new ArgumentException("Falta el usuario."),cancellationToken);
+        }
         var zeus=await ZeusRepository.EnqueueAutomaticAsync(connection,transaction,empresaId,recepcionId,input.UsuarioId??throw new ArgumentException("Falta el usuario que contabiliza la entrada."),cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return result with{Zeus=zeus};
