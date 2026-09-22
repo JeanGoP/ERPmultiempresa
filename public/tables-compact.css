@@ -1,0 +1,69 @@
+/* Densidad uniforme de las tablas de pantalla. No modifica informes impresos.
+   Las prioridades explícitas sustituyen los tamaños propios de cada módulo. */
+@media screen {
+  body table { border-collapse: collapse; font-size: 12px; line-height: 1.35; }
+  body table th,
+  body table td {
+    padding: 6px 8px !important;
+    border: 1px solid #dce2e7;
+    vertical-align: middle;
+    font-size: 12px !important;
+    line-height: 1.35 !important;
+    overflow-wrap: anywhere;
+  }
+  body table thead th,
+  body table > tr > th {
+    color: #31547c !important;
+    background: #eef4fc !important;
+    font-weight: 650;
+    text-transform: none;
+    letter-spacing: normal;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+  }
+  body table tbody tr:nth-child(odd) { background-color: #fff; }
+  body table tbody tr:nth-child(even) { background-color: #f7f8fa; }
+  body table tbody tr:hover,
+  body table tbody tr:focus-within { background-color: #edf4fb; }
+  body table tfoot th,
+  body table tfoot td { background: #eef3f6; font-weight: 700; border-top: 2px solid #c6d2de; }
+  body table td:first-child { font-family: inherit; }
+  body table td small { font-size: 11px !important; line-height: 1.3; margin-top: 2px !important; letter-spacing: normal; }
+  body table td .button,
+  body table td button {
+    min-height: 28px !important;
+    padding: 4px 8px !important;
+    border-radius: 4px;
+    font-size: 11px !important;
+    line-height: 1.3;
+  }
+  body table td input:not([type=checkbox]):not([type=radio]),
+  body table td select {
+    min-height: 30px !important;
+    padding: 4px 7px !important;
+    border-radius: 4px;
+    font-size: 12px !important;
+    line-height: 1.35;
+    box-sizing: border-box;
+    max-width: 100%;
+  }
+  body table td textarea { min-height: 48px; padding: 6px 8px; font-size: 12px; }
+  body table td :is(.status-pill,.mapping-status,.security-badge,.saved-purchase-badge,.warehouse-issue-badge,.zeus-badge) {
+    padding: 3px 6px !important;
+    border-radius: 3px !important;
+    border-left: 3px solid currentColor;
+    font-size: 10px !important;
+    line-height: 1.3;
+    letter-spacing: normal;
+  }
+  body table .master-row-actions { gap: 4px; min-width: 0; flex-wrap: wrap; }
+  body table .zeus-error-detail { line-height: 1.4; margin-bottom: 4px; }
+  body :is(.master-table,.security-table,.saved-purchases-table,.inventory-table) { min-height: 0; }
+  /* Los controles siguen siendo fáciles de pulsar en dispositivos táctiles. */
+  @media (pointer: coarse) {
+    body table td button,
+    body table td .button,
+    body table td input:not([type=checkbox]):not([type=radio]),
+    body table td select { min-height: 40px !important; }
+  }
+}
