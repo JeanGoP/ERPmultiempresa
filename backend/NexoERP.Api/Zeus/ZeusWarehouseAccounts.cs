@@ -5,7 +5,7 @@ using NexoERP.Api.Data;
 
 namespace NexoERP.Api.Zeus;
 
-public sealed record ZeusChartAccount(string Codigo,string Nombre);
+public sealed record ZeusChartAccount(string Codigo,string Nombre,decimal? Tarifa=null,bool? BaseEsValorRetenido=null);
 public sealed record ZeusWarehouseAccounts(string Inventario,string IvaCompras,string IvaVentas,
     string IvaDevolucionVentas,string Ingreso,string CostoVenta,string DevolucionVenta)
 {
@@ -44,7 +44,9 @@ public sealed partial class ZeusTransport
                     if(r["HABILITARCTA"] is DBNull||Convert.ToInt32(r["HABILITARCTA"])!=1||Convert.ToString(r["TIPOCTA"])?.Trim()!="D")continue;
                     var indicator=r["INDCPICTA"] is DBNull?0:Convert.ToInt32(r["INDCPICTA"]);
                     if(suppliers?indicator!=3:new[]{2,3,6}.Contains(indicator))continue;
-                    accounts.Add(new(Convert.ToString(r["CODICTA"])!.Trim(),Convert.ToString(r["DESCCTA"])!.Trim()));
+                    accounts.Add(new(Convert.ToString(r["CODICTA"])!.Trim(),Convert.ToString(r["DESCCTA"])!.Trim(),
+                        columns.Contains("PORCEIMPUESTO")&&r["PORCEIMPUESTO"] is not DBNull?Convert.ToDecimal(r["PORCEIMPUESTO"]):null,
+                        columns.Contains("IndValorRetenido")?r["IndValorRetenido"] is not DBNull&&Convert.ToInt32(r["IndValorRetenido"])!=0:null));
                 }
             }while(await r.NextResultAsync(ct));
         }

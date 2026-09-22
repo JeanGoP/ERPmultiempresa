@@ -9,13 +9,14 @@ static class WarehouseAccountsTests
     public static async Task Run(string cs,ZeusSettings settings,ZeusSource source,ZeusPreviewRequest input,Action<bool,string> check)
     {
         await using var c=new SqlConnection(cs);await c.OpenAsync();await using var q=c.CreateCommand();
-        q.CommandText="ALTER TABLE dbo.MAECONT ADD DESCCTA varchar(40);EXEC('UPDATE dbo.MAECONT SET DESCCTA=CODICTA');EXEC('INSERT dbo.MAECONT VALUES(''GRUPO'',1,''G'',1,''Grupo''),(''INACTIVA'',0,''D'',1,''Inactiva''),(''BANCO'',1,''D'',6,''Banco'')');";await q.ExecuteNonQueryAsync();
+        q.CommandText="ALTER TABLE dbo.MAECONT ADD DESCCTA varchar(40);EXEC('UPDATE dbo.MAECONT SET DESCCTA=CODICTA');EXEC('INSERT dbo.MAECONT(CODICTA,HABILITARCTA,TIPOCTA,INDCPICTA,DESCCTA) VALUES(''GRUPO'',1,''G'',1,''Grupo''),(''INACTIVA'',0,''D'',1,''Inactiva''),(''BANCO'',1,''D'',6,''Banco'')');";await q.ExecuteNonQueryAsync();
         q.CommandText="CREATE PROCEDURE dbo.SpMae_Maecont @Op varchar(30) AS BEGIN IF @Op<>'A' THROW 51999,'Solo lectura',1; SELECT * FROM dbo.MAECONT; RETURN 0; END";await q.ExecuteNonQueryAsync();
         var config=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["ConnectionStrings:NexoErp"]=cs,["Zeus:Companies:1:ConnectionString"]=cs}).Build();
         var transport=new ZeusTransport(config);
         var destination=settings with{ServidorEsperado=c.DataSource,BaseEsperada=c.Database};
         var chart=await transport.ChartAsync(1,destination,default);
         check(chart.Length==3&&chart.All(a=>a.Nombre==a.Codigo),"Plan usa opción A y filtra grupos, inactivas, cartera y bancos");
+        check(chart.Single(a=>a.Codigo=="2365").Tarifa==2.5m&&chart.Single(a=>a.Codigo=="2365").BaseEsValorRetenido==false,"Plan entrega porcentaje y semántica de base desde Zeus");
         var supplierChart=await transport.ChartAsync(1,destination,default,true);
         check(supplierChart.Length==1&&supplierChart[0].Codigo=="2205","Selector general solo devuelve cuentas habilitadas de proveedores");
         check(ZeusJournal.GeneralSupplierAccount(settings)?.Cuenta=="2205","Cuenta general de empresa identificada sin bodega");

@@ -101,18 +101,20 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
             stage="validación de cuentas contables";
             q.CommandText="""
                 IF EXISTS(SELECT 1 FROM
-                    (SELECT n.value('@Cuenta','varchar(20)') Cuenta,n.value('@Proveedor','bit') Proveedor
+                    (SELECT n.value('@Cuenta','varchar(20)') Cuenta,n.value('@Proveedor','bit') Proveedor,
+                            n.value('@Retencion','bit') Retencion,n.value('@Tarifa','decimal(18,6)') Tarifa
                      FROM @Accounts.nodes('/Cuentas/Cuenta') x(n)) a
                     LEFT JOIN dbo.MAECONT m ON m.CODICTA=a.Cuenta
                     WHERE m.CODICTA IS NULL OR ISNULL(m.HABILITARCTA,0)<>1 OR ISNULL(m.TIPOCTA,'')<>'D'
                        OR (a.Proveedor=1 AND ISNULL(m.INDCPICTA,0)<>3)
-                       OR (a.Proveedor=0 AND m.INDCPICTA IN(2,3,6)))
-                    THROW 51711,'Cuenta no habilitada o incompatible con su concepto en la entrada.',1;
+                       OR (a.Proveedor=0 AND m.INDCPICTA IN(2,3,6))
+                       OR (a.Retencion=1 AND (m.PORCEIMPUESTO IS NULL OR m.PORCEIMPUESTO<>a.Tarifa OR ISNULL(m.IndValorRetenido,0)<>0)))
+                    THROW 51711,'Cuenta no habilitada, incompatible o tarifa de retencion distinta a PORCEIMPUESTO en Zeus. Revisa y guarda las cuentas de la empresa.',1;
                 """;
             // Zeus puede conservar compatibilidad 100: XML evita depender de OPENJSON (130+).
             q.Parameters.Add("@Accounts",SqlDbType.Xml).Value=new XElement("Cuentas",s.Movimientos
-                .Select(m=>(m.Regla.Cuenta,Proveedor:m.Regla.Concepto=="PROVEEDOR")).Distinct()
-                .Select(a=>new XElement("Cuenta",new XAttribute("Cuenta",a.Cuenta),new XAttribute("Proveedor",a.Proveedor?1:0))))
+                .Select(m=>(m.Regla.Cuenta,Proveedor:m.Regla.Concepto=="PROVEEDOR",Retencion:ZeusJournal.IsRetention(m.Regla.Concepto),m.Tarifa)).Distinct()
+                .Select(a=>new XElement("Cuenta",new XAttribute("Cuenta",a.Cuenta),new XAttribute("Proveedor",a.Proveedor?1:0),new XAttribute("Retencion",a.Retencion?1:0),new XAttribute("Tarifa",a.Tarifa))))
                 .ToString(SaveOptions.DisableFormatting);
             await q.ExecuteNonQueryAsync(ct);q.Parameters.Clear();
             stage="dbo.spWSG_Contabilidad";

@@ -21,9 +21,15 @@ var rateRetention=generalRetention with{Cuentas=[..generalRetention.Cuentas,new(
 Check(ZeusJournal.Build(rateRetention,source,input).Movimientos.Single(m=>m.Regla.Concepto=="RETEFUENTE").Regla.Cuenta=="236525","Cuenta específica de tarifa prevalece sobre la general");
 var otherRate=input with{Retenciones=[new("RETEFUENTE",3,100,3)]};
 Check(ZeusJournal.Build(rateRetention,source with{Total=116,Retenciones=3},otherRate).Movimientos.Single(m=>m.Regla.Concepto=="RETEFUENTE").Regla.Cuenta=="236599","Otra tarifa utiliza la general sin inventar cuentas");
-ZeusJournal.ValidateRetentionAccounts(rateRetention,[new("236599","General"),new("236525","Tarifa")]);
+var linked=ZeusJournal.WithZeusRetentionRates(settings with{Cuentas=[new("RETEFUENTE","236525",99)]},[new("236525","Tarifa",2.5m,false)]);
+Check(linked.Cuentas.Single().Tarifa==2.5m,"Backend toma porcentaje Zeus e ignora tarifa digitada por cliente");
+ZeusJournal.ValidateRetentionAccounts(linked,[new("236525","Tarifa",2.5m,false)]);
 Check(true,"Valida cuentas de retención contra plan de la empresa");
 Reject(()=>ZeusJournal.ValidateRetentionAccounts(rateRetention,[new("236599","Otra empresa")]),"Rechaza cuenta de retención que no está en el plan consultado");
+Reject(()=>ZeusJournal.WithZeusRetentionRates(settings with{Cuentas=[new("RETEFUENTE","2365"),new("RETEFUENTE","2366")]},[new("2365","Una",2.5m,false),new("2366","Otra",2.5m,false)]),"No permite dos cuentas para el mismo tipo y porcentaje Zeus");
+foreach(var rate in new ZeusChartAccount[]{new("2365","Sin porcentaje"),new("2365","Base retenida",100,true),new("2365","Sin indicador",2.5m),new("2365","Precisión incompatible",0.123456m,false)})
+    Reject(()=>ZeusJournal.WithZeusRetentionRates(settings,[rate]),"No inventa ni redondea tarifas ambiguas del maestro Zeus");
+Check(ZeusJournal.WithZeusRetentionRates(settings,[new("2365","ICA",0.966m,false)]).Cuentas.Single(a=>a.Concepto=="RETEFUENTE").Tarifa==0.966m,"PORCEIMPUESTO se conserva como porcentaje sin dividir por mil");
 Reject(()=>ZeusJournal.ValidateRetentionAccounts(settings with{Cuentas=[new("RETEIVA","2367",0)]},[new("2367","ReteIVA")]),"Tarifa cero no sustituye selección de todas las tarifas");
 foreach(var retention in new[]{"RETEIVA","RETEICA"})
 {
@@ -116,6 +122,8 @@ if(args.Contains("--sql"))
             CREATE TABLE dbo.TestMode(Mode varchar(20));INSERT dbo.TestMode VALUES('OK');
             CREATE TABLE dbo.MAECONT(CODICTA varchar(20),HABILITARCTA bit,TIPOCTA char(1),INDCPICTA int);
             INSERT dbo.MAECONT VALUES('1435',1,'D',1),('2408',1,'D',1),('2365',1,'D',1),('2205',1,'D',3);
+            ALTER TABLE dbo.MAECONT ADD PORCEIMPUESTO decimal(18,6),IndValorRetenido bit;
+            EXEC('UPDATE dbo.MAECONT SET PORCEIMPUESTO=2.5,IndValorRetenido=0 WHERE CODICTA=''2365''');
             """;await q.ExecuteNonQueryAsync();
         q.CommandText="""
             CREATE PROCEDURE dbo.TestAccountingValidation AS BEGIN RAISERROR('Validación contable de prueba: centro de costo obligatorio.',16,1); END
@@ -151,6 +159,10 @@ if(args.Contains("--sql"))
         catch(SqlException e)when(e.Number is 319 or 208){Check(true,"Reproduce fallo de consulta anterior con compatibilidad Zeus 100");}
         var sent=await transport.SendAsync(1,testJournal,key,default);
         Check(sent.Estado=="CONTABILIZADO" && sent.Documento=="0100000001","Compatibilidad 100: transporte confirma después de verificar y commit");
+        q.CommandText="UPDATE dbo.MAECONT SET PORCEIMPUESTO=3 WHERE CODICTA='2365'";await q.ExecuteNonQueryAsync();
+        var staleRate=await transport.SendAsync(1,testJournal,Guid.NewGuid(),default);
+        Check(staleRate.Estado=="RECHAZADO"&&staleRate.Error!.Contains("PORCEIMPUESTO"),"Revalida tarifa viva en Zeus antes de contabilizar y bloquea cambios posteriores");
+        q.CommandText="UPDATE dbo.MAECONT SET PORCEIMPUESTO=2.5 WHERE CODICTA='2365'";await q.ExecuteNonQueryAsync();
         var repeated=await transport.SendAsync(1,testJournal,key,default);
         q.CommandText="SELECT COUNT(*) FROM dbo.DOCUMENT";
         Check(repeated.Estado=="CONTABILIZADO" && Convert.ToInt32(await q.ExecuteScalarAsync())==1,"Reenvío con misma clave no duplica");

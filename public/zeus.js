@@ -134,7 +134,7 @@ function zeusRenderPreview(result,payload){
 }
 $('#zeusNav').addEventListener('click',()=>void showZeus());
 document.querySelector('.erp-nav').addEventListener('click',event=>{if(event.target.closest('button')&&!event.target.closest('#zeusNav'))closeZeus();},true);
-zeusPanel.addEventListener('input',event=>{if(event.target.closest('#zeusSettingsForm'))zeusUI.dirty=true;if(event.target.closest('#zeusPreviewForm'))zeusInvalidatePreview();});
+zeusPanel.addEventListener('input',event=>{zeusRetentionInput(event);if(event.target.closest('#zeusSettingsForm'))zeusUI.dirty=true;if(event.target.closest('#zeusPreviewForm'))zeusInvalidatePreview();});
 zeusPanel.addEventListener('change',event=>{if(event.target.id==='zeusState'){zeusUI.offset=0;void zeusRun(zeusLoadJobs);}if(event.target.closest('#zeusSettingsForm'))zeusUI.dirty=true;if(event.target.closest('#zeusPreviewForm'))zeusInvalidatePreview();});
 zeusPanel.addEventListener('submit',event=>{
   event.preventDefault();const form=event.target;if(!form.reportValidity())return;

@@ -26,11 +26,20 @@ public static class ZeusJournal
     public static bool IsRetention(string concept)=>concept is "RETEFUENTE" or "RETEIVA" or "RETEICA";
     public static void ValidateRetentionAccounts(ZeusSettings settings,IEnumerable<ZeusChartAccount> chart)
     {
-        Validate(settings);
-        var allowed=chart.Select(a=>a.Codigo).ToHashSet(StringComparer.Ordinal);
-        foreach(var rule in settings.Cuentas.Where(a=>IsRetention(a.Concepto)))
-            if(rule.Tarifa is <=0||!allowed.Contains(rule.Cuenta))
-                throw new ArgumentException($"Revisa la cuenta de {rule.Concepto}: selecciona una cuenta de detalle habilitada del plan Zeus de esta empresa y una tarifa positiva, o deja la tarifa vacía para todas.");
+        var actual=WithZeusRetentionRates(settings,chart);
+        if(!settings.Cuentas.SequenceEqual(actual.Cuentas))throw new ArgumentException("La tarifa de retención no coincide con PORCEIMPUESTO de Zeus. Actualiza y guarda nuevamente la configuración.");
+    }
+    public static ZeusSettings WithZeusRetentionRates(ZeusSettings settings,IEnumerable<ZeusChartAccount> chart)
+    {
+        var allowed=chart.ToDictionary(a=>a.Codigo,StringComparer.Ordinal);
+        var result=settings with{Cuentas=settings.Cuentas.Select(rule=>
+        {
+            if(!IsRetention(rule.Concepto))return rule;
+            if(!allowed.TryGetValue(rule.Cuenta,out var account)||account.Tarifa is null or <=0 or >100||account.BaseEsValorRetenido!=false||decimal.Round(account.Tarifa.Value,4)!=account.Tarifa.Value)
+                throw new ArgumentException($"La cuenta {rule.Cuenta} de {rule.Concepto} no informa un porcentaje compatible en Zeus (PORCEIMPUESTO), o utiliza base de valor retenido. Revisa el plan de cuentas; no se deduce ni redondea la tarifa.");
+            return rule with{Tarifa=account.Tarifa};
+        }).ToArray()};
+        Validate(result);return result;
     }
     public static ZeusAccount? GeneralSupplierAccount(ZeusSettings settings)
     {
