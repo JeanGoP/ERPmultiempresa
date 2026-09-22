@@ -2,7 +2,7 @@ function zeusGeneralSupplierSection(settings){
   const rules=settings.cuentas.filter(r=>r.concepto==='PROVEEDOR');
   const general=rules.find(r=>r.proveedorId==null&&r.articuloId==null&&r.tarifa==null);
   const legacy=rules.some(r=>r.proveedorId!=null||r.articuloId!=null||r.tarifa!=null)||rules.length>1;
-  return `<section class="zeus-card"><h2>2. Cuentas generales de la empresa</h2><p>La cuenta por pagar y la cartera de proveedores se manejan aquí como una sola cuenta, común a todas las bodegas. Los anticipos y retenciones son conceptos independientes.</p><div class="zeus-grid"><label>Cuenta por pagar a proveedores<input name="cuentaProveedorGeneral" maxlength="16" list="zeusSupplierChart" autocomplete="off" placeholder="Seleccionar código del plan de Zeus" value="${zeusEscape(general?.cuenta||'')}"><small>Busca por código o nombre. La cuenta se valida en Zeus al guardar.</small></label><div><p id="zeusSupplierChartStatus" role="status">${zeusUI.version?'Cargando cuentas de proveedores…':'Primero guarda el destino con las aprobaciones desactivadas. Las cuentas se cargarán automáticamente.'}</p></div></div><datalist id="zeusSupplierChart"></datalist>${legacy?`<p class="zeus-notice">Existen reglas específicas de proveedores: ${rules.map(r=>zeusEscape(r.cuenta)).join(', ')}. Al guardar serán reemplazadas por la cuenta general que selecciones. No se modifican comprobantes ni proveedores ya creados en Zeus.</p><label><input type="checkbox" name="confirmarCuentaGeneral" required> Confirmo reemplazar las reglas de proveedores por una cuenta general.</label>`:''}<p>Aplica al crédito de las nuevas entradas y a la creación de nuevos proveedores en Zeus. No actualiza retroactivamente los maestros de Zeus.</p></section>`;
+  return `<section class="zeus-card"><h2>2. Cuentas generales de la empresa</h2><div class="zeus-grid"><label>Cuenta por pagar a proveedores<input name="cuentaProveedorGeneral" maxlength="16" list="zeusSupplierChart" autocomplete="off" placeholder="Seleccionar código del plan de Zeus" value="${zeusEscape(general?.cuenta||'')}"></label><div><p id="zeusSupplierChartStatus" role="status">${zeusUI.version?'Cargando cuentas de proveedores…':'Primero guarda el destino con las aprobaciones desactivadas. Las cuentas se cargarán automáticamente.'}</p></div></div><datalist id="zeusSupplierChart"></datalist>${legacy?`<p class="zeus-notice">Existen reglas específicas de proveedores: ${rules.map(r=>zeusEscape(r.cuenta)).join(', ')}. Al guardar serán reemplazadas por la cuenta general que selecciones. No se modifican comprobantes ni proveedores ya creados en Zeus.</p><label><input type="checkbox" name="confirmarCuentaGeneral" required> Confirmo reemplazar las reglas de proveedores por una cuenta general.</label>`:''}</section>`;
 }
 function zeusReadGeneralSupplier(form,settings){
   const code=form.elements.cuentaProveedorGeneral.value.trim();
@@ -24,7 +24,7 @@ async function zeusLoadSupplierChart(scope){
   if(!zeusCurrent(scope))return;
   if(result.version!==zeusUI.version)throw new Error('La configuración cambió. Actualiza antes de consultar las cuentas.');
   $('#zeusSupplierChart').innerHTML=result.cuentas.map(a=>`<option value="${zeusEscape(a.codigo)}">${zeusEscape(a.codigo)} · ${zeusEscape(a.nombre)}</option>`).join('');
-  $('#zeusSupplierChartStatus').textContent=`${result.baseDatos} · ${result.cuentas.length} cuentas habilitadas de proveedores.${result.cuentas.length?'':' Revisa el plan y los permisos en Zeus.'}`;
+  $('#zeusSupplierChartStatus').textContent=result.cuentas.length?'':'No hay cuentas de proveedores disponibles. Revisa el plan y los permisos en Zeus.';
 }
 async function zeusAutoLoadSupplierChart(scope){
   if(!zeusUI.version)return;
@@ -39,7 +39,7 @@ function zeusRetentionRow(rule={},index=-1){
 }
 function zeusRetentionSection(settings){
   zeusRetentionChartAccounts=null;
-  return `<section class="zeus-card"><h2>3. Retenciones</h2><p>Cuentas de esta empresa, comunes a sus bodegas. Selecciona el tipo y la cuenta. Su porcentaje se toma de PORCEIMPUESTO en Zeus y no se digita. Se compara con el porcentaje del XML sin convertir reteICA por su nombre.</p><div id="zeusRetentionRules">${settings.cuentas.map((r,i)=>zeusRetentionConcepts[r.concepto]?zeusRetentionRow(r,i):'').join('')}</div><button type="button" class="button secondary" data-retention-action="add">＋ Agregar retención</button><datalist id="zeusRetentionChart"></datalist><p id="zeusRetentionChartStatus" role="status">${zeusUI.version?'Cargando plan de cuentas de Zeus…':'Guarda primero el destino de Zeus para consultar sus cuentas.'}</p><small>Se guardan con “Guardar configuración de empresa”. No cambia facturas contabilizadas ni crea retenciones que no tenga la entrada.</small></section>`;
+  return `<section class="zeus-card"><h2>3. Retenciones</h2><div id="zeusRetentionRules">${settings.cuentas.map((r,i)=>zeusRetentionConcepts[r.concepto]?zeusRetentionRow(r,i):'').join('')}</div><button type="button" class="button secondary" data-retention-action="add">＋ Agregar retención</button><datalist id="zeusRetentionChart"></datalist><p id="zeusRetentionChartStatus" role="status">${zeusUI.version?'Cargando plan de cuentas de Zeus…':'Guarda primero el destino de Zeus para consultar sus cuentas.'}</p></section>`;
 }
 function zeusReadRetentions(settings){
   const container=$('#zeusRetentionRules');
@@ -65,7 +65,7 @@ async function zeusAutoLoadRetentionChart(scope){
     zeusRetentionChartAccounts=new Map(eligible.map(a=>[a.codigo,a]));
     $('#zeusRetentionChart').innerHTML=eligible.map(a=>`<option value="${zeusEscape(a.codigo)}">${zeusEscape(a.codigo)} · ${zeusEscape(a.nombre)} · ${zeusEscape(a.tarifa)} %</option>`).join('');
     document.querySelectorAll('#zeusRetentionRules .zeus-retention').forEach(zeusUpdateRetentionRate);
-    $('#zeusRetentionChartStatus').textContent=`${result.baseDatos} · ${eligible.length} cuentas con porcentaje válido; ${result.cuentas.length-eligible.length} omitidas por tarifa ausente/incompatible o base de valor retenido. Se revalidan en el servidor al guardar.`;
+    $('#zeusRetentionChartStatus').textContent=eligible.length?'':'No hay cuentas de retención con porcentaje válido disponibles en Zeus.';
   }catch(error){if(zeusCurrent(scope)&&$('#zeusRetentionChartStatus'))$('#zeusRetentionChartStatus').textContent=`No se pudo cargar el plan: ${error.message}`;}
 }
 function zeusRetentionClick(button){

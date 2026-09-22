@@ -26,6 +26,9 @@
 #zeusSettingsForm .zeus-retention > small { grid-column: 1 / -1; font-size: 11px; color: #65786f; }
 #zeusSettingsForm .zeus-card > small { display: block; font-size: 11px; line-height: 1.5; color: #65786f; margin-top: 10px; }
 #zeusSettingsForm .zeus-toggle { margin: 12px 0; }
+#zeusSettingsForm #zeusSupplierChartStatus:empty,
+#zeusSettingsForm #zeusRetentionChartStatus:empty { display: none; }
+#zeusSettingsForm > .zeus-card:first-child > [data-zeus=check] { margin-top: 16px; }
 @media (max-width: 1000px) {
   #zeusSettingsForm .zeus-retention { grid-template-columns: minmax(0, 1fr) 125px; }
   #zeusSettingsForm .zeus-grid:has([name=cuentaProveedorGeneral]) { grid-template-columns: minmax(0, 320px); gap: 0; }
