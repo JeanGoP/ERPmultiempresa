@@ -12,6 +12,8 @@ context.zeusUI.settings={unidadNegocio:'LEGADO',tipoFactura:'FA'};
 assert.match(context.zeusSourceRow({}),/value="LEGADO"/);
 assert.match(context.zeusSourceRow({unidadNegocio:'NORTE',tipoFactura:'FC'}),/value="NORTE"/);
 assert.doesNotMatch(html,/sourceUsers|sourceScope|Predeterminada/);
+assert.doesNotMatch(html,/preparación/);
+for(const label of ['Facturación','Recibo de caja','Comprobante de egreso'])assert.ok(html.includes('>'+label+'</option>'));
 assert.equal(context.zeusReadSources({fuentesAutomaticas:null}),null);
 vm.runInContext("zeusSourceBranches=[{id:3,codigo:'01',nombre:'Principal',activa:true},{id:4,codigo:'02',nombre:'Inactiva',activa:false},{id:5,codigo:'03',nombre:'Norte',activa:true}]",context);
 assert.match(context.zeusSourceRow({sucursalId:3}),/value="3" selected/);

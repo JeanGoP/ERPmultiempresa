@@ -1,6 +1,6 @@
 /* Fuentes por sucursal y movimiento, sin asignaciones de usuarios. */
 let zeusSourceBranches=null;
-const zeusSourceMovements={ENTRADA_MERCANCIA:'Entrada de mercancía',FACTURACION:'Facturación (preparación)',RECIBO_CAJA:'Recibo de caja (preparación)',EGRESO:'Comprobante de egreso (preparación)'};
+const zeusSourceMovements={ENTRADA_MERCANCIA:'Entrada de mercancía',FACTURACION:'Facturación',RECIBO_CAJA:'Recibo de caja',EGRESO:'Comprobante de egreso'};
 function zeusBranchOptions(id,name=''){
   const active=(zeusSourceBranches||[]).filter(b=>b.activa);
   const selected=active.find(b=>id?b.id===Number(id):b.nombre.trim().toLocaleLowerCase()===name.trim().toLocaleLowerCase());
