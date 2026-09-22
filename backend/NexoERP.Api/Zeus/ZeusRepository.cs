@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Globalization;
+using NexoERP.Api.MasterData;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
 
@@ -40,6 +41,18 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
         ZeusJournal.Validate(input.Configuracion);
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
+        await using(var configLock=Command(c,"SELECT EmpresaId FROM core.ZeusConfiguracion WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E",company,tx))await configLock.ExecuteScalarAsync(ct);
+        if(input.Configuracion.FuentesAutomaticas is not null)
+        {
+            var routes=new List<ZeusSourceRoute>();
+            foreach(var route in input.Configuracion.FuentesAutomaticas)
+            {
+                var branch=await BranchCatalogRepository.ResolveAsync(c,tx,company,route,ct);
+                routes.Add(route with{SucursalId=branch.Id,Sucursal=branch.Nombre});
+            }
+            input=input with{Configuracion=input.Configuracion with{FuentesAutomaticas=routes.ToArray()}};
+            ZeusRouting.Validate(input.Configuracion.FuentesAutomaticas);
+        }
         foreach(var assigned in (input.Configuracion.FuentesAutomaticas??[]).SelectMany(r=>r.Usuarios).Distinct())
         {
             await using var member=Command(c,"SELECT COUNT(*) FROM seg.Usuario u WHERE u.UsuarioId=@A AND u.Activo=1 AND (u.EsSuperAdministrador=1 OR EXISTS(SELECT 1 FROM seg.UsuarioEmpresaRol ur WHERE ur.EmpresaId=@E AND ur.UsuarioId=u.UsuarioId AND ur.Activo=1))",company,tx);
@@ -77,7 +90,18 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
                     throw new ArgumentException("El destino Zeus del documento cambió. Requiere conciliación antes de reenviar.");
                 settings=settings with{Fuente=previous.Fuente,Serie=previous.Serie,SucursalOperacion=previous.SucursalOperacion};
             }
-            else settings=ZeusRouting.Resolve(settings,user,"ENTRADA_MERCANCIA");
+            else
+            {
+                var resolved=ZeusRouting.Resolve(settings,user,"ENTRADA_MERCANCIA");
+                var rules=(settings.FuentesAutomaticas??[]).Where(r=>r.Movimiento=="ENTRADA_MERCANCIA").ToArray();
+                var route=rules.SingleOrDefault(r=>r.Usuarios.Contains(user))??rules.SingleOrDefault(r=>r.Usuarios.Length==0);
+                if(route is not null)
+                {
+                    var branch=await BranchCatalogRepository.ResolveAsync(c,tx,company,route,ct);
+                    resolved=resolved with{SucursalOperacion=branch.Nombre};
+                }
+                settings=resolved;
+            }
         }
         q.CommandText="""
             SELECT r.TerceroId,d.NumeroDocumento,r.FechaContable,d.FechaDocumento,COALESCE(d.FechaVencimiento,d.FechaDocumento),

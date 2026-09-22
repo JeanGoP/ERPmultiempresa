@@ -38,7 +38,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddZeus();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.22.1";
+const string ReleaseVersion="2026.09.22.2";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -679,6 +679,7 @@ app.MapPost("/api/v1/companies/{empresaId:long}/inventory/movements/{id:long}/re
 }).RequireErpPermission("INVENTARIO.AJUSTE.REVERSAR");
 
 app.MapZeus();
+app.MapBranches();
 app.Run();
 
 static void LoadDotEnv()

@@ -342,6 +342,7 @@ if(args.Contains("--sql"))
         q.CommandText="UPDATE dbo.PROVEEDORES SET Deshabilitado=0 WHERE IDPROVE='901528333';UPDATE dbo.TestMode SET Mode='OK';DELETE dbo.TRANSAC;DELETE dbo.DOCUMENT";await q.ExecuteNonQueryAsync();
         Check((await transport.SendAsync(1,identityJournal,Guid.NewGuid(),default)).Estado=="CONTABILIZADO","Contabiliza con tercero y proveedor existentes de igual identificación");
         await SupplierSyncTests.Run(cs,dir!.FullName,Check);
+        await BranchCatalogTests.Run(cs,dir!.FullName,settings,Check);
         await AutomaticPostingTests.Sql(cs,settings,Check);
     }
     finally

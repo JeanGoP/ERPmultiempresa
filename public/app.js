@@ -38,7 +38,7 @@ const ACCESS = {
   inventoryOps: ['INVENTARIO.TRASLADO.DESPACHAR', 'INVENTARIO.TRASLADO.RECIBIR', 'COMPRAS.DEVOLUCION.CONTABILIZAR', 'INVENTARIO.CONTEO.INICIAR', 'INVENTARIO.CONTEO.CAPTURAR', 'INVENTARIO.CONTEO.APROBAR', 'INVENTARIO.CONTEO.APLICAR'],
   inventoryAdmin: ['INVENTARIO.PERIODO.CERRAR', 'INVENTARIO.PERIODO.REABRIR', 'INVENTARIO.NEGATIVO.AUTORIZAR', 'INVENTARIO.AJUSTE.REVERSAR'],
   costs: ['COSTOS.DISTRIBUCION.APROBAR', 'COSTOS.DISTRIBUCION.APLICAR', 'COSTOS.DETERIORO.REGISTRAR', 'INVENTARIO.PERIODO.CERRAR', 'INVENTARIO.PERIODO.REABRIR', 'INVENTARIO.NEGATIVO.AUTORIZAR', 'INVENTARIO.AJUSTE.REVERSAR'],
-  masters: ['MAESTROS.PROVEEDOR.ADMINISTRAR', 'MAESTROS.ARTICULO.ADMINISTRAR', 'MAESTROS.INVENTARIO.ADMINISTRAR', 'COMPRAS.HOMOLOGACION.ADMINISTRAR'],
+  masters: ['MAESTROS.PROVEEDOR.ADMINISTRAR', 'MAESTROS.ARTICULO.ADMINISTRAR', 'MAESTROS.INVENTARIO.ADMINISTRAR', 'COMPRAS.HOMOLOGACION.ADMINISTRAR', 'SEGURIDAD.PERMISOS.ADMINISTRAR'],
   security: ['SEGURIDAD.PERMISOS.ADMINISTRAR']
 };
 
@@ -164,7 +164,7 @@ function canUseInventoryOperations() { return hasAnyPermission(ACCESS.inventoryO
 function canUseSavedPurchases() { return hasPermission('COMPRAS.DOCUMENTO.CREAR'); }
 function canUseAccountsPayable() { return hasPermission('COMPRAS.DOCUMENTO.CREAR'); }
 function isMasterViewAllowed(view) {
-  const required = { suppliers: 'MAESTROS.PROVEEDOR.ADMINISTRAR', articles: 'MAESTROS.ARTICULO.ADMINISTRAR', brands: 'MAESTROS.ARTICULO.ADMINISTRAR', units: 'MAESTROS.INVENTARIO.ADMINISTRAR', warehouses: 'MAESTROS.INVENTARIO.ADMINISTRAR', mappings: 'COMPRAS.HOMOLOGACION.ADMINISTRAR' }[view];
+  const required = { branches:'SEGURIDAD.PERMISOS.ADMINISTRAR', suppliers: 'MAESTROS.PROVEEDOR.ADMINISTRAR', articles: 'MAESTROS.ARTICULO.ADMINISTRAR', brands: 'MAESTROS.ARTICULO.ADMINISTRAR', units: 'MAESTROS.INVENTARIO.ADMINISTRAR', warehouses: 'MAESTROS.INVENTARIO.ADMINISTRAR', mappings: 'COMPRAS.HOMOLOGACION.ADMINISTRAR' }[view];
   return Boolean(required && hasPermission(required));
 }
 function isInventoryViewAllowed(view) {
@@ -344,6 +344,7 @@ const masterViewConfig = {
   brands: ['Marcas', 'Marcas de esta empresa. Las referencias del catálogo permiten reconocerlas al leer el XML.', 'marcas'],
   units: ['Unidades de medida', 'Unidades base, de compra y de venta.', 'unidades'],
   warehouses: ['Bodegas', 'Depósitos y uso opcional de ubicaciones.', 'bodegas'],
+  branches: ['Sucursales', 'Puntos o sucursales de esta empresa.', 'sucursales'],
   mappings: ['Homologación XML', 'Relación entre códigos del proveedor y artículos internos.', 'homologaciones'],
 };
 
@@ -366,16 +367,18 @@ async function loadApiCompanyContext() {
   if(state.runtimeMode!=='api'||!state.erpSession?.company?.id||!apiToken()) return;
   const companyId=state.erpSession.company.id; const base=`/api/v1/companies/${companyId}`;
   try {
-    const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies,permissions,brands]=await Promise.all([
+    const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies,permissions,brands,branches]=await Promise.all([
       apiRequest(`${base}/master-data/suppliers`),apiRequest(`${base}/master-data/units`),apiRequest(`${base}/master-data/articles`),
       apiRequest(`${base}/master-data/item-mappings`),apiRequest(`${base}/warehouses`),apiRequest(`${base}/inventory-periods`),
       apiRequest(`${base}/accounting-periods`),apiRequest(`${base}/accounting-accounts`),apiRequest('/api/v1/companies'),apiRequest(`${base}/permissions`),
       apiRequest(`${base}/master-data/brands`).then(rows=>({rows,error:null})).catch(error=>({rows:[],error:error.message})),
+      apiRequest(`${base}/master-data/branches`).then(rows=>({rows,error:null})).catch(error=>({rows:[],error:error.message})),
     ]);
     if(String(state.erpSession?.company?.id)!==String(companyId))return;
     renderCompanyOptions(companies);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);
     state.apiContext={ warehouses,periods,accountingPeriods,accounts,permissions,permissionCodes:new Set(permissions.map(permissionCode)),masterData:{
       brands:brands.rows,brandsError:brands.error,
+      branches:branches.rows,branchesError:branches.error,
       suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,zeusEstado:x.zeusEstado,zeusMensaje:x.zeusMensaje,active:x.activo})),
       units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
       articles:articles.map(x=>({id:x.articuloId,code:x.codigo,description:x.descripcion,brand:x.marca,type:x.tipo,unitId:x.unidadBaseId,inventory:x.manejaInventario,lot:x.manejaLote,serial:x.manejaSerial,expiry:x.requiereVencimiento,active:x.activo})),
@@ -498,10 +501,17 @@ function showMasterNotice(message,isError=false) {
 function renderMasterView() {
   const context=getCompanyMasterData(); const data=context.data; const config=masterViewConfig[state.masterView];
   elements.masterViewTitle.textContent=config[0]; elements.masterViewSubtitle.textContent=config[1]; elements.addMasterRecord.textContent=state.masterView==='mappings'?'＋ Nueva homologación':'＋ Nuevo registro';
-  elements.addMasterRecord.disabled=state.masterView==='brands'&&Boolean(data.brandsError);
+  elements.addMasterRecord.disabled=(state.masterView==='brands'&&Boolean(data.brandsError))||(state.masterView==='branches'&&Boolean(data.branchesError));
   renderMasterStats(data);
   const query=elements.masterSearch.value.trim().toLocaleLowerCase('es-CO');
   if(state.masterView==='suppliers'){const count=renderSupplierMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
+  if(state.masterView==='branches'){
+    if(data.branchesError){elements.masterTable.replaceChildren(emptyMessage(`No se pudo consultar el catálogo de sucursales: ${data.branchesError}`));elements.masterCount.textContent='Consulta no disponible';return;}
+    const rows=(data.branches||[]).filter(x=>!query||`${x.codigo} ${x.nombre}`.toLocaleLowerCase('es-CO').includes(query));
+    const table=buildDataTable(['Código','Sucursal','Estado','Acciones'],rows.map(x=>[x.codigo,x.nombre,activeLabel(x.activa),'']));
+    table.querySelectorAll('tbody tr').forEach((row,index)=>{if(!rows[index])return;const button=document.createElement('button');button.type='button';button.className='button secondary';button.textContent='Editar';button.addEventListener('click',()=>openMasterForm(rows[index]));row.lastElementChild.append(button);});
+    elements.masterTable.replaceChildren(table);elements.masterCount.textContent=`${rows.length} sucursales`;return;
+  }
   if(state.masterView==='articles'){const count=renderArticleMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
   if(state.masterView==='warehouses'){
     const warehouses=data.warehouses.filter(x=>!query||`${x.code} ${x.name}`.toLocaleLowerCase('es-CO').includes(query));
@@ -766,6 +776,7 @@ function addMasterCheck(labelText,name,checked=false) {
 function openMasterForm(record=null) {
   const data=getCompanyMasterData().data; const editingArticle=state.masterView==='articles'&&record?.id!=null?record:null;const editingSupplier=state.masterView==='suppliers'&&record?.id!=null?record:null;state.masterEditingArticleId=editingArticle?.id||null;state.masterEditingSupplierId=editingSupplier?.id||null;state.masterEditingBrandId=state.masterView==='brands'?record?.id||null:null;
   elements.masterFormFields.replaceChildren(); elements.masterFormError.hidden=true;
+  state.masterEditingBranchId=state.masterView==='branches'?record?.id||null:null;
   elements.masterDialogTitle.textContent=editingArticle?'Editar artículo':editingSupplier?'Editar proveedor':`Nuevo: ${masterViewConfig[state.masterView][0]}`;
   elements.masterDialogSubtitle.textContent=editingArticle?'Actualiza la información permitida del artículo.':editingSupplier?'Corrige o completa los datos fiscales, de ubicación y contacto del proveedor.':'Completa la información requerida.';
   if(state.masterView==='suppliers') {
@@ -777,6 +788,7 @@ function openMasterForm(record=null) {
     addMasterField('Persona de contacto','contactName','text',null,false,false);addMasterField('Teléfono','phone','tel',null,false,false);addMasterField('Correo','email','email',null,false,false);addMasterField('Sitio web','website','url',null,true,false);
   }
   else if(state.masterView==='brands') { const name=addMasterField('Nombre de la marca *','name','text',null,true);name.maxLength=100;name.value=record?.nombre||'';addMasterCheck('Activa para reconocimiento','active',record?.activa??true);if(record?.id)elements.masterDialogTitle.textContent='Editar marca'; }
+  else if(state.masterView==='branches') {const code=addMasterField('Código *','code');code.maxLength=20;code.value=record?.codigo||'';const name=addMasterField('Nombre *','name','text',null,true);name.maxLength=80;name.value=record?.nombre||'';addMasterCheck('Activa','active',record?.activa??true);if(record?.id)elements.masterDialogTitle.textContent='Editar sucursal';}
   else if(state.masterView==='units') { addMasterField('Código *','code'); addMasterField('Símbolo *','symbol'); addMasterField('Nombre *','name','text',null,true); }
   else if(state.masterView==='articles') { addMasterField('Código interno *','code'); addMasterField('Tipo *','type','text',[['INVENTARIO','Artículo inventariable'],['SERVICIO','Servicio'],['ACTIVO_FIJO','Activo fijo'],['CONCEPTO','Concepto de costo']]); addMasterField('Descripción *','description','text',null,true); addMasterField('Unidad base *','unitId','text',data.units.map(x=>[x.id,`${x.code} · ${x.name}`])); addMasterField('Unidad de compra','purchaseUnitId','text',[['','Igual a la unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const purchaseFactor=addMasterField('Factor a unidad base','purchaseFactor','number',null,false,false); purchaseFactor.min='0.0000000001'; purchaseFactor.step='0.0000000001'; purchaseFactor.value='1'; addMasterCheck('Maneja inventario','inventory',true); addMasterCheck('Maneja serial / motor / chasis','serial'); addMasterCheck('Maneja lote','lot'); addMasterCheck('Requiere vencimiento','expiry'); }
   else if(state.masterView==='warehouses') { addMasterField('Código *','code'); addMasterField('Nombre *','name'); addMasterCheck('Usa ubicaciones','locations'); addMasterCheck('Es bodega de tránsito','transit'); }
@@ -807,6 +819,11 @@ async function saveMasterRecord(event) {
   const checkbox=(name)=>elements.masterRecordForm.elements[name]?.checked||false;
   try {
     const base=`/api/v1/companies/${state.erpSession.company.id}/master-data`;let path;let payload;
+    if(state.masterView==='branches'){
+      const id=state.masterEditingBranchId;
+      await apiRequest(`${base}/branches${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify({codigo:values.code.trim(),nombre:values.name.trim(),activa:checkbox('active')})});
+      state.masterEditingBranchId=null;await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice('Sucursal guardada correctamente.');return;
+    }
     if(state.masterView==='brands'){
       const id=state.masterEditingBrandId;
       await apiRequest(`${base}/brands${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify({nombre:values.name.trim(),activa:checkbox('active')})});
