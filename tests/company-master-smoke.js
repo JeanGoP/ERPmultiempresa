@@ -1,0 +1,23 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const code=fs.readFileSync('public/company-master.js','utf8');
+const app=fs.readFileSync('public/app.js','utf8');
+const elements={securityStatus:{},securityNotice:{},securityModule:{hidden:false}};
+let resolve,calls=0,rendered=0,token='session-one';
+const state={erpSession:{superAdmin:true},securityView:'companies'};
+const context=vm.createContext({state,elements,apiToken:()=>token,document:{querySelector:()=>({addEventListener(){}})},apiRequest:()=>{calls++;return new Promise(r=>resolve=r);}});
+vm.runInContext(code,context);
+context.renderCompanyMaster=()=>rendered++;
+(async()=>{
+  const first=context.loadCompanyMaster();resolve([{id:1}]);await first;assert.equal(rendered,1);
+  const stale=context.loadCompanyMaster();token='session-two';resolve([{id:2}]);await stale;assert.equal(rendered,1);
+  const navigated=context.loadCompanyMaster();state.securityView='users';resolve([]);await navigated;assert.equal(rendered,1);
+  state.erpSession.superAdmin=false;await context.loadCompanyMaster();assert.equal(calls,3);
+  assert.doesNotMatch(code,/selectCompany\(|enterErp\(/);
+  assert.match(code,/version:record.version/);
+  assert.match(code,/record\?'PUT':'POST'/);
+  assert.match(code,/\/api\/v1\/companies/);
+  assert.match(app,/showSecurityView\('companies'\)/);
+  assert.match(app,/state.securityView==='companies'\?openCompanyMasterForm\(\)/);
+  assert.ok(fs.readFileSync('public/index.html','utf8').includes('src="company-master.js"'));
+  console.log('Maestro empresas: carga, sesión obsoleta, navegación, permisos y rutas correctos; no cambia empresa activa.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

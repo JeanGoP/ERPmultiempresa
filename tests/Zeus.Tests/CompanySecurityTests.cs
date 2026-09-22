@@ -67,5 +67,20 @@ internal static class CompanySecurityTests
         var assigned=await Task.WhenAll(Assign(1),Assign(2));
         q.CommandText="SELECT COUNT(DISTINCT EmpresaId) FROM seg.UsuarioEmpresaRol WHERE UsuarioId=5 AND Activo=1";
         check(assigned.Count(x=>x)==1 && Convert.ToInt32(await q.ExecuteScalarAsync())==1,"Asignaciones concurrentes no crean usuario multiempresa");
+        q.CommandText="ALTER TABLE core.Empresa ADD DigitoVerificacion char(1) NULL,ZonaHoraria nvarchar(80) NOT NULL DEFAULT 'America/Bogota',MarcoContable varchar(20) NOT NULL DEFAULT 'GRUPO_2',RowVersion rowversion";await q.ExecuteNonQueryAsync();
+        var master=new CompanyMasterRepository(factory,auth);
+        var companies=await master.ListAsync(1,default);
+        check(companies.Count==2,"Maestro global lista empresas para superadministrador");
+        try{await master.ListAsync(2,default);throw new Exception("Acceso indebido");}catch(UnauthorizedAccessException){check(true,"Maestro rechaza administrador de empresa");}
+        var company=companies.Single(x=>x.Id==1);
+        var edit=new EditCompanyRequest("TEST1", "123456789", "1", "Empresa editada",company.Version);
+        try{await master.UpdateAsync(2,1,edit,default);throw new Exception("Edición indebida");}catch(UnauthorizedAccessException){check(true,"Edición global rechaza usuario normal");}
+        await master.UpdateAsync(1,1,edit,default);
+        var updated=(await master.ListAsync(1,default)).Single(x=>x.Id==1);
+        check(updated.RazonSocial=="Empresa editada"&&updated.MonedaFuncional==company.MonedaFuncional&&updated.MarcoContable==company.MarcoContable&&updated.Version!=company.Version,"Edición conserva parámetros contables y renueva versión");
+        await RejectSql(()=>master.UpdateAsync(1,1,edit,default),52040,"Maestro impide sobrescribir una versión antigua");
+        q.CommandText="SELECT COUNT(*) FROM audit.Evento WHERE Operacion='EMPRESA_ACTUALIZADA' AND EmpresaId=1";
+        check(Convert.ToInt32(await q.ExecuteScalarAsync())==1,"Edición de empresa deja auditoría transaccional");
+        try{CompanyMasterRepository.Validate("A","123","12","Empresa");throw new Exception("DV inválido aceptado");}catch(ArgumentException){check(true,"DV inválido no se trunca silenciosamente");}
     }
 }

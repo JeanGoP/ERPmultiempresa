@@ -119,7 +119,7 @@ function renderCompanyOptions(companies) {
 }
 
 function configureSuperAdminCompanyPanel(enabled,hasCompanies=true) {
-  elements.superAdminCompanyPanel.hidden=!enabled;
+  elements.superAdminCompanyPanel.hidden=!enabled||hasCompanies;
   elements.companyCreateError.hidden=true;
   document.querySelector('.dialog-footnote').textContent=enabled
     ? 'El superadministrador puede crear empresas y trabajar en cualquiera de ellas sin una asignación empresa-rol.'
@@ -569,12 +569,15 @@ function renderSecurityRoles(){
   state.securityData.roles.forEach(role=>{const row=document.createElement('tr');const name=document.createElement('td');name.textContent=role.nombre;const code=document.createElement('td');code.textContent=role.codigo;const permissions=document.createElement('td');permissions.textContent=role.permisoIds.length?`${role.permisoIds.length} · ${[...new Set(role.permisoIds.map(id=>permissionById.get(String(id))?.modulo).filter(Boolean))].join(', ')}`:'Sin permisos';const actions=document.createElement('td');actions.className='security-actions';if(state.erpSession.superAdmin)actions.append(securityAction('Editar permisos','edit-role',role.rolId));else actions.textContent='Solo superadministrador';row.append(name,code,permissions,actions);body.append(row);});table.append(head,body);elements.securityTable.replaceChildren(table);
 }
 function renderSecurityView(){
+  if(state.securityView==='companies'){renderCompanyMaster();return;}
   if(!state.securityData)return;const users=state.securityView==='users';elements.securityViewKicker.textContent=users?'ACCESO POR EMPRESA':'AUTORIZACIÓN POR ROL';elements.securityViewTitle.textContent=users?'Usuarios autorizados':'Roles y permisos';elements.securityViewSubtitle.textContent=users?'Cada usuario debe tener al menos un rol dentro de esta empresa.':'Los roles agrupan permisos operativos y se reutilizan al asignar usuarios.';elements.addSecurityRecord.textContent=users?'＋ Nuevo usuario':'＋ Nuevo rol';elements.addSecurityRecord.hidden=!users&&!state.erpSession.superAdmin;document.querySelectorAll('[data-security-view]').forEach(x=>x.classList.toggle('active',x.dataset.securityView===state.securityView));renderSecurityStats();users?renderSecurityUsers():renderSecurityRoles();elements.securityStatus.textContent=`${state.securityData.users.length} usuarios · ${state.securityData.roles.length} roles`;
 }
-async function refreshSecurity(){const stateCard=elements.securityStatus.closest('.module-state');elements.securityStatus.textContent='Cargando seguridad…';elements.securityNotice.hidden=true;try{await loadSecurityData();stateCard?.classList.add('ready');renderSecurityView();}catch(error){stateCard?.classList.remove('ready');elements.securityTable.replaceChildren();elements.securityStatus.textContent='Acceso no disponible';elements.securityNotice.textContent=error.message;elements.securityNotice.hidden=false;}}
+async function refreshSecurity(){if(state.securityView==='companies'){await loadCompanyMaster();return;}const stateCard=elements.securityStatus.closest('.module-state');elements.securityStatus.textContent='Cargando seguridad…';elements.securityNotice.hidden=true;try{await loadSecurityData();stateCard?.classList.add('ready');renderSecurityView();}catch(error){stateCard?.classList.remove('ready');elements.securityTable.replaceChildren();elements.securityStatus.textContent='Acceso no disponible';elements.securityNotice.textContent=error.message;elements.securityNotice.hidden=false;}}
 function showSecurityView(view='users'){
+  if(view==='companies'&&!state.erpSession?.superAdmin)return;
+  configureCompanyMasterWorkspace(view==='companies');
   if (!hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')) { routeToDefaultWorkspace(true); return; }
-  state.securityView=view;elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.savedPurchasesModule.hidden=true;elements.accountsPayableModule.hidden=true;elements.inventoryModule.hidden=true;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=false;elements.savedPurchasesNav.classList.remove('active');elements.accountsPayableNav.classList.remove('active');elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.add('active');document.querySelector('.breadcrumb span').textContent='Administración';elements.breadcrumbCurrent.textContent='Usuarios y permisos';document.querySelectorAll('[data-registration-mode],[data-master-view],[data-inventory-view]').forEach(x=>x.classList.remove('active'));if(state.securityData)renderSecurityView();else void refreshSecurity();window.scrollTo({top:0,behavior:'smooth'});
+  state.securityView=view;elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.savedPurchasesModule.hidden=true;elements.accountsPayableModule.hidden=true;elements.inventoryModule.hidden=true;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=false;elements.savedPurchasesNav.classList.remove('active');elements.accountsPayableNav.classList.remove('active');elements.inventoryNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.add('active');document.querySelector('.breadcrumb span').textContent='Administración';elements.breadcrumbCurrent.textContent='Usuarios y permisos';document.querySelectorAll('[data-registration-mode],[data-master-view],[data-inventory-view]').forEach(x=>x.classList.remove('active'));elements.companiesAdminNav.classList.toggle('active',view==='companies');if(view==='companies'){renderCompanyMaster();void loadCompanyMaster();}else if(state.securityData)renderSecurityView();else void refreshSecurity();window.scrollTo({top:0,behavior:'smooth'});
 }
 function fillSecurityRoles(selected=[]){const chosen=new Set(selected.map(String));elements.securityUserRoles.replaceChildren();state.securityData.roles.forEach(role=>elements.securityUserRoles.append(securityCheckbox(role.rolId,role.nombre,role.codigo,chosen.has(String(role.rolId)))));}
 async function openSecurityUser(user=null){
@@ -2421,10 +2424,10 @@ $('#companyOptions').addEventListener('click',(event)=>{const option=event.targe
 elements.companyCreateForm.addEventListener('submit',createCompanyAsSuperAdmin);
 document.querySelectorAll('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => closeErpDialog($(`#${button.dataset.closeDialog}`))));
 elements.companySwitcher.addEventListener('click', () => void openCompanyManager());
-$('#companiesAdminNav').addEventListener('click',()=>void openCompanyManager());
-elements.securityAdminNav.addEventListener('click',()=>showSecurityView(state.securityView));
+$('#companiesAdminNav').addEventListener('click',()=>{if(state.erpSession?.superAdmin)showSecurityView('companies');});
+elements.securityAdminNav.addEventListener('click',()=>showSecurityView(state.securityView==='companies'?'users':state.securityView));
 document.querySelectorAll('[data-security-view]').forEach(button=>button.addEventListener('click',()=>showSecurityView(button.dataset.securityView)));
-elements.addSecurityRecord.addEventListener('click',()=>state.securityView==='users'?openSecurityUser():openSecurityRole());
+elements.addSecurityRecord.addEventListener('click',()=>state.securityView==='companies'?openCompanyMasterForm():state.securityView==='users'?openSecurityUser():openSecurityRole());
 elements.securityTable.addEventListener('click',event=>{const button=event.target.closest('[data-security-action]');if(!button||!state.securityData)return;const id=Number(button.dataset.id);if(button.dataset.securityAction==='edit-user')openSecurityUser(state.securityData.users.find(x=>x.usuarioId===id));else if(button.dataset.securityAction==='password')openSecurityPassword(state.securityData.users.find(x=>x.usuarioId===id));else if(button.dataset.securityAction==='edit-role')openSecurityRole(state.securityData.roles.find(x=>x.rolId===id));});
 elements.securityUserForm.addEventListener('submit',saveSecurityUser);
 elements.securityRoleForm.addEventListener('submit',saveSecurityRole);

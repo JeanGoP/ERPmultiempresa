@@ -161,6 +161,7 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
 
     public async Task<CompanyAccessResponse> CreateCompanyAsync(long userId,CreateCompanyRequest input,CancellationToken cancellationToken)
     {
+        CompanyMasterRepository.Validate(input.Codigo,input.Nit,input.DigitoVerificacion,input.RazonSocial);
         if(!await IsSuperAdministratorAsync(userId,cancellationToken)) throw new UnauthorizedAccessException("Se requiere un superadministrador global.");
         var code=input.Codigo.Trim().ToUpperInvariant();
         var nit=input.Nit.Trim();
@@ -169,6 +170,7 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
         var timezone=string.IsNullOrWhiteSpace(input.ZonaHoraria)?"America/Bogota":input.ZonaHoraria.Trim();
         var framework=string.IsNullOrWhiteSpace(input.MarcoContable)?"GRUPO_2":input.MarcoContable.Trim().ToUpperInvariant();
         if(currency.Length!=3) throw new ArgumentException("La moneda funcional debe tener tres caracteres.");
+        if(timezone.Length>80||timezone.Any(char.IsControl))throw new ArgumentException("Zona horaria inválida.");
         if(framework is not ("GRUPO_1" or "GRUPO_2" or "GRUPO_3")) throw new ArgumentException("El marco contable no es válido.");
 
         await using var connection=await connections.OpenAsync(null,true,cancellationToken);

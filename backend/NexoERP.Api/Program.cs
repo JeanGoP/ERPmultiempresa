@@ -38,7 +38,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddZeus();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.22.4";
+const string ReleaseVersion="2026.09.22.5";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -681,6 +681,7 @@ app.MapPost("/api/v1/companies/{empresaId:long}/inventory/movements/{id:long}/re
 
 app.MapZeus();
 app.MapBranches();
+app.MapCompanyMaster();
 app.Run();
 
 static void LoadDotEnv()
