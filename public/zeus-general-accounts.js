@@ -31,3 +31,41 @@ async function zeusAutoLoadSupplierChart(scope){
   try{await zeusLoadSupplierChart(scope);}
   catch(error){if(zeusCurrent(scope)&&$('#zeusSupplierChartStatus'))$('#zeusSupplierChartStatus').textContent=`No se pudieron cargar las cuentas de proveedores: ${error.message} Usa Actualizar para reintentar.`;}
 }
+
+const zeusRetentionConcepts={RETEFUENTE:'Retención en la fuente',RETEIVA:'Retención de IVA',RETEICA:'Retención de ICA'};
+function zeusRetentionRow(rule={},index=-1){
+  return `<div class="zeus-retention zeus-grid" data-original-index="${index}"><label>Tipo<select name="retentionConcept" required>${Object.entries(zeusRetentionConcepts).map(([code,name])=>`<option value="${code}" ${rule.concepto===code?'selected':''}>${name}</option>`).join('')}</select></label><label>Tarifa % (opcional)<input name="retentionRate" type="number" min="0.0001" max="100" step="0.0001" placeholder="Todas las tarifas" value="${zeusEscape(rule.tarifa??'')}"></label><label>Cuenta en Zeus<input name="retentionAccount" maxlength="16" list="zeusRetentionChart" required autocomplete="off" value="${zeusEscape(rule.cuenta||'')}" placeholder="Buscar código o nombre"></label><button type="button" class="button secondary" data-retention-action="remove">Quitar</button>${rule.articuloId!=null||rule.proveedorId!=null?'<small>Regla histórica específica: conserva su artículo/proveedor y dimensiones.</small>':''}</div>`;
+}
+function zeusRetentionSection(settings){
+  return `<section class="zeus-card"><h2>3. Retenciones</h2><p>Cuentas de esta empresa, comunes a sus bodegas. Deja la tarifa vacía para usar una cuenta general por tipo; una tarifa específica tiene prioridad. La tarifa se expresa en porcentaje (%).</p><div id="zeusRetentionRules">${settings.cuentas.map((r,i)=>zeusRetentionConcepts[r.concepto]?zeusRetentionRow(r,i):'').join('')}</div><button type="button" class="button secondary" data-retention-action="add">＋ Agregar retención</button><datalist id="zeusRetentionChart"></datalist><p id="zeusRetentionChartStatus" role="status">${zeusUI.version?'Cargando plan de cuentas de Zeus…':'Guarda primero el destino de Zeus para consultar sus cuentas.'}</p><small>Se guardan con “Guardar configuración de empresa”. No cambia facturas contabilizadas ni crea retenciones que no tenga la entrada.</small></section>`;
+}
+function zeusReadRetentions(settings){
+  const container=$('#zeusRetentionRules');
+  if(!container)return settings.cuentas.filter(r=>zeusRetentionConcepts[r.concepto]).map(r=>({...r}));
+  const keys=new Set();
+  return [...container.querySelectorAll('.zeus-retention')].map(row=>{
+    const old=settings.cuentas[Number(row.dataset.originalIndex)]||{};
+    const concept=row.querySelector('[name="retentionConcept"]').value;
+    const rate=row.querySelector('[name="retentionRate"]').value.trim();const tariff=rate===''?null:Number(rate);
+    const account=row.querySelector('[name="retentionAccount"]').value.trim();
+    if(!zeusRetentionConcepts[concept]||!account||account.length>16||(tariff!==null&&(!Number.isFinite(tariff)||tariff<=0||tariff>100||Math.abs(tariff*10000-Math.round(tariff*10000))>0.000001)))throw new Error('Revisa el tipo, la cuenta y la tarifa de retención (máximo cuatro decimales).');
+    const key=JSON.stringify([concept,tariff,old.articuloId??null,old.proveedorId??null]);if(keys.has(key))throw new Error('Hay retenciones duplicadas para el mismo tipo y tarifa.');keys.add(key);
+    return {...old,concepto:concept,cuenta:account,tarifa:tariff};
+  });
+}
+async function zeusAutoLoadRetentionChart(scope){
+  if(!zeusUI.version||!$('#zeusRetentionChart'))return;
+  try{
+    const result=await apiRequest(`${scope.base}/retention-accounts`);
+    if(!zeusCurrent(scope))return;
+    if(result.version!==zeusUI.version)throw new Error('La configuración cambió. Actualiza para consultar el plan correcto.');
+    $('#zeusRetentionChart').innerHTML=result.cuentas.map(a=>`<option value="${zeusEscape(a.codigo)}">${zeusEscape(a.codigo)} · ${zeusEscape(a.nombre)}</option>`).join('');
+    $('#zeusRetentionChartStatus').textContent=`${result.baseDatos} · ${result.cuentas.length} cuentas de detalle habilitadas. Se validarán al guardar.`;
+  }catch(error){if(zeusCurrent(scope)&&$('#zeusRetentionChartStatus'))$('#zeusRetentionChartStatus').textContent=`No se pudo cargar el plan: ${error.message}`;}
+}
+function zeusRetentionClick(button){
+  if(!button.dataset.retentionAction)return false;
+  if(button.dataset.retentionAction==='add')$('#zeusRetentionRules').insertAdjacentHTML('beforeend',zeusRetentionRow());
+  else button.closest('.zeus-retention').remove();
+  zeusUI.dirty=true;return true;
+}

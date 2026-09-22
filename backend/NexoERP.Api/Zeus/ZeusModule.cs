@@ -102,7 +102,18 @@ public static class ZeusModule
                 }
                 catch(SqlException){return Results.Json(new{error="No se pudo validar la cuenta general en Zeus. No se guardaron cambios."},statusCode:502);}
             }
+            if(input.Configuracion.Cuentas.Any(a=>ZeusJournal.IsRetention(a.Concepto)))
+            {
+                try{ZeusJournal.ValidateRetentionAccounts(input.Configuracion,await transport.ChartAsync(empresaId,input.Configuracion,ct));}
+                catch(SqlException){return Results.Json(new{error="No se pudieron validar las cuentas de retenciones en Zeus. No se guardaron cambios."},statusCode:502);}
+            }
             await repo.SaveSettingsAsync(empresaId,Convert.ToInt64(http.Items["UsuarioId"]),input,ct);return Results.NoContent();
+        }).RequireErpPermission(admin);
+        group.MapGet("/retention-accounts",async(long empresaId,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
+        {
+            var settings=await repo.SettingsAsync(empresaId,ct)??throw new ArgumentException("Guarda primero el destino de Zeus de esta empresa.");
+            try{return Results.Ok(new{version=settings.Version,baseDatos=settings.Configuracion.BaseEsperada,cuentas=await transport.ChartAsync(empresaId,settings.Configuracion,ct)});}
+            catch(SqlException){return Results.Json(new{error="No se pudo consultar el plan de cuentas Zeus para las retenciones."},statusCode:502);}
         }).RequireErpPermission(admin);
         group.MapGet("/concepts",()=>Results.Ok(ZeusJournal.Concepts)).RequireErpPermission(admin);
         group.MapGet("/status",async(long empresaId,HttpContext http,AuthRepository auth,ZeusRepository repo,IConfiguration config,CancellationToken ct)=>

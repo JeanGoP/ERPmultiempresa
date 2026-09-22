@@ -15,6 +15,23 @@ var settings=new ZeusSettings(true,"server","db","01","01","01","ERP","FA",
 var source=new ZeusSource(20,10,"F&123",new(2026,9,21),new(2026,2,1),new(2026,3,1),116.5m,19,2.5m,[new(50,100)]);
 var input=new ZeusPreviewRequest([new("IVA",19,100,19)],[new("RETEFUENTE",2.5m,100,2.5m)]);
 var journal=ZeusJournal.Build(settings,source,input);
+var generalRetention=settings with{Cuentas=[..settings.Cuentas.Where(a=>a.Concepto!="RETEFUENTE"),new("RETEFUENTE","236599")]};
+Check(ZeusJournal.Build(generalRetention,source,input).Movimientos.Single(m=>m.Regla.Concepto=="RETEFUENTE").Regla.Cuenta=="236599","Retención usa cuenta general de empresa cuando no hay tarifa específica");
+var rateRetention=generalRetention with{Cuentas=[..generalRetention.Cuentas,new("RETEFUENTE","236525",2.5m)]};
+Check(ZeusJournal.Build(rateRetention,source,input).Movimientos.Single(m=>m.Regla.Concepto=="RETEFUENTE").Regla.Cuenta=="236525","Cuenta específica de tarifa prevalece sobre la general");
+var otherRate=input with{Retenciones=[new("RETEFUENTE",3,100,3)]};
+Check(ZeusJournal.Build(rateRetention,source with{Total=116,Retenciones=3},otherRate).Movimientos.Single(m=>m.Regla.Concepto=="RETEFUENTE").Regla.Cuenta=="236599","Otra tarifa utiliza la general sin inventar cuentas");
+ZeusJournal.ValidateRetentionAccounts(rateRetention,[new("236599","General"),new("236525","Tarifa")]);
+Check(true,"Valida cuentas de retención contra plan de la empresa");
+Reject(()=>ZeusJournal.ValidateRetentionAccounts(rateRetention,[new("236599","Otra empresa")]),"Rechaza cuenta de retención que no está en el plan consultado");
+Reject(()=>ZeusJournal.ValidateRetentionAccounts(settings with{Cuentas=[new("RETEIVA","2367",0)]},[new("2367","ReteIVA")]),"Tarifa cero no sustituye selección de todas las tarifas");
+foreach(var retention in new[]{"RETEIVA","RETEICA"})
+{
+    var config=settings with{Cuentas=[..settings.Cuentas,new(retention,"236999")]};
+    Check(ZeusJournal.Build(config,source,input with{Retenciones=[new(retention,2.5m,100,2.5m)]}).Movimientos.Single(m=>m.Regla.Concepto==retention).Regla.Cuenta=="236999","Cuenta general independiente para "+retention);
+}
+try{ZeusJournal.Build(settings with{Cuentas=settings.Cuentas.Where(a=>a.Concepto!="RETEFUENTE").ToArray()},source,input);throw new Exception("No indicó cuenta faltante");}
+catch(ArgumentException e){Check(e.Message.Contains("RETEFUENTE")&&e.Message.Contains("2.5")&&e.Message.Contains("Retenciones"),"Cuenta faltante identifica tipo, tarifa y pantalla de configuración");}
 Check(journal.Movimientos.Sum(m=>m.Valor)==0,"Cuadre exacto con retención");
 Check(journal.Movimientos.Last().Valor==-116.5m,"Proveedor por valor neto");
 Check(journal.Movimientos.Single(m=>m.Regla.Concepto=="RETEFUENTE").Base==-100,"Base de retención con signo de crédito");

@@ -23,6 +23,15 @@ public sealed record ZeusSnapshot(ZeusSettings Configuracion, ZeusSource Origen,
 
 public static class ZeusJournal
 {
+    public static bool IsRetention(string concept)=>concept is "RETEFUENTE" or "RETEIVA" or "RETEICA";
+    public static void ValidateRetentionAccounts(ZeusSettings settings,IEnumerable<ZeusChartAccount> chart)
+    {
+        Validate(settings);
+        var allowed=chart.Select(a=>a.Codigo).ToHashSet(StringComparer.Ordinal);
+        foreach(var rule in settings.Cuentas.Where(a=>IsRetention(a.Concepto)))
+            if(rule.Tarifa is <=0||!allowed.Contains(rule.Cuenta))
+                throw new ArgumentException($"Revisa la cuenta de {rule.Concepto}: selecciona una cuenta de detalle habilitada del plan Zeus de esta empresa y una tarifa positiva, o deja la tarifa vacía para todas.");
+    }
     public static ZeusAccount? GeneralSupplierAccount(ZeusSettings settings)
     {
         Validate(settings);
@@ -71,11 +80,11 @@ public static class ZeusJournal
         if(source.Factura.Length>20) throw new ArgumentException("La factura excede los 20 caracteres admitidos por este adaptador.");
         ZeusAccount Resolve(string concept, long? article=null, decimal? rate=null)
         {
-            var rules=s.Cuentas.Where(a=>a.Concepto==concept && a.Tarifa==rate
+            var rules=s.Cuentas.Where(a=>a.Concepto==concept && (a.Tarifa==rate||(IsRetention(concept)&&a.Tarifa is null))
                 && (a.ArticuloId is null || a.ArticuloId==article)
                 && (a.ProveedorId is null || a.ProveedorId==source.ProveedorId))
-                .OrderByDescending(a=>(a.ArticuloId.HasValue?2:0)+(a.ProveedorId.HasValue?1:0)).ToArray();
-            return rules.FirstOrDefault() ?? throw new ArgumentException($"Falta cuenta para {concept}, artículo {article}, tarifa {rate}.");
+                .OrderByDescending(a=>(a.Tarifa==rate?4:0)+(a.ArticuloId.HasValue?2:0)+(a.ProveedorId.HasValue?1:0)).ToArray();
+            return rules.FirstOrDefault() ?? throw new ArgumentException(IsRetention(concept)?$"Falta la cuenta de {concept} para la tarifa {Number(rate??0)} %. Configúrala en Integración Zeus → Configuración de empresa → Retenciones.":$"Falta cuenta para {concept}, artículo {article}, tarifa {rate}.");
         }
         var lines=new List<ZeusMovement>();
         foreach(var line in source.Lineas)

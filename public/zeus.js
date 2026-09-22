@@ -87,7 +87,7 @@ async function zeusLoadTab(scope){
     let saved;try{saved=await apiRequest(`${scope.base}/configuration`);}catch(error){if(error.status!==404)throw error;}
     if(!zeusCurrent(scope))return;
     zeusUI.version=saved?.version||0;zeusUI.settings=saved?.configuracion||{habilitado:false,servidorEsperado:'',baseEsperada:'',fuente:'',serie:'',unidadNegocio:'',usuarioZeus:'',tipoFactura:'',cuentas:[],proveedores:[]};zeusUI.dirty=false;zeusRenderSettings();
-    await zeusAutoLoadSupplierChart(scope);
+    await Promise.all([zeusAutoLoadSupplierChart(scope),zeusAutoLoadRetentionChart(scope)]);
   }else if(zeusUI.tab==='prepare'){
     zeusUI.preview=null;zeusUI.receipt=null;
     $('#zeusContent').innerHTML='<div class="zeus-card"><h2>Entradas contabilizadas en el ERP</h2><p>Primero selecciona una factura. La fecha contable se toma de la entrada.</p><form id="zeusSearchForm" class="zeus-toolbar"><label>Factura o proveedor<input name="q" maxlength="100" placeholder="Buscar por número o nombre"></label><button type="submit" class="button secondary">Buscar</button></form><div id="zeusReceipts" class="zeus-scroll"></div></div><div id="zeusPreparation"></div>';
@@ -110,14 +110,14 @@ function zeusOptions(rows,value,label,selected,empty='Predeterminado'){return `<
 function zeusRenderSettings(){
   const s=zeusUI.settings;
   $('#zeusContent').innerHTML=`<form id="zeusSettingsForm"><section class="zeus-card"><h2>1. Destino y comprobante</h2><p>Esta configuración pertenece únicamente a <strong>${zeusEscape(state.erpSession.company.name)}</strong>. Las contraseñas se guardan en el servidor, nunca aquí.</p><div class="zeus-grid">${zeusField('Servidor SQL esperado','servidorEsperado',s.servidorEsperado,'text',150)}${zeusField('Base contable de Zeus','baseEsperada',s.baseEsperada,'text',128)}${zeusField('Fuente (2 caracteres)','fuente',s.fuente,'text',2)}${zeusField('Serie (2 dígitos)','serie',s.serie,'text',2)}${zeusField('Unidad de negocio','unidadNegocio',s.unidadNegocio)}${zeusField('Usuario de Zeus','usuarioZeus',s.usuarioZeus)}${zeusField('Tipo de factura','tipoFactura',s.tipoFactura,'text',10)}</div><p class="zeus-help">Conexión privada que debe configurar soporte: <code>Zeus__Companies__${zeusEscape(state.erpSession.company.id)}__ConnectionString</code></p><button type="button" data-zeus="check" class="button secondary" ${zeusUI.version?'':'disabled'}>Comprobar conexión guardada</button></section>
-    ${zeusGeneralSupplierSection(s)}
+    ${zeusGeneralSupplierSection(s)}${zeusRetentionSection(s)}
     <section class="zeus-card zeus-save"><label class="zeus-toggle"><input name="habilitado" type="checkbox" ${s.habilitado?'checked':''}><span><strong>Enviar automáticamente las entradas a Zeus</strong><small>Activa solo después de validar sus cuentas y probar la conexión. El envío también requiere activar el despachador en el servidor.</small></span></label><button type="submit" class="button primary">Guardar configuración de empresa</button><small>Versión ${zeusUI.version} · No se contabiliza nada al guardar.</small></section></form>`;
 }
 function zeusReadSettings(){
   const form=$('#zeusSettingsForm'),s={habilitado:form.elements.habilitado.checked};
   ['servidorEsperado','baseEsperada','fuente','serie','unidadNegocio','usuarioZeus','tipoFactura'].forEach(k=>s[k]=form.elements[k].value.trim());
-  s.cuentas=zeusUI.settings.cuentas.filter(rule=>rule.concepto!=='PROVEEDOR').map(rule=>({...rule}));
-  s.cuentas.push(...zeusReadGeneralSupplier(form,zeusUI.settings));
+  s.cuentas=zeusUI.settings.cuentas.filter(rule=>rule.concepto!=='PROVEEDOR'&&!zeusRetentionConcepts[rule.concepto]).map(rule=>({...rule}));
+  s.cuentas.push(...zeusReadGeneralSupplier(form,zeusUI.settings),...zeusReadRetentions(zeusUI.settings));
   s.proveedores=zeusUI.settings.proveedores.map(supplier=>({...supplier}));return s;
 }
 async function zeusFindReceipts(scope,query){const rows=await apiRequest(`${scope.base}/receipts?q=${encodeURIComponent(query)}`);if(!zeusCurrent(scope))return;zeusUI.receipts=rows.map(zeusNormalize);$('#zeusReceipts').innerHTML=rows.length?`<table><thead><tr><th>Factura / proveedor</th><th>Fecha contable</th><th>Total</th><th>En Zeus</th><th></th></tr></thead><tbody>${zeusUI.receipts.map(r=>`<tr><td><strong>${zeusEscape(r.factura)}</strong><small>${zeusEscape(r.proveedor)}</small></td><td>${zeusEscape(String(r.fechaContable).slice(0,10))}</td><td class="zeus-money">${zeusMoney(r.total)} <small>${zeusEscape(r.moneda)}</small></td><td>${zeusBadge(r.estadoZeus)}</td><td><button type="button" class="button secondary" data-zeus-receipt="${r.recepcionId}" ${['PENDIENTE','ENVIANDO','INCIERTO','CONTABILIZADO'].includes(r.estadoZeus)?'disabled':''}>Revisar</button></td></tr>`).join('')}</tbody></table>`:'<p class="zeus-empty">No hay entradas contabilizadas con esa búsqueda.</p>';}
@@ -148,6 +148,7 @@ zeusPanel.addEventListener('click',event=>{
   const button=event.target.closest('button');if(!button||button.disabled||zeusUI.busy)return;
   if(button.dataset.zeusRemove){button.closest(button.dataset.zeusRemove==='rule'?'.zeus-rule':button.dataset.zeusRemove==='supplier'?'.zeus-supplier':'.zeus-tax').remove();zeusUI.dirty=true;zeusInvalidatePreview();return;}
   if(button.dataset.zeusReceipt){zeusPrepare(Number(button.dataset.zeusReceipt));return;}
+  if(zeusRetentionClick(button))return;
   const action=button.dataset.zeus;
   if(action==='add-tax'||action==='add-withholding'){ $(action==='add-tax'?'#zeusTaxes':'#zeusWithholdings').insertAdjacentHTML('beforeend',zeusTaxRow(action==='add-withholding'));zeusInvalidatePreview();return; }
   if((button.dataset.zeusTab||action==='refresh')&&zeusUI.dirty&&!confirm('Hay cambios de configuración sin guardar. ¿Descartarlos?'))return;
