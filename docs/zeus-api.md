@@ -1,5 +1,14 @@
 # Integración Zeus dentro del backend
 
+Para diferencias entre subtotal calculado y neto de linea, el adaptador verifica
+el XML original (Invoice o AttachedDocument), sin reglas por proveedor. Exige ID
+unico, neto declarado igual al guardado, subtotal igual a cantidad por precio y
+descuentos/cargos identicos. El margen es media unidad de la precision efectiva
+del precio por cantidad, mas medio centavo de redondeo de linea. Los ceros de
+formato no aumentan esa precision. Sin evidencia XML o fuera del margen se rechaza.
+Se conserva el neto guardado y siguen siendo obligatorios el cuadre de impuestos
+y el total exacto de proveedor; no se reescriben compras ni inventarios anteriores.
+
 El detalle de nuevos comprobantes (`DESCDCTO`) usa `ENTRADA DE MERCANCIA -
 <razón social del proveedor> - <factura>`. El nombre se toma de la empresa ERP
 y queda incluido en la instantánea aprobada. Si excede el límite Zeus de 120

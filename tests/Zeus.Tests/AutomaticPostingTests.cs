@@ -26,7 +26,6 @@ static class AutomaticPostingTests
     public static async Task Sql(string cs,ZeusSettings settings,Action<bool,string> check)
     {
         await using var c=new SqlConnection(cs);await c.OpenAsync();await using var q=c.CreateCommand();
-        q.CommandText="ALTER TABLE comp.DocumentoProveedor ADD XmlOriginal nvarchar(max)";await q.ExecuteNonQueryAsync();
         q.CommandText="EXEC sys.sp_set_session_context @key=N'EmpresaId',@value=1;DELETE core.ZeusEnvio;UPDATE core.ZeusConfiguracion SET Configuracion=@J WHERE EmpresaId=1;UPDATE comp.DocumentoProveedor SET XmlOriginal=@Xml WHERE EmpresaId=1 AND DocumentoProveedorId=100;UPDATE inv.RecepcionMercancia SET Estado='VALIDADA' WHERE EmpresaId=1 AND RecepcionMercanciaId=20";
         q.Parameters.AddWithValue("@J",JsonSerializer.Serialize(settings));q.Parameters.AddWithValue("@Xml",Xml);await q.ExecuteNonQueryAsync();q.Parameters.Clear();
         q.CommandText="""

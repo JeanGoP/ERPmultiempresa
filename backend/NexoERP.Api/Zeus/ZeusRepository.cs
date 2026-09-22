@@ -61,14 +61,14 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
         var settings=JsonSerializer.Deserialize<ZeusSettings>(json)!;
         q.CommandText="""
             SELECT r.TerceroId,d.NumeroDocumento,r.FechaContable,d.FechaDocumento,COALESCE(d.FechaVencimiento,d.FechaDocumento),
-                d.TotalPagar,d.ImpuestoTotal,d.Moneda,d.CargoTotal,d.DocumentoProveedorId,t.DivisionPoliticaZeus,t.NumeroIdentificacion,t.RazonSocial
+                d.TotalPagar,d.ImpuestoTotal,d.Moneda,d.CargoTotal,d.DocumentoProveedorId,t.DivisionPoliticaZeus,t.NumeroIdentificacion,t.RazonSocial,d.XmlOriginal
             FROM inv.RecepcionMercancia r WITH(HOLDLOCK)
             JOIN comp.DocumentoProveedor d WITH(HOLDLOCK) ON d.EmpresaId=r.EmpresaId AND d.DocumentoProveedorId=r.DocumentoProveedorId
             JOIN ter.Tercero t WITH(HOLDLOCK) ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
             WHERE r.EmpresaId=@E AND r.RecepcionMercanciaId=@R AND r.Estado='CONTABILIZADA' AND d.Estado='CONTABILIZADO';
             """;
         Add(q,"@R",receipt);
-        long supplier,document; string invoice,supplierName; string? division; DateTime date,issued,due; decimal total,taxes;
+        long supplier,document; string invoice,supplierName; string? division,originalXml; DateTime date,issued,due; decimal total,taxes;
         await using(var r=await q.ExecuteReaderAsync(ct))
         {
             if(!await r.ReadAsync(ct)) throw new ArgumentException("La entrada y la factura deben estar contabilizadas en esta empresa.");
@@ -76,6 +76,7 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             total=r.GetDecimal(5);taxes=r.GetDecimal(6);document=r.GetInt64(9);
             division=r.IsDBNull(10)?null:r.GetString(10);
             supplierName=r.GetString(12);
+            originalXml=r.IsDBNull(13)?null:r.GetString(13);
             if(!settings.Proveedores.Any(p=>p.ProveedorId==supplier))
             {
                 var identification=r.GetString(11);
@@ -91,7 +92,7 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
         q.CommandText="""
             SELECT l.ArticuloId,l.TotalNeto,l.Retencion,l.Clasificacion,l.Cargo,
               (SELECT COUNT(*) FROM inv.RecepcionMercanciaLinea rl WHERE rl.EmpresaId=l.EmpresaId AND rl.RecepcionMercanciaId=@R AND rl.DocumentoProveedorLineaId=l.DocumentoProveedorLineaId),
-              l.SubtotalBruto,l.Descuento
+              l.SubtotalBruto,l.Descuento,l.NumeroLinea
             FROM comp.DocumentoProveedorLinea l WITH(HOLDLOCK) WHERE l.EmpresaId=@E AND l.DocumentoProveedorId=@D ORDER BY l.NumeroLinea;
             """;
         Add(q,"@D",document);
@@ -103,8 +104,9 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
                 if(r.IsDBNull(0) || r.GetString(3)!="INVENTARIO" || r.GetInt32(5)!=1)
                     throw new ArgumentException("Solo se admiten facturas completas de mercancía, sin servicios por distribuir.");
                 // TotalNeto ya contiene el cargo de línea: nunca sumarlo otra vez.
-                if(r.GetDecimal(4)<0 || r.GetDecimal(1)!=r.GetDecimal(6)-r.GetDecimal(7)+r.GetDecimal(4))
-                    throw new ArgumentException("El neto de la línea no coincide con subtotal menos descuento más cargo. Revisa la factura antes de enviarla a Zeus.");
+                if(r.GetDecimal(4)<0 || (r.GetDecimal(1)!=r.GetDecimal(6)-r.GetDecimal(7)+r.GetDecimal(4)
+                    &&!ZeusLineRounding.Matches(originalXml,r.GetInt32(8),r.GetDecimal(1),r.GetDecimal(6),r.GetDecimal(7),r.GetDecimal(4))))
+                    throw new ArgumentException($"El neto de la línea {r.GetInt32(8)} no coincide con subtotal menos descuento más cargo ni con un redondeo verificable del XML. No se cambian los importes guardados.");
                 lines.Add(new(r.GetInt64(0),r.GetDecimal(1))); withholding+=r.GetDecimal(2);
             }
         }

@@ -38,7 +38,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddZeus();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.21.18";
+const string ReleaseVersion="2026.09.21.19";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>

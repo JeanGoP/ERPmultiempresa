@@ -16,6 +16,7 @@ var source=new ZeusSource(20,10,"F&123",new(2026,9,21),new(2026,2,1),new(2026,3,
 var input=new ZeusPreviewRequest([new("IVA",19,100,19)],[new("RETEFUENTE",2.5m,100,2.5m)]);
 var journal=ZeusJournal.Build(settings,source,input);
 TaxRoundingTests.Run(Check,Reject,settings,source);
+LineRoundingTests.Run(Check,settings,source);
 var generalRetention=settings with{Cuentas=[..settings.Cuentas.Where(a=>a.Concepto!="RETEFUENTE"),new("RETEFUENTE","236599")]};
 Check(ZeusJournal.Build(generalRetention,source,input).Movimientos.Single(m=>m.Regla.Concepto=="RETEFUENTE").Regla.Cuenta=="236599","Retención usa cuenta general de empresa cuando no hay tarifa específica");
 var rateRetention=generalRetention with{Cuentas=[..generalRetention.Cuentas,new("RETEFUENTE","236525",2.5m)]};
@@ -218,6 +219,7 @@ if(args.Contains("--sql"))
             INSERT inv.RecepcionMercanciaLinea VALUES(1,20,1000);
             ALTER TABLE ter.Tercero ADD NumeroIdentificacion nvarchar(30) NOT NULL DEFAULT '901528333';
             ALTER TABLE comp.DocumentoProveedorLinea ADD SubtotalBruto decimal(20,4) NOT NULL DEFAULT 100,Descuento decimal(20,4) NOT NULL DEFAULT 0;
+            ALTER TABLE comp.DocumentoProveedor ADD XmlOriginal nvarchar(max);
             """;await q.ExecuteNonQueryAsync();
         q.CommandText="""
             CREATE FUNCTION seg.fn_EmpresaAccess(@EmpresaId bigint) RETURNS TABLE WITH SCHEMABINDING AS
@@ -267,6 +269,13 @@ if(args.Contains("--sql"))
         q.CommandText="UPDATE inv.RecepcionMercancia SET Estado='CONTABILIZADA' WHERE RecepcionMercanciaId=20";await q.ExecuteNonQueryAsync();
         var preview=await repository.PreviewAsync(1,20,input,default);
         Check(preview is not null,"Vista previa usa consultas reales del repositorio");
+        q.CommandText="UPDATE comp.DocumentoProveedor SET XmlOriginal=@LineXml;UPDATE comp.DocumentoProveedorLinea SET SubtotalBruto=99.99";
+        q.Parameters.AddWithValue("@LineXml",LineRoundingTests.Xml("3","33.33","100").Replace("<ID>2</ID>","<ID>1</ID>"));await q.ExecuteNonQueryAsync();q.Parameters.Clear();
+        var roundedPreview=JsonSerializer.SerializeToElement(await repository.PreviewAsync(1,20,input,default)).GetProperty("comprobante").Deserialize<ZeusSnapshot>()!;
+        Check(roundedPreview.Movimientos[0].Valor==100&&await repository.EligibleAsync(1,roundedPreview,default),"Repositorio y worker conservan neto XML cuando precio unitario redondeado difiere");
+        q.CommandText="UPDATE comp.DocumentoProveedor SET XmlOriginal=NULL";await q.ExecuteNonQueryAsync();
+        try{await repository.PreviewAsync(1,20,input,default);throw new Exception("Acepto diferencia sin XML");}catch(ArgumentException){Check(true,"Repositorio exige evidencia XML para permitir redondeo");}
+        q.CommandText="UPDATE comp.DocumentoProveedorLinea SET SubtotalBruto=100";await q.ExecuteNonQueryAsync();
         q.CommandText="UPDATE core.ZeusConfiguracion SET Configuracion=JSON_MODIFY(Configuracion,'$.Proveedores',JSON_QUERY('[]')) WHERE EmpresaId=1;UPDATE comp.DocumentoProveedorLinea SET Cargo=5,SubtotalBruto=110,Descuento=15";await q.ExecuteNonQueryAsync();
         var automatic=System.Text.Json.JsonSerializer.SerializeToElement(await repository.PreviewAsync(1,20,input,default)).GetProperty("comprobante").Deserialize<ZeusSnapshot>()!;
         Check(automatic.Proveedor==new ZeusSupplier(10,"901528333","901528333"),"Sin homologación manual usa la identificación ERP como proveedor y tercero");
