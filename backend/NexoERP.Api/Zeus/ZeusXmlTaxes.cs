@@ -66,9 +66,9 @@ public static class ZeusXmlTaxes
         if(taxes.Count==0)taxes=Extract(root,false,null);
         var headerRetentions=Extract(root,true,null);if(headerRetentions.Count>0)retentions=headerRetentions;
         if(savedRetention==0)retentions.Clear();
-        if(retentions.Sum(t=>t.Valor)!=savedRetention)
+        if(ZeusTaxRounding.Money(retentions.Sum(t=>t.Valor))!=savedRetention&&retentions.Sum(t=>ZeusTaxRounding.Money(t.Valor))!=savedRetention)
             throw new ArgumentException("La retención guardada fue ajustada o no tiene desglose en el XML. Revisa la configuración fiscal antes de enviar a Zeus; no se modifica el valor del ERP.");
-        // Conservar subtotales individuales evita introducir diferencias por redondeos.
+        // La normalización monetaria se realiza en ZeusJournal con los totales ERP.
         return new(taxes.ToArray(),retentions.ToArray());
     }
 }

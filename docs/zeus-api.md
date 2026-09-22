@@ -116,8 +116,18 @@ La pantalla muestra si el despachador del servidor está apagado; no lo activa.
 Incluye cuentas configurables para CxC, anticipos, fletes, gastos, descuentos y
 redondeos, pero **no genera todavía esos tipos de comprobante**. La primera ruta
 genera inventario, IVA/otros impuestos explícitos, retenciones y proveedor.
-Se bloquean facturas mixtas, cargos por distribuir, importes con más de dos
-decimales y diferencias de cuadre; no se corrigen silenciosamente.
+Se bloquean facturas mixtas, cargos por distribuir y diferencias reales de cuadre.
+Los importes y bases de impuestos XML se normalizan a dos decimales con redondeo
+AwayFromZero, sin cambiar las tarifas, el XML original ni los importes ERP. Se
+acepta el total redondeado de la suma o la suma de importes redondeados. Los centavos
+residuales se distribuyen por mayor residuo (empates por orden original), conservando
+el tipo, tarifa y bodega de cada partida. No se crean cuentas de ajuste.
+Se valida base por tarifa individualmente o por grupo de concepto y tarifa. El IVA
+puede incluir redondeo al peso: la comprobación agrupada exige además que ninguna
+partida difiera más de medio peso de su cálculo; retenciones y otros impuestos
+mantienen el margen de un centavo. Diferencias entre tarifas no se compensan.
+El comprobante debe cuadrar exactamente con impuestos, retenciones y saldo del
+proveedor ya registrados. No se alteran inventarios ni facturas para forzar el cuadre.
 No crea maestros en Zeus ni aplica escenarios fiscales de ventas. Las cuentas que
 exijan propiedades o unidades adicionales no soportadas pueden ser rechazadas
 por Zeus. El usuario contable debe verificar cuentas, IVA descontable vs. costo,
