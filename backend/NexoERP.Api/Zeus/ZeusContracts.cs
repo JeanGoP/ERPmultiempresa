@@ -16,7 +16,8 @@ public sealed record ZeusApproveRequest(ZeusTax[] Impuestos, ZeusTax[] Retencion
 public sealed record ZeusSourceLine(long ArticuloId, decimal Base,long? BodegaId=null,string? CuentaInventario=null,string? CuentaIvaCompras=null);
 public sealed record ZeusSource(long RecepcionId, long ProveedorId, string Factura, DateTime FechaContable,
     DateTime FechaFactura, DateTime Vencimiento, decimal Total, decimal Impuestos, decimal Retenciones,
-    ZeusSourceLine[] Lineas,string? DivisionPoliticaZeus=null);
+    ZeusSourceLine[] Lineas,string? DivisionPoliticaZeus=null,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? ProveedorNombre=null);
 public sealed record ZeusMovement(ZeusAccount Regla, decimal Valor, decimal Base = 0, decimal Tarifa = 0,long? BodegaId=null);
 public sealed record ZeusSnapshot(ZeusSettings Configuracion, ZeusSource Origen, ZeusSupplier Proveedor,
     ZeusMovement[] Movimientos);

@@ -61,20 +61,21 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
         var settings=JsonSerializer.Deserialize<ZeusSettings>(json)!;
         q.CommandText="""
             SELECT r.TerceroId,d.NumeroDocumento,r.FechaContable,d.FechaDocumento,COALESCE(d.FechaVencimiento,d.FechaDocumento),
-                d.TotalPagar,d.ImpuestoTotal,d.Moneda,d.CargoTotal,d.DocumentoProveedorId,t.DivisionPoliticaZeus,t.NumeroIdentificacion
+                d.TotalPagar,d.ImpuestoTotal,d.Moneda,d.CargoTotal,d.DocumentoProveedorId,t.DivisionPoliticaZeus,t.NumeroIdentificacion,t.RazonSocial
             FROM inv.RecepcionMercancia r WITH(HOLDLOCK)
             JOIN comp.DocumentoProveedor d WITH(HOLDLOCK) ON d.EmpresaId=r.EmpresaId AND d.DocumentoProveedorId=r.DocumentoProveedorId
             JOIN ter.Tercero t WITH(HOLDLOCK) ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
             WHERE r.EmpresaId=@E AND r.RecepcionMercanciaId=@R AND r.Estado='CONTABILIZADA' AND d.Estado='CONTABILIZADO';
             """;
         Add(q,"@R",receipt);
-        long supplier,document; string invoice; string? division; DateTime date,issued,due; decimal total,taxes;
+        long supplier,document; string invoice,supplierName; string? division; DateTime date,issued,due; decimal total,taxes;
         await using(var r=await q.ExecuteReaderAsync(ct))
         {
             if(!await r.ReadAsync(ct)) throw new ArgumentException("La entrada y la factura deben estar contabilizadas en esta empresa.");
             supplier=r.GetInt64(0);invoice=r.GetString(1);date=r.GetDateTime(2);issued=r.GetDateTime(3);due=r.GetDateTime(4);
             total=r.GetDecimal(5);taxes=r.GetDecimal(6);document=r.GetInt64(9);
             division=r.IsDBNull(10)?null:r.GetString(10);
+            supplierName=r.GetString(12);
             if(!settings.Proveedores.Any(p=>p.ProveedorId==supplier))
             {
                 var identification=r.GetString(11);
@@ -129,7 +130,7 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             }
             if(index!=lines.Count)throw new ArgumentException("La distribución de bodegas no coincide con la entrada.");
         }
-        return ZeusJournal.Build(settings,new(receipt,supplier,invoice,date,issued,due,total,taxes,withholding,lines.ToArray(),division),input);
+        return ZeusJournal.Build(settings,new(receipt,supplier,invoice,date,issued,due,total,taxes,withholding,lines.ToArray(),division,supplierName),input);
     }
     public static string Fingerprint(ZeusSnapshot snapshot)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(SerializeSnapshot(snapshot))));
     public async Task<object> PreviewAsync(long company,long receipt,ZeusPreviewRequest input,CancellationToken ct)
@@ -249,6 +250,8 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
         try
         {
             var current=await BuildAsync(c,tx,company,expected.Origen.RecepcionId,new(taxes,withholdings),ct);
+            // Las aprobaciones anteriores no incluian nombre: conservar su huella y contrato.
+            if(expected.Origen.ProveedorNombre is null)current=current with{Origen=current.Origen with{ProveedorNombre=null}};
             await tx.CommitAsync(ct);return Fingerprint(current)==Fingerprint(expected);
         }
         catch(ArgumentException) { return false; }

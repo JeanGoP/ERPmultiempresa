@@ -12,7 +12,7 @@ void Reject(Action action,string name) { try { action(); } catch(ArgumentExcepti
 var settings=new ZeusSettings(true,"server","db","01","01","01","ERP","FA",
     [new("INVENTARIO","1435"),new("PROVEEDOR","2205"),new("IVA","2408",19),new("RETEFUENTE","2365",2.5m)],
     [new(10,"P10","N10")]);
-var source=new ZeusSource(20,10,"F&123",new(2026,9,21),new(2026,2,1),new(2026,3,1),116.5m,19,2.5m,[new(50,100)]);
+var source=new ZeusSource(20,10,"F&123",new(2026,9,21),new(2026,2,1),new(2026,3,1),116.5m,19,2.5m,[new(50,100)],ProveedorNombre:"Proveedor de prueba");
 var input=new ZeusPreviewRequest([new("IVA",19,100,19)],[new("RETEFUENTE",2.5m,100,2.5m)]);
 var journal=ZeusJournal.Build(settings,source,input);
 TaxRoundingTests.Run(Check,Reject,settings,source);
@@ -94,7 +94,10 @@ var key=Guid.NewGuid();var xml=ZeusXml.Build(journal,key);var root=XElement.Pars
 var doc=root.Element("Documento")!;var header=doc.Element("Document")!;var lines=doc.Elements("Transac").ToArray();
 Check(root.Name=="ZEUS_SQL" && lines.Length==4,"Contrato XML y número de movimientos");
 Check(header.Element("NUMEDCTO")!.Value=="01NUEVO","Solicitud de consecutivo Zeus");
-Check(header.Element("DESCDCTO")!.Value==ZeusXml.Marker(key),"Clave estable en comprobante");
+Check(header.Element("DESCDCTO")!.Value=="ENTRADA DE MERCANCIA - Proveedor de prueba - F&123","Descripcion de entrada con proveedor y factura");
+Check(header.Element("XmlAdicionales")!.Value==ZeusXml.Marker(key),"Clave estable fuera del detalle visible");
+Check(ZeusXml.Description(source with{ProveedorNombre=new string('A',200)}).Length==120&&ZeusXml.Description(source with{ProveedorNombre=new string('A',200)}).EndsWith("F&123"),"Nombre largo respeta 120 caracteres sin truncar la factura");
+Check(XElement.Parse(ZeusXml.Build(journal with{Origen=source with{ProveedorNombre=null}},key)).Descendants("DESCDCTO").Single().Value==ZeusXml.Marker(key),"Snapshot historico conserva su contrato de identificacion");
 Check(lines[0].Element("NUMEFAC")!.Value=="F&123","Escape XML de factura");
 Check(lines[0].Element("FECHATRA")!.Value=="2026/09/21" && lines[0].Element("Fechafact")!.Value=="2026/02/01","Fecha contable distinta de factura");
 Check(doc.Element("Lineas") is null,"No activa escenarios fiscales de ventas");
@@ -118,7 +121,7 @@ if(args.Contains("--sql"))
     {
         await using var c=new SqlConnection(cs);await c.OpenAsync();await using var q=c.CreateCommand();
         q.CommandText="""
-            CREATE TABLE dbo.DOCUMENT(FNTEDCTO varchar(2),NUMEDCTO varchar(10),FECHDCTO varchar(10),DESCDCTO varchar(120),SUDBDCTO money,SUCRDCTO money);
+            CREATE TABLE dbo.DOCUMENT(FNTEDCTO varchar(2),NUMEDCTO varchar(10),FECHDCTO varchar(10),DESCDCTO varchar(120),SUDBDCTO money,SUCRDCTO money,XmlAdicionales varchar(50));
             CREATE TABLE dbo.TRANSAC(IDFUENTE varchar(2),NUMDOCTRA varchar(10),CODICTA varchar(20),VALORTRA money,STATUSTRA varchar(2),BU varchar(20));
             CREATE TABLE dbo.TestMode(Mode varchar(20));INSERT dbo.TestMode VALUES('OK');
             CREATE TABLE dbo.MAECONT(CODICTA varchar(20),HABILITARCTA bit,TIPOCTA char(1),INDCPICTA int);
@@ -138,7 +141,7 @@ if(args.Contains("--sql"))
               IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='RETURNFAIL') RETURN 3;
               DECLARE @X xml=CONVERT(xml,@XML);
               INSERT dbo.DOCUMENT
-              SELECT x.value('(FNTEDCTO/text())[1]','varchar(2)'),'0100000001',x.value('(FECHDCTO/text())[1]','varchar(10)'),x.value('(DESCDCTO/text())[1]','varchar(120)'),119,119
+              SELECT x.value('(FNTEDCTO/text())[1]','varchar(2)'),'0100000001',x.value('(FECHDCTO/text())[1]','varchar(10)'),x.value('(DESCDCTO/text())[1]','varchar(120)'),119,119,x.value('(XmlAdicionales/text())[1]','varchar(50)')
               FROM @X.nodes('/ZEUS_SQL/Documento/Document') d(x);
               INSERT dbo.TRANSAC SELECT x.value('(IDFUENTE/text())[1]','varchar(2)'),'0100000001',x.value('(CODICTA/text())[1]','varchar(20)'),x.value('(VALORTRA/text())[1]','money'),'XA',x.value('(BU/text())[1]','varchar(20)')
               FROM @X.nodes('/ZEUS_SQL/Documento/Transac') d(x);
@@ -168,6 +171,9 @@ if(args.Contains("--sql"))
         q.CommandText="SELECT COUNT(*) FROM dbo.DOCUMENT";
         Check(repeated.Estado=="CONTABILIZADO" && Convert.ToInt32(await q.ExecuteScalarAsync())==1,"Reenvío con misma clave no duplica");
         Check((await transport.ReconcileAsync(1,testJournal,key,default)).Estado=="CONTABILIZADO","Conciliación de éxito incierto");
+        q.CommandText="UPDATE dbo.DOCUMENT SET DESCDCTO=XmlAdicionales,XmlAdicionales=NULL";await q.ExecuteNonQueryAsync();
+        Check((await transport.ReconcileAsync(1,testJournal,key,default)).Estado=="CONTABILIZADO","Conciliacion compatible con clave historica en descripcion");
+        Check((await transport.SendAsync(1,testJournal,key,default)).Estado=="CONTABILIZADO","Documento historico no se duplica con el formato nuevo");
         Check((await transport.ReconcileAsync(1,testJournal,Guid.NewGuid(),default)).Estado=="INCIERTO","Ausencia no autoriza reenvío");
         Check((await transport.SendAsync(2,testJournal,Guid.NewGuid(),default)).Estado=="RECHAZADO","No comparte conexión con otra empresa");
         Check((await transport.SendAsync(1,testJournal with{Configuracion=testJournal.Configuracion with{BaseEsperada="otra"}},Guid.NewGuid(),default)).Estado=="RECHAZADO","Bloquea destino diferente");

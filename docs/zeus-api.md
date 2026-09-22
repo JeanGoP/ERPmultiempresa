@@ -1,5 +1,14 @@
 # Integración Zeus dentro del backend
 
+El detalle de nuevos comprobantes (`DESCDCTO`) usa `ENTRADA DE MERCANCIA -
+<razón social del proveedor> - <factura>`. El nombre se toma de la empresa ERP
+y queda incluido en la instantánea aprobada. Si excede el límite Zeus de 120
+caracteres, solo se acorta el nombre; se conserva la factura completa.
+La clave `NEXO:` se guarda separadamente en `Document.XmlAdicionales` (37 de
+los 50 caracteres del contrato). La verificación sigue reconociendo también las
+claves antiguas en `DESCDCTO`. No se reescriben comprobantes ya contabilizados ni
+se cambia el formato de instantáneas anteriores sin nombre de proveedor.
+
 El módulo utiliza la autenticación existente y rutas por EmpresaId. No se han
 modificado procedimientos de Zeus ni se han realizado contabilizaciones reales.
 La migración 049 se aplica **en la base ERP**, no en CONTABILIDADMOTOCENTRO.

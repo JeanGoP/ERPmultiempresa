@@ -34,7 +34,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
         await using var q=c.CreateCommand();q.Transaction=tx;
         q.CommandText="""
             SELECT NUMEDCTO,FECHDCTO,SUDBDCTO,SUCRDCTO FROM dbo.DOCUMENT
-            WHERE FNTEDCTO=@F AND DESCDCTO=@M;
+            WHERE FNTEDCTO=@F AND (DESCDCTO=@M OR CONVERT(nvarchar(max),XmlAdicionales)=@M);
             """;
         q.Parameters.Add("@F",SqlDbType.VarChar,2).Value=s.Configuracion.Fuente;
         q.Parameters.Add("@M",SqlDbType.VarChar,120).Value=ZeusXml.Marker(key);

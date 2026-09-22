@@ -13,6 +13,15 @@ public static class ZeusXml
     private const string DetailText="ANOTRA IDFUENTE NUMDOCTRA FECHATRA CODICTA NITTRA NITTRAG AUXIAUX IDCENCO IDITEM DESCRITRA INDCPITRA CONCILTRA IDBANCO IDVENDE IDPLAZA TIPOFAC NUMEFAC VENCEFAC REFEFAC IDUSUARIO IDZONA CLIPRV CODPRESU NRESERVA STATUSTRA IDUNIDAD1 IDUNIDAD2 IDUNIDAD3 Serie Autorizacion Fechafact Adicional_1 Adicional_2 Voucher BU NCF NCF_Modificado FechaCaducidad OrigenError CompRete_Serie CompRete_Secuencial CompRete_FechaEmision CompRete_Autorizacion Aplicacion XmlAdicionales MovimientoPorCosolidacion CodigoPropiedad1 CodigoPropiedad2 CodigoPropiedad3 CodigoPropiedad4 CodigoPropiedad5 Revelacion Id_Movimiento LineaImpuesto SubLineaImpuesto";
     private const string DetailNumber="VALORTRA PORRETETRA BASERETETRA VALORMONEDA VALORUTRA1 VALORUTRA2 VALORUTRA3 TasaCambio BaseComision Id_AplicacionesOrigen VALORMONEDA1 VALORMONEDA2 TASACAMBIO1 TASACAMBIO2 fact_movimiento_original Id_AplicacionesZeus Id_OrigenMovimiento fact_porcentaje_interes_pactado fact_porcentaje_interes_comparativo fact_idencondicionesdecredito cuota plazo ValorPrestamo ValorCuota CostosAsociados CuotasGracia ConsecutivoCredito Iden_Secciones";
     public static string Marker(Guid key)=>"NEXO:"+key.ToString("N");
+    public static string Description(ZeusSource source)
+    {
+        const string prefix="ENTRADA DE MERCANCIA - ";
+        var suffix=" - "+source.Factura;
+        var name=string.Join(" ",(source.ProveedorNombre??"").Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries));
+        var available=120-prefix.Length-suffix.Length;
+        if(name.Length>available)name=name[..available];
+        return prefix+name+suffix;
+    }
     public static string Build(ZeusSnapshot s,Guid key)
     {
         var config=s.Configuracion;var origin=s.Origen;
@@ -23,7 +32,8 @@ public static class ZeusXml
         void Set(XElement e,string name,object value)=>e.SetElementValue(name,value is decimal d?ZeusJournal.Number(d):value);
         var header=Create("Document",HeaderText,HeaderNumber);
         Set(header,"ANODCTO",period);Set(header,"FNTEDCTO",config.Fuente);Set(header,"NUMEDCTO",number);
-        Set(header,"FECHDCTO",date);Set(header,"DESCDCTO",Marker(key));Set(header,"IDTERCERO",s.Proveedor.CodigoTercero);
+        Set(header,"FECHDCTO",date);Set(header,"DESCDCTO",origin.ProveedorNombre is null?Marker(key):Description(origin));Set(header,"IDTERCERO",s.Proveedor.CodigoTercero);
+        if(origin.ProveedorNombre is not null)Set(header,"XmlAdicionales",Marker(key));
         Set(header,"IDCLIPRV",s.Proveedor.CodigoProveedor);Set(header,"bu",config.UnidadNegocio);
         Set(header,"IACTDCTO","S");Set(header,"STATUSDCTO","AC");Set(header,"TasaCambio",1);Set(header,"Aplicacion","CONTABILIDAD");
         var document=new XElement("Documento",header,new XElement("General",new XElement("AgruparNIT","N")));
