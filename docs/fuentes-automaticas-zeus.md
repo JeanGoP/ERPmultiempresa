@@ -1,6 +1,8 @@
 # Fuentes automáticas de Zeus
 
-Configuración de empresa → Fuentes automáticas permite definir sucursal/punto, movimiento, fuente y serie. No hay selector de fuentes en la entrada de mercancía.
+Configuración de empresa → Destino y fuentes de Zeus reúne la conexión (servidor, base y usuario Zeus) y las fuentes por sucursal. Cada fila define sucursal/punto, movimiento, fuente, serie, unidad de negocio y tipo de documento. No hay selector de fuentes en la entrada de mercancía.
+
+Los campos generales anteriores se conservan internamente por compatibilidad; no se duplican como controles editables. Sin reglas de entrada se muestra un resumen plegado de la configuración anterior. Al agregar una regla se proponen sus valores anteriores, pero nunca se selecciona una sucursal automáticamente. Las reglas antiguas sin unidad/tipo propios heredan los generales hasta que se guarden. Las configuraciones nuevas requieren una regla de entrada completa. Los campos nuevos son opcionales en el JSON existente; este cambio no requiere migración SQL ni modifica configuración remota por sí solo.
 
 Las sucursales se crean en Datos maestros → Sucursales (código, nombre y estado). Las reglas seleccionan una sucursal activa de la empresa mediante su ID; no admiten nombres libres ni IDs de otras empresas. Se pueden editar sucursales, pero no desactivar las que tengan reglas asignadas. La administración requiere el permiso de administración de seguridad. Una asignación antigua por nombre debe guardarse con el selector antes de renombrar esa sucursal.
 

@@ -44,3 +44,11 @@
   #zeusSettingsForm .zeus-retention { grid-template-columns: minmax(0, 1fr); }
 }
 .warehouse-account-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 18px; }
+#zeusSettingsForm > .zeus-card:first-child > .zeus-connection { grid-template-columns: repeat(3,minmax(140px,1fr)); max-width: 850px; }
+#zeusSettingsForm .zeus-sources { margin-top: 20px; border-top: 1px solid #e3eae6; padding-top: 12px; }
+#zeusSettingsForm .zeus-sources h3 { margin: 0 0 10px; font-size: 14px; }
+#zeusSettingsForm .zeus-source-rule { grid-template-columns: minmax(140px,1.2fr) minmax(165px,1.4fr) 64px 60px minmax(95px,1fr) 100px auto; gap: 10px; align-items: end; }
+#zeusSettingsForm .zeus-legacy { font-size: 12px; color: #586b64; margin-bottom: 10px; }
+@media(max-width:1000px){#zeusSettingsForm .zeus-source-rule { grid-template-columns: repeat(3,minmax(0,1fr)); }}
+@media(max-width:700px){#zeusSettingsForm > .zeus-card:first-child > .zeus-connection,#zeusSettingsForm .zeus-source-rule { grid-template-columns: repeat(2,minmax(0,1fr)); }}
+@media(max-width:420px){#zeusSettingsForm .zeus-source-rule { grid-template-columns: minmax(0,1fr); }}

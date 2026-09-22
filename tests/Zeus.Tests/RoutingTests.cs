@@ -18,5 +18,12 @@ static class RoutingTests
         reject(()=>ZeusRouting.Validate([new("Norte","EGRESO","12","00",[1]),new(" norte ","EGRESO","13","00",[2])]),"Sucursal no puede tener fuentes contradictorias para el mismo movimiento");
         reject(()=>ZeusRouting.Validate([new("A","EGRESO","1","XX",[1])]),"Validación de longitud y serie numérica");
         check(settings.FuentesAutomaticas is null&&configured.Fuente==settings.Fuente,"Resolver no altera configuración general ni otra empresa");
+        var perBranch=settings with{Fuente="",Serie="",UnidadNegocio="",TipoFactura="",FuentesAutomaticas=[new("Norte","ENTRADA_MERCANCIA","13","01",[],7,"NORTE","FC")]};
+        ZeusJournal.Validate(perBranch);
+        var resolved=ZeusRouting.Resolve(perBranch,7,"ENTRADA_MERCANCIA");
+        check(resolved.UnidadNegocio=="NORTE"&&resolved.TipoFactura=="FC","Unidad y tipo de documento se resuelven por sucursal sin generales duplicados");
+        check(north.UnidadNegocio==settings.UnidadNegocio&&north.TipoFactura==settings.TipoFactura,"Reglas antiguas conservan unidad y tipo general");
+        reject(()=>ZeusJournal.Validate(perBranch with{FuentesAutomaticas=[]}),"Configuración nueva sin fuente de entrada no inventa valores generales");
+        reject(()=>ZeusRouting.Validate([new("Norte","ENTRADA_MERCANCIA","13","01",[],7,"","FC")]),"Unidad de negocio vacía no se acepta");
     }
 }

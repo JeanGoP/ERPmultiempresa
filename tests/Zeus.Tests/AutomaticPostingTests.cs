@@ -46,7 +46,7 @@ static class AutomaticPostingTests
         var snapshot=JsonSerializer.Deserialize<ZeusSnapshot>((string)(await q.ExecuteScalarAsync())!)!;
         check(snapshot.Movimientos.Sum(m=>m.Valor)==0&&snapshot.Movimientos.Any(m=>m.Regla.Concepto=="IVA"&&m.Valor==19),"Comprobante automático cuadra con impuestos XML");
         q.CommandText="DELETE core.ZeusEnvio;UPDATE core.ZeusConfiguracion SET Configuracion=@Routes WHERE EmpresaId=1";
-        var routed=settings with{FuentesAutomaticas=[new("Norte","ENTRADA_MERCANCIA","13","01",[1])]};
+        var routed=settings with{FuentesAutomaticas=[new("Norte","ENTRADA_MERCANCIA","13","01",[1],UnidadNegocio:"NORTE",TipoFactura:"FC")]};
         q.Parameters.AddWithValue("@Routes",JsonSerializer.Serialize(routed));await q.ExecuteNonQueryAsync();q.Parameters.Clear();
         check((await repo.RetryAutomaticAsync(1,20,1,default)).Estado=="PENDIENTE","Entrada usa fuente automática de su sucursal");
         q.CommandText="SELECT Snapshot FROM core.ZeusEnvio WHERE EmpresaId=1 AND RecepcionMercanciaId=20";
@@ -59,6 +59,7 @@ static class AutomaticPostingTests
         q.CommandText="SELECT Snapshot FROM core.ZeusEnvio WHERE EmpresaId=1 AND RecepcionMercanciaId=20";
         var retried=JsonSerializer.Deserialize<ZeusSnapshot>((string)(await q.ExecuteScalarAsync())!)!;
         check(retried.Configuracion.Fuente=="13"&&retried.Configuracion.Serie=="01","Cambiar configuración no redirige comprobantes ya preparados");
+        check(retried.Configuracion.UnidadNegocio=="NORTE"&&retried.Configuracion.TipoFactura=="FC","Reintento conserva unidad de negocio y tipo originales pese a cambios generales");
         check(await repo.EligibleAsync(1,retried,default),"Reintento con fuente original sigue siendo elegible");
         try{await repo.SaveSettingsAsync(1,1,new(1,settings with{FuentesAutomaticas=[new("Ajena","ENTRADA_MERCANCIA","14","00",[999999])]}),default);throw new Exception("Aceptó usuario ajeno");}
         catch(ArgumentException){check(true,"Configuración rechaza sucursal inexistente antes de guardar");}

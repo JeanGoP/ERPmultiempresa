@@ -59,10 +59,16 @@ public static class ZeusJournal
     public static void Validate(ZeusSettings s)
     {
         ZeusRouting.Validate(s.FuentesAutomaticas);
-        Text(s.ServidorEsperado, 150); Text(s.BaseEsperada, 128); Text(s.Fuente, 2);
-        if(s.Fuente.Length != 2 || s.Serie is null || s.Serie.Length != 2 || s.Serie.Any(c=>c<'0'||c>'9'))
-            throw new ArgumentException("Fuente y serie deben tener dos caracteres; la serie debe ser numérica.");
-        Text(s.UnidadNegocio, 20); Text(s.UsuarioZeus, 20); Text(s.TipoFactura, 10);
+        Text(s.ServidorEsperado, 150); Text(s.BaseEsperada, 128); Text(s.UsuarioZeus, 20);
+        var routes=s.FuentesAutomaticas??[];
+        if(!routes.Any(r=>r.Movimiento=="ENTRADA_MERCANCIA")||!string.IsNullOrEmpty(s.Fuente))
+        {
+            Text(s.Fuente,2);
+            if(s.Fuente.Length!=2||s.Serie is null||s.Serie.Length!=2||s.Serie.Any(c=>c<'0'||c>'9'))
+                throw new ArgumentException("Configura fuente y serie de entrada de mercancía para una sucursal.");
+            Text(s.UnidadNegocio,20);Text(s.TipoFactura,10);
+        }
+        foreach(var route in routes){Text(route.UnidadNegocio??s.UnidadNegocio,20);Text(route.TipoFactura??s.TipoFactura,10);}
         if(s.Cuentas is null || s.Proveedores is null || s.Cuentas.Length>2000 || s.Proveedores.Length>10000)
             throw new ArgumentException("Configuración de cuentas y proveedores inválida.");
         foreach(var a in s.Cuentas)

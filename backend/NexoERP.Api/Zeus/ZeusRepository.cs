@@ -89,7 +89,7 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
                 var previous=JsonSerializer.Deserialize<ZeusSnapshot>(saved)!.Configuracion;
                 if(previous.ServidorEsperado!=settings.ServidorEsperado||previous.BaseEsperada!=settings.BaseEsperada)
                     throw new ArgumentException("El destino Zeus del documento cambió. Requiere conciliación antes de reenviar.");
-                settings=settings with{Fuente=previous.Fuente,Serie=previous.Serie,SucursalOperacion=previous.SucursalOperacion};
+                settings=settings with{Fuente=previous.Fuente,Serie=previous.Serie,SucursalOperacion=previous.SucursalOperacion,UnidadNegocio=previous.UnidadNegocio,TipoFactura=previous.TipoFactura};
             }
             else
             {
