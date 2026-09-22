@@ -52,6 +52,7 @@ Check(ZeusXml.Build(unicode,key).All(c=>c<=127) && XElement.Parse(ZeusXml.Build(
 Check(ZeusRepository.Fingerprint(journal)==ZeusRepository.Fingerprint(journal),"Huella estable");
 Check(ZeusRepository.Fingerprint(journal)!=ZeusRepository.Fingerprint(resolved),"Huella detecta cambio de cuentas");
 Check(ZeusRepository.Fingerprint(journal)==ZeusRepository.Fingerprint(journal with{Origen=source with{Total=116.5000m}}),"Huella ignora ceros decimales sin cambio de valor");
+AutomaticPostingTests.Unit(Check);
 if(args.Contains("--sql"))
 {
     // Únicamente una base desechable propia en LocalDB; jamás usa .env ni Zeus remoto.
@@ -244,6 +245,7 @@ if(args.Contains("--sql"))
         q.CommandText="UPDATE dbo.PROVEEDORES SET Deshabilitado=0 WHERE IDPROVE='901528333';UPDATE dbo.TestMode SET Mode='OK';DELETE dbo.TRANSAC;DELETE dbo.DOCUMENT";await q.ExecuteNonQueryAsync();
         Check((await transport.SendAsync(1,identityJournal,Guid.NewGuid(),default)).Estado=="CONTABILIZADO","Contabiliza con tercero y proveedor existentes de igual identificación");
         await SupplierSyncTests.Run(cs,dir!.FullName,Check);
+        await AutomaticPostingTests.Sql(cs,settings,Check);
     }
     finally
     {

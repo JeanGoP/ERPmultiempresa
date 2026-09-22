@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "check": "node --check server.js && node --check public/app.js && node --check public/zeus.js && node --check public/zeus-general-accounts.js && node --check public/warehouse-accounts.js && node --check public/advanced-controls.js && node --check public/accounts-payable.js && node --check public/inventory-origin.js && node --check public/supplier-payment-report.js && node --check public/payment-report-excel.js",
-    "test": "node tests/parser-smoke.js && node tests/xml-retention-smoke.js && node tests/inventory-periods-smoke.js && node tests/supplier-identity-smoke.js && node tests/zeus-supplier-ui-smoke.js && node tests/warehouse-accounts-ui-smoke.js && node tests/zeus-general-accounts-smoke.js",
+    "test": "node tests/parser-smoke.js && node tests/xml-retention-smoke.js && node tests/inventory-periods-smoke.js && node tests/supplier-identity-smoke.js && node tests/zeus-supplier-ui-smoke.js && node tests/warehouse-accounts-ui-smoke.js && node tests/zeus-general-accounts-smoke.js && node tests/zeus-automatic-ui-smoke.js",
     "api:check": "dotnet build backend/NexoERP.Api/NexoERP.Api.csproj --no-restore",
     "test:all": "npm run check && npm test && npm run api:check",
     "db:init": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/init-localdb.ps1",

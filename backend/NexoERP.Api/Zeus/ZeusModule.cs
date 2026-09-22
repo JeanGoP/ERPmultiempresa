@@ -128,6 +128,10 @@ public static class ZeusModule
         }).RequireErpPermission(posting);
         group.MapGet("/jobs",async(long empresaId,string? estado,int? offset,ZeusRepository repo,CancellationToken ct)=>
             Results.Ok(await repo.ListAsync(empresaId,estado,offset??0,ct))).RequireErpPermission(posting);
+        group.MapPost("/receipts/{receiptId:long}/send-automatic",async(long empresaId,long receiptId,HttpContext http,ZeusRepository repo,CancellationToken ct)=>
+            Results.Ok(await repo.RetryAutomaticAsync(empresaId,receiptId,Convert.ToInt64(http.Items["UsuarioId"]),ct))).RequireErpPermission(posting);
+        group.MapGet("/receipts/{receiptId:long}/status",async(long empresaId,long receiptId,ZeusRepository repo,CancellationToken ct)=>
+            Results.Ok(await repo.ReceiptStatusAsync(empresaId,receiptId,ct))).RequireErpPermission(posting);
         group.MapPost("/jobs/{id:long}/reconcile",async(long empresaId,long id,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
         {
             var job=await repo.UncertainAsync(empresaId,id,ct);
@@ -158,7 +162,9 @@ public sealed class ZeusWorker(IServiceScopeFactory scopes,IConfiguration config
                     {
                         var j=job.Value;
                         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);deadline.CancelAfter(TimeSpan.FromMinutes(3));
-                        var result=await repo.EligibleAsync(j.Company,j.Snapshot,deadline.Token)
+                        var result=await repo.SupplierStillSendingAsync(j.Company,j.Snapshot.Origen.ProveedorId,deadline.Token)
+                            ? new ZeusResult("PENDIENTE",Error:"Esperando el envío del proveedor a Zeus. No se ha enviado el comprobante.")
+                            : await repo.EligibleAsync(j.Company,j.Snapshot,deadline.Token)
                             ? await scope.ServiceProvider.GetRequiredService<ZeusTransport>().SendAsync(j.Company,j.Snapshot,j.Key,deadline.Token)
                             : new ZeusResult("RECHAZADO",Error:"La entrada o su configuración cambiaron. Genera y revisa una nueva vista previa.");
                         using var finish=new CancellationTokenSource(TimeSpan.FromSeconds(15));

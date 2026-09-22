@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
+using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.Purchasing;
 
@@ -921,7 +922,9 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
     public async Task<PostedReceiptResponse> PostReceiptAsync(long empresaId,long recepcionId,PostReceiptRequest input,CancellationToken cancellationToken)
     {
         await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
+        await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable,cancellationToken);
         await using var command=connection.CreateCommand();
+        command.Transaction=transaction;
         command.CommandType=CommandType.StoredProcedure;
         command.CommandText="inv.usp_ContabilizarRecepcion";
         Add(command,"@FechaContableSolicitada",SqlDbType.Date,input.FechaContable?.ToDateTime(TimeOnly.MinValue));
@@ -930,9 +933,16 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         Add(command,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
         Add(command,"@UsuarioId",SqlDbType.BigInt,input.UsuarioId);
         Add(command,"@CorrelationId",SqlDbType.UniqueIdentifier,input.CorrelationId);
-        await using var reader=await command.ExecuteReaderAsync(cancellationToken);
-        if(!await reader.ReadAsync(cancellationToken)) throw new InvalidOperationException("No se obtuvo el resultado de la recepción.");
-        return new(reader.GetInt64(0),reader.GetString(1),reader.GetInt32(2),reader.GetBoolean(3));
+        PostedReceiptResponse result;
+        await using(var reader=await command.ExecuteReaderAsync(cancellationToken))
+        {
+            if(!await reader.ReadAsync(cancellationToken)) throw new InvalidOperationException("No se obtuvo el resultado de la recepción.");
+            result=new(reader.GetInt64(0),reader.GetString(1),reader.GetInt32(2),reader.GetBoolean(3));
+            do { while(await reader.ReadAsync(cancellationToken)){} } while(await reader.NextResultAsync(cancellationToken));
+        }
+        var zeus=await ZeusRepository.EnqueueAutomaticAsync(connection,transaction,empresaId,recepcionId,input.UsuarioId??throw new ArgumentException("Falta el usuario que contabiliza la entrada."),cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return result with{Zeus=zeus};
     }
 
     public async Task<PostedServiceAccrualResponse> PostServiceAccrualAsync(long empresaId,long causacionId,PostServiceAccrualRequest input,CancellationToken cancellationToken)

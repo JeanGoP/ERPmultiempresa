@@ -9,7 +9,7 @@ using NexoERP.Api.Data;
 
 namespace NexoERP.Api.Zeus;
 
-public sealed class ZeusRepository(TenantConnectionFactory connections)
+public sealed partial class ZeusRepository(TenantConnectionFactory connections)
 {
     private sealed class CanonicalDecimal : JsonConverter<decimal>
     {

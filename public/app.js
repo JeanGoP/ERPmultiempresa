@@ -84,7 +84,25 @@ async function apiRequest(path, options = {}) {
   const payload = await response.json().catch(() => null);
   const validationMessage=payload?.errors?Object.values(payload.errors).flat()[0]:null;
   if (!response.ok) { const error=new Error(payload?.error || validationMessage || payload?.detail || payload?.title || `La API respondió ${response.status}.`);error.status=response.status;throw error; }
+  if(options.method==='POST'&&/\/receipts\/\d+\/post$/.test(path)&&payload?.zeus) receiptZeusNotice(path,payload.zeus);
   return payload;
+}
+
+let receiptZeusNoticeVersion=0;
+function receiptZeusNotice(path,status){
+  const version=++receiptZeusNoticeVersion,company=state.erpSession?.company.id;
+  let notice=document.querySelector('#receiptZeusStatus');
+  if(!notice){notice=document.createElement('div');notice.id='receiptZeusStatus';notice.className='workflow-notice';notice.setAttribute('role','status');elements.errorBox.after(notice);}
+  const render=s=>{notice.textContent=s.mensaje;notice.hidden=false;notice.dataset.estado=s.estado;};render(status);
+  const statusPath=path.replace('/receipts/','/zeus/receipts/').replace(/\/post$/,'/status');
+  let attempts=0;
+  const poll=async()=>{
+    if(version!==receiptZeusNoticeVersion)return;
+    if(company!==state.erpSession?.company.id){notice.hidden=true;return;}
+    try{const next=await apiRequest(statusPath);if(version!==receiptZeusNoticeVersion||company!==state.erpSession?.company.id)return;render(next);if(['PENDIENTE','ENVIANDO'].includes(next.estado)&&++attempts<20)setTimeout(poll,3000);}
+    catch{if(version!==receiptZeusNoticeVersion||company!==state.erpSession?.company.id)return;notice.textContent='ERP contabilizado. No fue posible consultar el resultado de Zeus; revisa Seguimiento sin repetir la entrada.';}
+  };
+  if(['PENDIENTE','ENVIANDO'].includes(status.estado))setTimeout(poll,2000);
 }
 
 function renderCompanyOptions(companies) {

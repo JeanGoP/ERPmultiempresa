@@ -280,4 +280,12 @@ Desde la versión `2026.09.21.10`, si no existe una homologación histórica, la
 
 Los cargos de línea se admiten cuando `TotalNeto = SubtotalBruto - Descuento + Cargo`. Se contabiliza el neto una sola vez. Los cargos globales, servicios y diferencias de cuadre siguen requiriendo revisión; no se crean ajustes automáticos.
 
-Después de desplegar el backend, usar **Integración Zeus → Preparar comprobante**, seleccionar la entrada, revisar el desglose de impuestos y el destino, generar la vista previa y aprobar. La aprobación pone el envío en cola: comprobar su resultado y número de comprobante en **Seguimiento**. El despachador remoto requiere `Zeus__Enabled=true`; la conexión privada sigue configurándose exclusivamente en el servidor. No reenviar estados inciertos sin conciliar.
+## Flujo automático desde la versión 2026.09.21.11
+
+**Guardar borrador** no contabiliza ni envía comprobantes. **Guardar y contabilizar entrada** contabiliza el ERP y registra el envío Zeus en la misma transacción local. El backend lee impuestos y retenciones del XML original guardado (también AttachedDocument), usa las bodegas por línea y las cuentas de la empresa. No se recapturan impuestos ni se requiere una segunda aprobación en otra pantalla.
+
+El envío externo es asíncrono: la pantalla diferencia ERP contabilizado, Zeus pendiente y el resultado confirmado. Un rechazo Zeus no repite ni revierte unilateralmente el inventario. Si faltan cuentas o el XML no explica los importes guardados, se conserva el error en REQUIERE_REVISION; no se inventan impuestos. Las retenciones anuladas en ERP no se reaplican; ajustes positivos sin desglose coherente requieren revisión fiscal.
+
+**Integración Zeus → Envíos pendientes** queda para facturas anteriores o recuperación de rechazos confirmados, utilizando automáticamente sus datos guardados. PENDIENTE, ENVIANDO, CONTABILIZADO e INCIERTO no se reencolan. Los estados inciertos se concilian. No se envían facturas históricas masivamente al desplegar.
+
+El despachador remoto requiere `Zeus__Enabled=true`, además de habilitar la empresa. La conexión privada permanece exclusivamente en el servidor. No hay migración nueva: se reutiliza core.ZeusEnvio. Las rutas anteriores de aprobación explícita se conservan por compatibilidad, pero no forman parte del flujo normal de la interfaz.
