@@ -72,9 +72,11 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
     public async Task<ZeusResult> SendAsync(long company,ZeusSnapshot s,Guid key,CancellationToken ct)
     {
         SqlConnection? c=null;SqlTransaction? tx=null;bool commitStarted=false;
+        var stage="conexión con Zeus";
         try
         {
             c=await OpenAsync(company,s.Configuracion,ct);
+            stage="inicio de transacción y bloqueo del envío";
             tx=(SqlTransaction)await c.BeginTransactionAsync(ct);
             await using var q=c.CreateCommand();q.Transaction=tx;q.CommandTimeout=90;
             q.CommandText="""
@@ -84,16 +86,19 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
                 IF @L<0 THROW 51710,'No fue posible bloquear el envio a Zeus.',1;
                 """;
             await q.ExecuteNonQueryAsync(ct);
+            stage="comprobación de envío previo";
             var existing=await VerifyAsync(c,tx,s,key,ct);
             if(existing is not null) { await tx.RollbackAsync(CancellationToken.None);return new("CONTABILIZADO",s.Configuracion.Fuente,existing); }
             if(s.Proveedor.CodigoProveedor==s.Proveedor.CodigoTercero)
             {
+                stage="validación del tercero y proveedor";
                 (bool Third,bool Supplier) master;
                 try { master=await SupplierExists(c,tx,s.Proveedor.CodigoProveedor,ct); }
                 catch(ArgumentException error) { throw new InvalidOperationException(SafeSupplierDiagnostic(error.Message,c.ConnectionString)); }
                 if(!master.Third||!master.Supplier)
                     throw new InvalidOperationException("El tercero o proveedor no existe en Zeus. Envía el proveedor desde el maestro y vuelve a preparar la entrada.");
             }
+            stage="validación de cuentas contables";
             q.CommandText="""
                 IF EXISTS(SELECT 1 FROM
                     (SELECT n.value('@Cuenta','varchar(20)') Cuenta,n.value('@Proveedor','bit') Proveedor
@@ -110,6 +115,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
                 .Select(a=>new XElement("Cuenta",new XAttribute("Cuenta",a.Cuenta),new XAttribute("Proveedor",a.Proveedor?1:0))))
                 .ToString(SaveOptions.DisableFormatting);
             await q.ExecuteNonQueryAsync(ct);q.Parameters.Clear();
+            stage="dbo.spWSG_Contabilidad";
             q.CommandText="dbo.spWSG_Contabilidad";q.CommandType=CommandType.StoredProcedure;
             q.Parameters.Add("@Iden",SqlDbType.Int).Value=16;
             q.Parameters.Add("@XML",SqlDbType.VarChar,-1).Value=ZeusXml.Build(s,key);
@@ -117,10 +123,11 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
             // Consumir todos los resultados: el adaptador original devuelve un SELECT antes de terminar.
             await using(var r=await q.ExecuteReaderAsync(ct))
                 do { while(await r.ReadAsync(ct)) { } } while(await r.NextResultAsync(ct));
-            if(Convert.ToInt32(returned.Value)!=0) throw new InvalidOperationException("Zeus devolvió un código de rechazo.");
+            if(Convert.ToInt32(returned.Value)!=0) throw new InvalidOperationException($"Zeus devolvió el código de retorno {Convert.ToInt32(returned.Value)}; no se confirmó el comprobante.");
+            stage="verificación del comprobante y movimientos creados";
             var number=await VerifyAsync(c,tx,s,key,ct)
                 ?? throw new InvalidOperationException("Zeus no creó el comprobante esperado. Se revierte la transacción.");
-            commitStarted=true;await tx.CommitAsync(ct);
+            stage="confirmación de la transacción";commitStarted=true;await tx.CommitAsync(ct);
             return new("CONTABILIZADO",s.Configuracion.Fuente,number);
         }
         catch(Exception error) when(error is SqlException or InvalidOperationException or ArgumentException or OperationCanceledException)
@@ -131,14 +138,20 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
                 try { await tx.RollbackAsync(CancellationToken.None); }
                 catch { uncertain=true; }
             }
-            // No devolver mensajes de infraestructura ni cadenas de conexión al cliente.
-            var message=error switch {
-                ArgumentException => "Revisa la conexión privada y el destino de Zeus de esta empresa.",
-                SqlException sql => $"Zeus rechazó o interrumpió la operación (SQL {sql.Number}). Revisar con soporte.",
-                OperationCanceledException => "La operación se interrumpió o excedió su tiempo máximo.",
-                _ => error.Message
-            };
-            return new(uncertain?"INCIERTO":"RECHAZADO",Error:message);
+            // Conservar el motivo de negocio de RAISERROR/THROW, incluso de procedimientos
+            // anidados o errores posteriores a un SELECT. Ocultar secretos antes de truncar.
+            string detail;
+            if(error is SqlException sql)
+            {
+                var errors=sql.Errors.Cast<SqlError>().Where(e=>e.Number!=3621).Take(5);
+                detail=string.Join(" | ",errors.Select(e=>$"SQL {e.Number} · {(string.IsNullOrWhiteSpace(e.Procedure)?stage:e.Procedure)} · línea {e.LineNumber}: {e.Message}"));
+                if(string.IsNullOrWhiteSpace(detail))detail=$"SQL {sql.Number}: {sql.Message}";
+            }
+            else detail=error is OperationCanceledException?"La operación se interrumpió o excedió su tiempo máximo.":error.Message;
+            var message=SafeSupplierDiagnostic($"Etapa: {stage}. {detail}",configuration[$"Zeus:Companies:{company}:ConnectionString"]);
+            return new(uncertain?"INCIERTO":"RECHAZADO",Error:message+(uncertain?
+                " No se pudo confirmar el resultado; concilia en Zeus antes de cualquier reenvío.":
+                tx is null?" No se inició una transacción contable.":" Se revirtió la transacción; no se confirmó la contabilización."));
         }
         finally { if(tx is not null) await tx.DisposeAsync();if(c is not null) await c.DisposeAsync(); }
     }

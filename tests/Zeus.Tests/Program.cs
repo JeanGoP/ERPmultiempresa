@@ -72,6 +72,9 @@ if(args.Contains("--sql"))
             INSERT dbo.MAECONT VALUES('1435',1,'D',1),('2408',1,'D',1),('2365',1,'D',1),('2205',1,'D',3);
             """;await q.ExecuteNonQueryAsync();
         q.CommandText="""
+            CREATE PROCEDURE dbo.TestAccountingValidation AS BEGIN RAISERROR('Validación contable de prueba: centro de costo obligatorio.',16,1); END
+            """;await q.ExecuteNonQueryAsync();
+        q.CommandText="""
             CREATE PROCEDURE dbo.spWSG_Contabilidad @Iden int,@XML varchar(max) AS
             BEGIN
               SET NOCOUNT ON;
@@ -88,6 +91,8 @@ if(args.Contains("--sql"))
               IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='WRONGACCOUNT') UPDATE dbo.TRANSAC SET CODICTA='999';
               SELECT '01' Fuente,'0100000001' Documento;
               IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='LATEERROR') THROW 51991,'Fallo despues del SELECT',1;
+              IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='RULE50000') EXEC dbo.TestAccountingValidation;
+              IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='SECRET') RAISERROR('Error de prueba; pwd="secreto privado"; revisar configuración',16,1);
               RETURN 0;
             END
             """;await q.ExecuteNonQueryAsync();
@@ -107,12 +112,16 @@ if(args.Contains("--sql"))
         Check((await transport.ReconcileAsync(1,testJournal,Guid.NewGuid(),default)).Estado=="INCIERTO","Ausencia no autoriza reenvío");
         Check((await transport.SendAsync(2,testJournal,Guid.NewGuid(),default)).Estado=="RECHAZADO","No comparte conexión con otra empresa");
         Check((await transport.SendAsync(1,testJournal with{Configuracion=testJournal.Configuracion with{BaseEsperada="otra"}},Guid.NewGuid(),default)).Estado=="RECHAZADO","Bloquea destino diferente");
-        foreach(var mode in new[]{"NOINSERT","RETURNFAIL","WRONGTOTAL","WRONGACCOUNT","LATEERROR"})
+        foreach(var mode in new[]{"NOINSERT","RETURNFAIL","WRONGTOTAL","WRONGACCOUNT","LATEERROR","RULE50000","SECRET"})
         {
             q.CommandText="DELETE dbo.TRANSAC;DELETE dbo.DOCUMENT;UPDATE dbo.TestMode SET Mode=@Mode";q.Parameters.Clear();q.Parameters.AddWithValue("@Mode",mode);await q.ExecuteNonQueryAsync();
             var failed=await transport.SendAsync(1,testJournal,Guid.NewGuid(),default);
             q.CommandText="SELECT COUNT(*) FROM dbo.DOCUMENT";
             Check(failed.Estado!="CONTABILIZADO" && Convert.ToInt32(await q.ExecuteScalarAsync())==0,"Rollback y sin falso éxito: "+mode);
+            if(mode=="RULE50000")Check(failed.Error!.Contains("SQL 50000")&&failed.Error.Contains("TestAccountingValidation")&&failed.Error.Contains("línea")&&failed.Error.Contains("centro de costo obligatorio")&&failed.Error.Contains("Etapa: dbo.spWSG_Contabilidad"),"Conserva mensaje real 50000, procedimiento anidado, línea y etapa después del SELECT");
+            if(mode=="LATEERROR")Check(failed.Error!.Contains("Fallo despues del SELECT"),"No pierde la causa SQL tardía al revertir");
+            if(mode=="RETURNFAIL")Check(failed.Error!.Contains("retorno 3"),"Informa el código de retorno del procedimiento contable");
+            if(mode=="SECRET")Check(!failed.Error!.Contains("secreto privado")&&failed.Error.Contains("[oculto]"),"Diagnóstico contable oculta contraseñas antes de persistir");
         }
         q.Parameters.Clear();
         q.CommandText="UPDATE dbo.TestMode SET Mode='OK'";await q.ExecuteNonQueryAsync();
