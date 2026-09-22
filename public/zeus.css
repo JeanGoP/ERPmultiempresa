@@ -4,4 +4,38 @@
 .zeus-supplier-dialog::backdrop { background: rgba(0,0,0,.4); }
 .zeus-supplier-dialog label { display: grid; gap: 8px; }
 .zeus-supplier-dialog select, .zeus-supplier-dialog input { width: 100%; min-width: 0; padding: 10px; }
+
+/* Configuración: densidad de formulario y anchos según el dato, sin afectar seguimiento. */
+#zeusSettingsForm { max-width: 1120px; }
+#zeusSettingsForm .zeus-card { padding: 20px 22px; margin: 14px 0; border-radius: 10px; }
+#zeusSettingsForm .zeus-card h2 { font-size: 17px; line-height: 1.4; margin-bottom: 8px; }
+#zeusSettingsForm .zeus-card p { font-size: 13px; line-height: 1.55; margin: 8px 0 14px; }
+#zeusSettingsForm label { min-width: 0; gap: 5px; font-size: 12px; }
+#zeusSettingsForm label small { font-weight: 400; line-height: 1.5; }
+#zeusSettingsForm input:not([type=checkbox]),
+#zeusSettingsForm select { min-height: 36px; height: 36px; padding: 7px 10px; font-size: 13px; border-radius: 6px; font-weight: 500; }
+#zeusSettingsForm input[readonly] { background: #f2f5f4; color: #52675e; border-color: #e0e7e3; font-variant-numeric: tabular-nums; }
+#zeusSettingsForm .button { min-height: 34px; padding: 8px 12px; font-size: 12px; border-radius: 6px; }
+#zeusSettingsForm > .zeus-card:first-child > .zeus-grid { grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 90px 80px; gap: 14px 16px; max-width: 800px; }
+#zeusSettingsForm .zeus-help { background: transparent; border-top: 1px solid #e7ece9; border-radius: 0; padding: 12px 0 0; margin-top: 16px; font-size: 11px; }
+#zeusSettingsForm .zeus-grid:has([name=cuentaProveedorGeneral]) { grid-template-columns: minmax(220px, 320px) minmax(0, 1fr); gap: 18px; align-items: center; }
+#zeusSettingsForm #zeusSupplierChartStatus,
+#zeusSettingsForm #zeusRetentionChartStatus { font-size: 12px; color: #65786f; margin: 10px 0; overflow-wrap: anywhere; }
+#zeusSettingsForm .zeus-retention { grid-template-columns: minmax(180px, 230px) 125px minmax(180px, 260px) auto; justify-content: start; gap: 12px; padding: 12px; margin: 10px 0; border: 1px solid #e3eae6; border-radius: 8px; background: #fafcfb; }
+#zeusSettingsForm .zeus-retention [data-retention-action=remove] { justify-self: start; color: #8a4d43; background: transparent; border-color: #e4d5d1; }
+#zeusSettingsForm .zeus-retention > small { grid-column: 1 / -1; font-size: 11px; color: #65786f; }
+#zeusSettingsForm .zeus-card > small { display: block; font-size: 11px; line-height: 1.5; color: #65786f; margin-top: 10px; }
+#zeusSettingsForm .zeus-toggle { margin: 12px 0; }
+@media (max-width: 1000px) {
+  #zeusSettingsForm .zeus-retention { grid-template-columns: minmax(0, 1fr) 125px; }
+  #zeusSettingsForm .zeus-grid:has([name=cuentaProveedorGeneral]) { grid-template-columns: minmax(0, 320px); gap: 0; }
+}
+@media (max-width: 700px) {
+  #zeusSettingsForm .zeus-card { padding: 16px; }
+  #zeusSettingsForm > .zeus-card:first-child > .zeus-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  #zeusSettingsForm > .zeus-card:first-child > .zeus-grid > label:nth-child(-n+2) { grid-column: 1 / -1; }
+}
+@media (max-width: 420px) {
+  #zeusSettingsForm .zeus-retention { grid-template-columns: minmax(0, 1fr); }
+}
 .warehouse-account-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 18px; }
