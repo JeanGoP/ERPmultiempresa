@@ -36,6 +36,35 @@ var co446643=source with{Factura="CO446643",Total=815501.05m,Impuestos=130206.05
 var coJournal=ZeusJournal.Build(settings,co446643,new([new("IVA",19,685295m,130206.05m)],[]));
 Check(coJournal.Movimientos.Where(m=>m.Valor>0).Sum(m=>m.Valor)==815501.05m&&coJournal.Movimientos.Sum(m=>m.Valor)==0,"CO446643 cuadra inventario e IVA sin duplicar cargos");
 var other=settings with{Cuentas=[..settings.Cuentas.Where(a=>a.Concepto!="IVA"),new("IVA","240899",19)]};
+// Valores de Suzuki: conservar los importes del XML, no recalcular el IVA registrado.
+var suzukiBases=new[]{8034706m,8034706m,8034706m,8034706m,8034706m,401735m};
+var suzukiAmounts=new[]{1526594m,1526594m,1526594m,1526594m,1526594m,76330m};
+var suzukiXml=new XElement("Invoice",suzukiBases.Select((basis,i)=>new XElement("InvoiceLine",
+    new XElement("ID",i+1),new XElement("TaxTotal",new XElement("TaxSubtotal",new XElement("TaxableAmount",basis),new XElement("TaxAmount",suzukiAmounts[i]),
+        new XElement("TaxCategory",new XElement("Percent",19),new XElement("TaxScheme",new XElement("ID","01")))))))).ToString();
+var suzukiInput=ZeusXmlTaxes.Parse(suzukiXml,Enumerable.Range(1,6).ToDictionary(i=>i.ToString(),i=>(long?)1),0);
+var suzuki=source with{Factura="191109627",Total=48284565m,Impuestos=7709300m,Retenciones=0,
+    Lineas=suzukiBases.Select(b=>new ZeusSourceLine(50,b,1,"1435","2408")).ToArray()};
+var suzukiJournal=ZeusJournal.Build(settings,suzuki,suzukiInput);
+Check(suzukiJournal.Movimientos.Where(m=>m.Regla.Concepto=="IVA").Select(m=>m.Valor).SequenceEqual(suzukiAmounts),"Suzuki conserva el IVA XML redondeado hacia abajo y arriba por línea");
+Check(suzukiJournal.Movimientos.Sum(m=>m.Valor)==0&&suzukiJournal.Movimientos.Last().Valor==-48284565m,"Suzuki cuadra exactamente 48.284.565 sin ajustes ni cambio de cartera");
+Check(!suzukiJournal.Movimientos.Any(m=>m.Regla.Concepto=="REDONDEO"),"Redondeo declarado no crea movimientos adicionales");
+Reject(()=>ZeusJournal.Build(settings,suzuki with{Total=suzuki.Total+1},suzukiInput),"IVA al peso no relaja el cuadre del total de factura");
+Reject(()=>ZeusJournal.Build(settings,suzuki with{Impuestos=suzuki.Impuestos+1},suzukiInput),"IVA al peso no relaja la suma del impuesto guardado");
+void CheckVatRounding(decimal basis,decimal amount,bool accepted,string label)
+{
+    var testSource=source with{Total=basis+amount,Impuestos=amount,Retenciones=0,Lineas=[new(50,basis)]};
+    var testInput=new ZeusPreviewRequest([new("IVA",19,basis,amount)],[]);
+    if(accepted)Check(ZeusJournal.Build(settings,testSource,testInput).Movimientos.Sum(m=>m.Valor)==0,label);
+    else Reject(()=>ZeusJournal.Build(settings,testSource,testInput),label);
+}
+CheckVatRounding(50,10,true,"IVA 9,50 admite redondeo al peso 10");
+CheckVatRounding(50,9,false,"IVA 9,50 rechaza el entero incorrecto 9");
+CheckVatRounding(10,2,true,"IVA 1,90 admite 2 pesos");
+CheckVatRounding(10,1.8m,false,"No admite diferencias decimales arbitrarias menores de un peso");
+CheckVatRounding(100,18,false,"No admite un peso de diferencia cuando el IVA es exacto");
+CheckVatRounding(100,19.01m,true,"Conserva tolerancia previa de un centavo");
+Reject(()=>ZeusJournal.Build(settings,source with{Total=116,Retenciones=3},input with{Retenciones=[new("RETEFUENTE",2.5m,100,3)]}),"No extiende redondeo al peso a las retenciones");
 Check(ZeusJournal.Build(other,source,input).Movimientos[1].Regla.Cuenta=="240899","Configuración de otra empresa independiente");
 var key=Guid.NewGuid();var xml=ZeusXml.Build(journal,key);var root=XElement.Parse(xml);
 var doc=root.Element("Documento")!;var header=doc.Element("Document")!;var lines=doc.Elements("Transac").ToArray();

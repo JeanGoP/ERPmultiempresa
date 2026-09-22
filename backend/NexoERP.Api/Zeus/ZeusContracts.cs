@@ -90,9 +90,16 @@ public static class ZeusJournal
             {
                 if(tax is null || !(withholding ? new[]{"RETEFUENTE","RETEIVA","RETEICA"} : new[]{"IVA","OTRO_IMPUESTO"}).Contains(tax.Concepto)
                     || tax.Tarifa<=0 || tax.Tarifa>100 || decimal.Round(tax.Tarifa,4)!=tax.Tarifa || tax.Base<=0 || tax.Valor<=0
-                    || decimal.Round(tax.Base,2)!=tax.Base || decimal.Round(tax.Valor,2)!=tax.Valor
-                    || Math.Abs(decimal.Round(tax.Base*tax.Tarifa/100,2,MidpointRounding.AwayFromZero)-tax.Valor)>0.01m)
+                    || decimal.Round(tax.Base,2)!=tax.Base || decimal.Round(tax.Valor,2)!=tax.Valor)
                     throw new ArgumentException("Impuesto inválido: revisa concepto, base, tarifa y valor (máximo dos decimales).");
+                var calculated=tax.Base*tax.Tarifa/100;
+                // Algunos XML de compras COP declaran el IVA redondeado al peso por línea.
+                // Admitir únicamente el entero más cercano, sin alterar el valor declarado
+                // ni extender la excepción a retenciones o diferencias arbitrarias.
+                var wholePesoVat=!withholding&&tax.Concepto=="IVA"&&tax.Valor==decimal.Truncate(tax.Valor)
+                    &&tax.Valor==decimal.Round(calculated,0,MidpointRounding.AwayFromZero);
+                if(Math.Abs(decimal.Round(calculated,2,MidpointRounding.AwayFromZero)-tax.Valor)>0.01m&&!wholePesoVat)
+                    throw new ArgumentException($"El valor de {tax.Concepto} ({Number(tax.Valor)}) no coincide con base {Number(tax.Base)} × tarifa {Number(tax.Tarifa)} % ({Number(decimal.Round(calculated,2,MidpointRounding.AwayFromZero))}). Solo el IVA admite el redondeo al peso entero más cercano; no se generan ajustes.");
                 ZeusAccount rule;long? warehouse=null;
                 if(tax.Concepto=="IVA"&&source.Lineas.Any(l=>l.CuentaIvaCompras is not null))
                 {
