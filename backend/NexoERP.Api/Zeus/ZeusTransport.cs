@@ -5,12 +5,13 @@ using Microsoft.Data.SqlClient;
 namespace NexoERP.Api.Zeus;
 
 public sealed record ZeusResult(string Estado,string? Fuente=null,string? Documento=null,string? Error=null);
-public sealed partial class ZeusTransport(IConfiguration configuration)
+public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConnectionStore? connectionsStore=null)
 {
-    private async Task<SqlConnection> OpenAsync(long company,ZeusSettings settings,CancellationToken ct)
+    private Task<string?> ConnectionAsync(long company,CancellationToken ct)=>connectionsStore is null?Task.FromResult(configuration[$"Zeus:Companies:{company}:ConnectionString"]):connectionsStore.ResolveAsync(company,ct);
+    private async Task<SqlConnection> OpenAsync(long company,ZeusSettings settings,CancellationToken ct,string? resolved=null)
     {
         // La clave depende de EmpresaId, no de un alias suministrado por el navegador.
-        var secret=configuration[$"Zeus:Companies:{company}:ConnectionString"];
+        var secret=resolved??await ConnectionAsync(company,ct);
         if(string.IsNullOrWhiteSpace(secret)) throw new ArgumentException("Falta la conexión privada de Zeus para esta empresa.");
         SqlConnectionStringBuilder builder;
         try {builder=new SqlConnectionStringBuilder(secret);}
@@ -72,10 +73,12 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
     public async Task<ZeusResult> SendAsync(long company,ZeusSnapshot s,Guid key,CancellationToken ct)
     {
         SqlConnection? c=null;SqlTransaction? tx=null;bool commitStarted=false;
+        string? diagnosticConnection=null;
         var stage="conexión con Zeus";
         try
         {
-            c=await OpenAsync(company,s.Configuracion,ct);
+            diagnosticConnection=await ConnectionAsync(company,ct);
+            c=await OpenAsync(company,s.Configuracion,ct,diagnosticConnection);
             stage="inicio de transacción y bloqueo del envío";
             tx=(SqlTransaction)await c.BeginTransactionAsync(ct);
             await using var q=c.CreateCommand();q.Transaction=tx;q.CommandTimeout=90;
@@ -94,7 +97,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
                 stage="validación del tercero y proveedor";
                 (bool Third,bool Supplier) master;
                 try { master=await SupplierExists(c,tx,s.Proveedor.CodigoProveedor,ct); }
-                catch(ArgumentException error) { throw new InvalidOperationException(SafeSupplierDiagnostic(error.Message,c.ConnectionString)); }
+                catch(ArgumentException error) { throw new InvalidOperationException(SafeSupplierDiagnostic(error.Message,diagnosticConnection)); }
                 if(!master.Third||!master.Supplier)
                     throw new InvalidOperationException("El tercero o proveedor no existe en Zeus. Envía el proveedor desde el maestro y vuelve a preparar la entrada.");
             }
@@ -150,7 +153,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration)
                 if(string.IsNullOrWhiteSpace(detail))detail=$"SQL {sql.Number}: {sql.Message}";
             }
             else detail=error is OperationCanceledException?"La operación se interrumpió o excedió su tiempo máximo.":error.Message;
-            var message=SafeSupplierDiagnostic($"Etapa: {stage}. {detail}",configuration[$"Zeus:Companies:{company}:ConnectionString"]);
+            var message=SafeSupplierDiagnostic($"Etapa: {stage}. {detail}",diagnosticConnection);
             return new(uncertain?"INCIERTO":"RECHAZADO",Error:message+(uncertain?
                 " No se pudo confirmar el resultado; concilia en Zeus antes de cualquier reenvío.":
                 tx is null?" No se inició una transacción contable.":" Se revirtió la transacción; no se confirmó la contabilización."));

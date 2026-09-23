@@ -110,13 +110,13 @@ function zeusField(label,name,value='',type='text',max=20){return `<label>${labe
 function zeusOptions(rows,value,label,selected,empty='Predeterminado'){return `<option value="">${empty}</option>`+rows.map(row=>`<option value="${zeusEscape(row[value])}" ${String(row[value])===String(selected)?'selected':''}>${zeusEscape(label(row))}</option>`).join('');}
 function zeusRenderSettings(){
   const s=zeusUI.settings;
-  $('#zeusContent').innerHTML=`<form id="zeusSettingsForm"><section class="zeus-card"><h2>1. Destino y fuentes de Zeus</h2><div class="zeus-grid zeus-connection">${zeusField('Servidor SQL','servidorEsperado',s.servidorEsperado,'text',150)}${zeusField('Base contable de Zeus','baseEsperada',s.baseEsperada,'text',128)}${zeusField('Usuario de Zeus','usuarioZeus',s.usuarioZeus)}</div><button type="button" data-zeus="check" class="button secondary" ${zeusUI.version?'':'disabled'}>Comprobar conexión guardada</button>${typeof zeusSourcesSection==='function'?zeusSourcesSection(s):''}</section>
+  $('#zeusContent').innerHTML=`<form id="zeusSettingsForm"><section class="zeus-card"><h2>1. Fuentes de Zeus por sucursal</h2><p>Conexión: ${zeusEscape(s.baseEsperada||'Pendiente de configurar en Seguridad → Empresas')}${s.baseEsperada?' · '+zeusEscape(s.servidorEsperado):''}</p>${typeof zeusSourcesSection==='function'?zeusSourcesSection(s):''}</section>
     ${zeusGeneralSupplierSection(s)}${zeusRetentionSection(s)}
     <section class="zeus-card zeus-save"><label class="zeus-toggle"><input name="habilitado" type="checkbox" ${s.habilitado?'checked':''}><span><strong>Enviar automáticamente las entradas a Zeus</strong><small>Activa solo después de validar sus cuentas y probar la conexión. El envío también requiere activar el despachador en el servidor.</small></span></label><button type="submit" class="button primary">Guardar configuración de empresa</button></section></form>`;
 }
 function zeusReadSettings(){
   const form=$('#zeusSettingsForm'),s={habilitado:form.elements.habilitado.checked};
-  ['servidorEsperado','baseEsperada','usuarioZeus'].forEach(k=>s[k]=form.elements[k].value.trim());
+  ['servidorEsperado','baseEsperada','usuarioZeus'].forEach(k=>s[k]=zeusUI.settings[k]??'');
   ['fuente','serie','unidadNegocio','tipoFactura'].forEach(k=>s[k]=zeusUI.settings[k]??'');
   s.cuentas=zeusUI.settings.cuentas.filter(rule=>rule.concepto!=='PROVEEDOR'&&!zeusRetentionConcepts[rule.concepto]).map(rule=>({...rule}));
   s.cuentas.push(...zeusReadGeneralSupplier(form,zeusUI.settings),...zeusReadRetentions(zeusUI.settings));

@@ -6,8 +6,8 @@ using NexoERP.Api.Data;
 namespace NexoERP.Api.Security;
 
 public sealed record CompanyMasterRow(long Id,string Codigo,string Nit,string? DigitoVerificacion,string RazonSocial,string MonedaFuncional,string ZonaHoraria,string MarcoContable,bool Activa,string Version);
-public sealed record EditCompanyRequest(string Codigo,string Nit,string? DigitoVerificacion,string RazonSocial,string Version);
-public sealed class CompanyMasterRepository(TenantConnectionFactory connections,AuthRepository auth)
+public sealed record EditCompanyRequest(string Codigo,string Nit,string? DigitoVerificacion,string RazonSocial,string Version,NexoERP.Api.Zeus.ZeusConnectionInput? Zeus=null);
+public sealed class CompanyMasterRepository(TenantConnectionFactory connections,AuthRepository auth,NexoERP.Api.Zeus.ZeusConnectionStore? zeusConnections=null)
 {
     public static void Validate(string? code,string? nit,string? dv,string? name)
     {
@@ -43,7 +43,9 @@ public sealed class CompanyMasterRepository(TenantConnectionFactory connections,
         q.Parameters.AddWithValue("@Id",id);q.Parameters.AddWithValue("@Actor",actor);q.Parameters.Add("@Version",SqlDbType.Binary,8).Value=version;
         q.Parameters.AddWithValue("@Codigo",input.Codigo.Trim().ToUpperInvariant());q.Parameters.AddWithValue("@Nit",input.Nit.Trim());q.Parameters.AddWithValue("@Nombre",input.RazonSocial.Trim());
         q.Parameters.Add("@Dv",SqlDbType.Char,1).Value=string.IsNullOrWhiteSpace(input.DigitoVerificacion)?DBNull.Value:input.DigitoVerificacion.Trim();
-        q.Parameters.AddWithValue("@Json",JsonSerializer.Serialize(input));await q.ExecuteNonQueryAsync(ct);await tx.CommitAsync(ct);
+        q.Parameters.AddWithValue("@Json",JsonSerializer.Serialize(new{input.Codigo,input.Nit,input.DigitoVerificacion,input.RazonSocial}));await q.ExecuteNonQueryAsync(ct);
+        if(input.Zeus is not null)await (zeusConnections??throw new ArgumentException("Servicio de conexión Zeus no disponible.")).SaveAsync(c,tx,id,actor,input.Zeus,ct);
+        await tx.CommitAsync(ct);
     }
 }
 public static class CompanyMasterModule
@@ -55,10 +57,15 @@ public static class CompanyMasterModule
             try{return await next(context);}
             catch(UnauthorizedAccessException){return Results.Forbid();}
             catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
-            catch(SqlException e) when(e.Number==52040){return Results.Conflict(new{error=e.Message});}
+            catch(SqlException e) when(e.Number is 52040 or 52041){return Results.Conflict(new{error=e.Message});}
             catch(SqlException e) when(e.Number is 2601 or 2627){return Results.Conflict(new{error="Ya existe una empresa con ese código."});}
         });
         group.MapGet("",async(HttpContext http,TenantConnectionFactory c,AuthRepository auth,CancellationToken ct)=>Results.Ok(await new CompanyMasterRepository(c,auth).ListAsync(Convert.ToInt64(http.Items["UsuarioId"]),ct))).RequireSuperAdministrator();
-        group.MapPut("/{id:long}",async(long id,EditCompanyRequest input,HttpContext http,TenantConnectionFactory c,AuthRepository auth,CancellationToken ct)=>{await new CompanyMasterRepository(c,auth).UpdateAsync(Convert.ToInt64(http.Items["UsuarioId"]),id,input,ct);return Results.NoContent();}).RequireSuperAdministrator();
+        group.MapPut("/{id:long}",async(long id,EditCompanyRequest input,HttpContext http,TenantConnectionFactory c,AuthRepository auth,NexoERP.Api.Zeus.ZeusConnectionStore zeus,CancellationToken ct)=>{await new CompanyMasterRepository(c,auth,zeus).UpdateAsync(Convert.ToInt64(http.Items["UsuarioId"]),id,input,ct);return Results.NoContent();}).RequireSuperAdministrator();
+        group.MapGet("/{id:long}/zeus-connection",async(long id,NexoERP.Api.Zeus.ZeusConnectionStore store,CancellationToken ct)=>Results.Ok(await store.GetAsync(id,ct))).RequireSuperAdministrator();
+        group.MapPost("/{id:long}/zeus-connection/test",async(long id,NexoERP.Api.Zeus.ZeusConnectionInput input,NexoERP.Api.Zeus.ZeusConnectionStore store,CancellationToken ct)=>{
+            try{return Results.Ok(await store.TestAsync(id,input,ct));}
+            catch(SqlException){return Results.Json(new{error="No se pudo conectar o consultar Zeus. Revisa servidor, base, credenciales, certificado y permisos SQL."},statusCode:502);}
+        }).RequireSuperAdministrator();
     }
 }

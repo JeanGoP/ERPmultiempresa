@@ -7,7 +7,7 @@ using NexoERP.Api.Data;
 
 namespace NexoERP.Api.Security;
 
-public sealed class AuthRepository(TenantConnectionFactory connections)
+public sealed class AuthRepository(TenantConnectionFactory connections,NexoERP.Api.Zeus.ZeusConnectionStore? zeusConnections=null)
 {
     public async Task<LoginResponse?> LoginAsync(LoginRequest input,string? address,CancellationToken cancellationToken)
     {
@@ -201,6 +201,8 @@ public sealed class AuthRepository(TenantConnectionFactory connections)
             await configuration.ExecuteNonQueryAsync(cancellationToken);
         }
         await EnsureOperationalDefaultsAsync(connection,(SqlTransaction)transaction,companyId,userId,cancellationToken);
+        if(input.Zeus is not null)
+            await (zeusConnections??throw new ArgumentException("Servicio de conexión Zeus no disponible.")).SaveAsync(connection,(SqlTransaction)transaction,companyId,userId,input.Zeus,cancellationToken);
         await using(var audit=connection.CreateCommand())
         {
             audit.Transaction=(SqlTransaction)transaction;

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 using NexoERP.Api.AdvancedControls;
@@ -36,9 +37,15 @@ builder.Services.AddSingleton<OperationalMetrics>();
 builder.Services.AddHostedService<OutboxDispatcherService>();
 builder.Services.AddProblemDetails();
 builder.Services.AddZeus();
+// Fuera de publish: estas claves deben sobrevivir a despliegues y respaldarse.
+var keyFolder=builder.Configuration["Zeus:KeyRingPath"]??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NexoERP","ZeusKeys");
+if(!Path.IsPathRooted(keyFolder)||Path.GetFullPath(keyFolder).StartsWith(Path.GetFullPath(AppContext.BaseDirectory),StringComparison.OrdinalIgnoreCase))
+    throw new InvalidOperationException("Zeus:KeyRingPath debe ser una ruta absoluta privada y persistente fuera de la carpeta publicada.");
+var dataProtection=builder.Services.AddDataProtection().SetApplicationName("NexoERP.Zeus.Credentials").PersistKeysToFileSystem(new DirectoryInfo(keyFolder));
+if(OperatingSystem.IsWindows())dataProtection.ProtectKeysWithDpapi();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.22.5";
+const string ReleaseVersion="2026.09.22.6";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>

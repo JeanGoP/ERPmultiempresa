@@ -5,7 +5,7 @@ const html=context.zeusSourcesSection({fuentesAutomaticas:[{sucursal:'Norte<scri
 assert.match(html,/Fuentes por sucursal/);assert.match(html,/Norte&lt;script>/);assert.match(html,/value="13"/);
 assert.match(html,/name="sourceUnit"/);assert.match(html,/name="sourceDocument"/);
 const ui=fs.readFileSync('public/zeus.js','utf8');
-assert.match(ui,/Destino y fuentes de Zeus/);assert.doesNotMatch(ui,/Destino y comprobante/);
+assert.match(ui,/Fuentes de Zeus por sucursal/);assert.doesNotMatch(ui,/Destino y comprobante/);
 assert.equal((ui.match(/zeusSourcesSection\(s\)/g)||[]).length,1);
 assert.doesNotMatch(ui,/zeusField\('Fuente|zeusField\('Serie|zeusField\('Unidad de negocio|zeusField\('Tipo de factura/);
 context.zeusUI.settings={unidadNegocio:'LEGADO',tipoFactura:'FA'};

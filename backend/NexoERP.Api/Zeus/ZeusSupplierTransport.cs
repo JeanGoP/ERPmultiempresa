@@ -87,7 +87,8 @@ public sealed partial class ZeusTransport
     public async Task<ZeusSupplierSendResult> SendSupplierAsync(long company,ZeusSettings settings,SupplierResponse s,ZeusSupplierSendRequest input,CancellationToken ct)
     {
         SupplierCode(s);
-        await using var c=await OpenAsync(company,settings,ct);
+        var diagnosticConnection=await ConnectionAsync(company,ct);
+        await using var c=await OpenAsync(company,settings,ct,diagnosticConnection);
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
         bool committing=false;var stage="bloqueo y consulta del proveedor";
         try {
@@ -159,7 +160,7 @@ public sealed partial class ZeusTransport
                 if(string.IsNullOrEmpty(detail))detail=$"SQL {sql.Number}: {sql.Message}";
             }
             else detail=error is ArgumentException?error.Message:error is OperationCanceledException?"La operación fue cancelada o excedió el tiempo disponible.":"La conexión o la transacción dejó de estar disponible.";
-            var message=SafeSupplierDiagnostic($"Etapa: {stage}. {detail}",configuration[$"Zeus:Companies:{company}:ConnectionString"]);
+            var message=SafeSupplierDiagnostic($"Etapa: {stage}. {detail}",diagnosticConnection);
             return new(uncertain?"INCIERTO":"RECHAZADO",s.NumeroIdentificacion,uncertain?
                 "No se pudo confirmar el resultado. Consulta de nuevo el proveedor en Zeus antes de otro intento. "+message:
                 message+" Se revirtió la transacción; no se confirmó la creación.");

@@ -344,6 +344,7 @@ if(args.Contains("--sql"))
         await SupplierSyncTests.Run(cs,dir!.FullName,Check);
         await BranchCatalogTests.Run(cs,dir!.FullName,settings,Check);
         await AutomaticPostingTests.Sql(cs,settings,Check);
+        await ZeusConnectionTests.Run(cs,dir!.FullName,Check);
     }
     finally
     {

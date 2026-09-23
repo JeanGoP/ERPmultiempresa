@@ -478,6 +478,12 @@ footer p { margin: 0; }
 .permission-critical { color: #9b4d35 !important; }
 .role-dialog { width: min(94vw,850px); }
 .master-dialog { width: min(94vw,650px); }
+.company-zeus-fields { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 4px 0; min-width: 0; }
+.company-zeus-fields legend { font-weight: 700; padding: 0 6px; }
+.company-zeus-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin: 12px 0; }
+.company-zeus-fields input[type="checkbox"] { width: 16px; min-height: 16px; vertical-align: middle; }
+.company-zeus-fields p { font-size: 12px; margin: 8px 0 0; }
+@media(max-width:560px) { .company-zeus-grid { grid-template-columns: 1fr; } }
 #masterRecordForm { padding: 22px 28px 27px; }
 .master-form-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 15px; margin-bottom: 18px; }
 .master-form-fields label { display: block; }

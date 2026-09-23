@@ -11,6 +11,7 @@ public static class ZeusModule
     public static void AddZeus(this IServiceCollection services)
     {
         services.AddScoped<ZeusRepository>();services.AddSingleton<ZeusTransport>();
+        services.AddSingleton<ZeusConnectionStore>();
         services.AddScoped<ZeusWarehouseRepository>();
         services.AddScoped<ZeusSupplierSync>();services.AddHostedService<ZeusSupplierWorker>();
         services.AddHostedService<ZeusWorker>();
@@ -100,6 +101,9 @@ public static class ZeusModule
         group.MapPut("/configuration",async(long empresaId,ZeusSettingsRequest input,HttpContext http,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
         {
             if(input.Configuracion is null)throw new ArgumentException("Falta la configuración de empresa.");
+            var destination=await repo.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura primero la conexión Zeus en Seguridad → Empresas.");
+            if(destination.Configuracion.ServidorEsperado!=input.Configuracion.ServidorEsperado||destination.Configuracion.BaseEsperada!=input.Configuracion.BaseEsperada||destination.Configuracion.UsuarioZeus!=input.Configuracion.UsuarioZeus)
+                throw new ArgumentException("La conexión y el usuario contable se administran en Seguridad → Empresas. Actualiza esta pantalla.");
             var account=ZeusJournal.GeneralSupplierAccount(input.Configuracion);
             if(account is not null)
             {

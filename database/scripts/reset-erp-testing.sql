@@ -1,5 +1,5 @@
 /*
- REINICIO TOTAL PARA PRUEBAS -- esquema ERP hasta 056.
+ REINICIO TOTAL PARA PRUEBAS -- esquema ERP hasta 057.
  Sustituye el reinicio parcial de compras del archivo recibido.
  NO ES UNA MIGRACION. Nunca ejecutar automaticamente ni en Zeus.
 
@@ -76,6 +76,7 @@ INSERT #ResetTablas(Nombre) VALUES
 (N'core.Sucursal'),
 (N'core.ZeusBodegaCuenta'),
 (N'core.ZeusConfiguracion'),
+(N'core.ZeusConexion'),
 (N'core.ZeusEnvio'),
 (N'core.ZeusProveedorEnvio'),
 (N'cost.AplicacionCostoAdquisicion'),
@@ -292,4 +293,3 @@ BEGIN CATCH
     EXEC sys.sp_set_session_context @key=N'BypassRls',@value=@BypassAnterior;
     THROW;
 END CATCH;
-

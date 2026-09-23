@@ -8,7 +8,7 @@
     "check": "node --check server.js && node --check public/app.js && node --check public/zeus.js && node --check public/zeus-general-accounts.js && node --check public/warehouse-accounts.js && node --check public/advanced-controls.js && node --check public/accounts-payable.js && node --check public/inventory-origin.js && node --check public/supplier-payment-report.js && node --check public/payment-report-excel.js",
     "test": "node tests/parser-smoke.js && node tests/xml-retention-smoke.js && node tests/inventory-periods-smoke.js && node tests/supplier-identity-smoke.js && node tests/zeus-supplier-ui-smoke.js && node tests/warehouse-accounts-ui-smoke.js && node tests/zeus-general-accounts-smoke.js && node tests/zeus-automatic-ui-smoke.js",
     "api:check": "dotnet build backend/NexoERP.Api/NexoERP.Api.csproj --no-restore",
-    "test:all": "node --check public/company-master.js && node tests/company-master-smoke.js && npm run check && npm test && npm run test:zeus-sources && npm run api:check",
+    "test:all": "node --check public/company-zeus.js && node tests/company-zeus-smoke.js && node --check public/company-master.js && node tests/company-master-smoke.js && npm run check && npm test && npm run test:zeus-sources && npm run api:check",
     "test:zeus-sources": "node --check public/zeus-sources.js && node tests/zeus-sources-smoke.js",
     "db:init": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/init-localdb.ps1",
     "db:migrate:production": "powershell -NoProfile -ExecutionPolicy Bypass -File database/scripts/apply-production-migrations.ps1",

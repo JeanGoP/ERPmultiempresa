@@ -53,14 +53,16 @@ function openCompanyMasterForm(record=null){
   field('Moneda funcional','monedaFuncional',3,record?.monedaFuncional||'COP',!!record);
   field('Zona horaria','zonaHoraria',80,record?.zonaHoraria||'America/Bogota',!!record);
   const marcoLabel=document.createElement('label');marcoLabel.textContent='Marco contable';const marco=document.createElement('select');marco.name='marcoContable';['GRUPO_1','GRUPO_2','GRUPO_3'].forEach(v=>marco.add(new Option(v.replace('_',' '),v)));marco.value=record?.marcoContable||'GRUPO_2';marco.disabled=!!record;marcoLabel.append(marco);form.append(marcoLabel);
+  const zeus=companyZeusFields(form,record,token);
   const error=document.createElement('p');error.className='login-error wide';error.setAttribute('role','alert');
   const actions=document.createElement('div');actions.className='saved-detail-actions wide';const cancel=document.createElement('button');cancel.type='button';cancel.className='button secondary';cancel.textContent='Cancelar';const save=document.createElement('button');save.type='submit';save.className='button primary';save.textContent=record?'Guardar cambios':'Crear empresa';actions.append(cancel,save);form.append(error,actions);dialog.append(heading,form);document.body.append(dialog);
-  let busy=false;cancel.onclick=()=>dialog.close();dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+  let busy=false;cancel.onclick=()=>dialog.close();dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});dialog.addEventListener('close',()=>{zeus.clear();dialog.remove();},{once:true});
   form.onsubmit=async event=>{
     event.preventDefault();if(busy)return;if(!state.erpSession?.superAdmin||token!==apiToken()){dialog.close();return;}
     const data=Object.fromEntries(new FormData(form));const payload=record?{codigo:data.codigo,nit:data.nit,digitoVerificacion:data.digitoVerificacion||null,razonSocial:data.razonSocial,version:record.version}:data;
     busy=true;save.disabled=cancel.disabled=true;error.textContent='';
     try{
+      payload.zeus=zeus.read();
       await apiRequest(record?'/api/v1/admin/companies/'+record.id:'/api/v1/companies',{method:record?'PUT':'POST',body:JSON.stringify(payload)});
       dialog.close();
       if(token!==apiToken()||!state.erpSession?.superAdmin)return;
