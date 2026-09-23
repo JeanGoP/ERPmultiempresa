@@ -4,6 +4,8 @@
   const dialog=document.createElement('dialog');dialog.id='disbursementDialog';dialog.className='erp-dialog egreso-dialog';
   dialog.setAttribute('aria-label','Comprobantes de egreso');document.body.append(dialog);
   let generation=0,company=null,current=null,options=null,dirty=false,busy=false,next=null,accounts=[];
+  let beneficiaryTimer=null,beneficiaryRequest=0;
+  const beneficiaryLabel=x=>x?`${x.identificacion} · ${x.nombre}`:'';
   const $e=s=>dialog.querySelector(s);
   const url=()=>`/api/v1/companies/${company}/disbursements`;
   const valid=token=>token===generation&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
@@ -55,11 +57,10 @@
       <div class="egreso-grid"><label>Sucursal<select name="sucursalId" required><option value="">Selecciona…</option>${options.sucursales.map(x=>`<option value="${x.id}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label>
       ${input('fechaContable','Fecha contable',10,true,'date')}${input('moneda','Moneda',3,true)}
       <label>Medio de pago<select name="medioPago"><option>TRANSFERENCIA</option><option>EFECTIVO</option><option>CHEQUE</option></select></label>
-      <label class="egreso-wide">Buscar beneficiario por nombre o identificación<div class="egreso-search"><input data-search maxlength="120"><button type="button" class="button secondary" data-search-button>Buscar</button></div></label>
-      <label class="egreso-wide">Beneficiario<select name="terceroId" required><option value="">Selecciona…</option>${options.beneficiarios.map(x=>`<option value="${x.id}">${esc(x.identificacion+' · '+x.nombre)}</option>`).join('')}</select></label>
+      <label class="egreso-wide">Beneficiario<input data-beneficiary list="egresoBeneficiarios" placeholder="Buscar por nombre o identificación…" autocomplete="off" required aria-describedby="egresoBeneficiaryStatus"><input type="hidden" name="terceroId"><datalist id="egresoBeneficiarios"></datalist></label>
       ${input('referencia','Referencia del pago / cheque',20)}<p data-account class="egreso-help"></p>
       <label class="egreso-wide">Concepto<input name="concepto" value="${esc(d.concepto)}" maxlength="300" required></label></div>
-      <p data-options-note class="egreso-help"></p>
+      <p data-options-note id="egresoBeneficiaryStatus" class="egreso-help" role="status" aria-live="polite"></p>
       <h3>Facturas pendientes del proveedor</h3><div class="table-wrap" data-pending></div>
       <div class="egreso-toolbar"><h3>Facturas y gastos</h3><button type="button" class="button secondary" data-invoice>Agregar factura</button><button type="button" class="button secondary" data-expense>Agregar gasto ocasional</button></div>
       <div class="table-wrap"><table><thead><tr><th>Tipo / factura</th><th>Concepto</th><th>Cuenta de gasto</th><th>Abono / valor</th><th></th></tr></thead><tbody data-lines></tbody></table></div>
@@ -67,14 +68,14 @@
       <div class="egreso-toolbar"><strong data-total></strong><button type="submit" class="button primary">Contabilizar egreso</button><button type="button" class="button secondary" data-back>Volver</button></div>
       </fieldset></form>`;
     for(const name of ['sucursalId','terceroId','medioPago'])$e(`[name="${name}"]`).value=d[name];
-    $e('[data-options-note]').textContent=options.masBeneficiarios?'Hay más beneficiarios: busca por identificación o nombre.':'';
+    current.beneficiario=options.beneficiarios.find(x=>String(x.id)===String(d.terceroId));
+    $e('[data-beneficiary]').value=beneficiaryLabel(current.beneficiario);beneficiaryOptions();
     $e('[data-form]').addEventListener('input',()=>{dirty=true;});
-    $e('[name="terceroId"]').onchange=()=>changeSupplier();
+    $e('[data-beneficiary]').oninput=beneficiaryInput;
+    $e('[data-beneficiary]').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();beneficiaryInput();}};
     for(const name of ['sucursalId','medioPago'])$e(`[name="${name}"]`).onchange=()=>{capture();accountHint();};
     $e('[name="moneda"]').readOnly=true;
     $e('[name="moneda"]').onchange=()=>{capture();renderLines();};
-    $e('[data-search-button]').onclick=()=>search();
-    $e('[data-search]').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();void search();}};
     $e('[data-invoice]').onclick=()=>{capture();if(!d.terceroId){notice('Selecciona primero un beneficiario.',true);return;}d.lineas.push({tipo:'FACTURA',documentoPorPagarId:null,cuenta:'',concepto:'',valor:0});dirty=true;renderLines();};
     $e('[data-expense]').onclick=()=>{capture();d.lineas.push({tipo:'GASTO',documentoPorPagarId:null,cuenta:'',concepto:'',valor:0});dirty=true;renderLines();};
     $e('[data-back]').onclick=()=>{if(!dirty||confirm('¿Salir sin guardar los cambios?'))void listing();};
@@ -102,22 +103,44 @@
     });total();
   }
   function total(){const d=current.datos;try{$e('[data-total]').textContent='Total a pagar: '+money(d.lineas.reduce((s,l)=>s+Math.round(l.valor*100),0)/100,d.moneda);}catch{$e('[data-total]').textContent='Revisa la moneda';}}
-  async function search(){
-    if(busy)return;
-    capture();const token=++generation;const term=$e('[data-search]').value;
-    busy=true;$e('fieldset').disabled=true;
-    try{const data=await apiRequest(url()+'/options?q='+encodeURIComponent(term)+(current.datos.terceroId?'&terceroId='+current.datos.terceroId:''));if(!valid(token))return;options=data;form();}
-    catch(e){if(valid(token))notice(e.message,true);}
-    finally{busy=false;if(valid(token)&&$e('fieldset'))$e('fieldset').disabled=false;}
+  function beneficiaryOptions(){
+    $e('#egresoBeneficiarios').innerHTML=options.beneficiarios.map(x=>`<option value="${esc(beneficiaryLabel(x))}"></option>`).join('');
   }
-  async function changeSupplier(){
-    const previous=current.datos.terceroId;
-    if(current.datos.lineas.some(l=>l.tipo==='FACTURA')&&!confirm('Al cambiar beneficiario se quitarán las facturas seleccionadas. ¿Continuar?')){$e('[name="terceroId"]').value=previous;return;}
-    capture();current.datos.lineas=current.datos.lineas.filter(l=>l.tipo!=='FACTURA');dirty=true;
-    options.facturas=[];renderLines();await search();
+  function beneficiaryInput(){
+    clearTimeout(beneficiaryTimer);const request=++beneficiaryRequest;
+    if(busy)return;
+    const input=$e('[data-beneficiary]'),term=input.value;
+    const selected=[current.beneficiario,...options.beneficiarios].find(x=>x&&beneficiaryLabel(x)===term);
+    input.setCustomValidity(selected?'':'Selecciona un beneficiario de los resultados.');
+    if(selected){void changeSupplier(selected);return;}
+    const token=generation;
+    $e('[data-options-note]').textContent='Buscando beneficiarios…';
+    beneficiaryTimer=setTimeout(async()=>{
+      if(!valid(token)||request!==beneficiaryRequest)return;
+      try{
+        const data=await apiRequest(url()+'/options?q='+encodeURIComponent(term.trim().slice(0,120)));
+        if(!valid(token)||request!==beneficiaryRequest||$e('[data-beneficiary]')?.value!==term)return;
+        options.beneficiarios=data.beneficiarios;beneficiaryOptions();
+        $e('[data-options-note]').textContent=data.masBeneficiarios?'Escribe más letras o números para afinar la búsqueda.':data.beneficiarios.length?'Selecciona el beneficiario en los resultados.':'No se encontraron beneficiarios.';
+      }catch(e){if(valid(token)&&request===beneficiaryRequest)$e('[data-options-note]').textContent='No se pudo buscar: '+e.message;}
+    },250);
+  }
+  async function changeSupplier(selected){
+    if(String(current.datos.terceroId)===String(selected.id)){$e('[data-options-note]').textContent='';return;}
+    const restore=()=>{$e('[data-beneficiary]').value=beneficiaryLabel(current.beneficiario);$e('[data-beneficiary]').setCustomValidity('');};
+    if(current.datos.lineas.some(l=>l.tipo==='FACTURA')&&!confirm('Al cambiar beneficiario se quitarán las facturas seleccionadas. ¿Continuar?')){restore();return;}
+    capture();const token=generation;busy=true;$e('fieldset').disabled=true;
+    try{
+      const data=await apiRequest(url()+'/options?terceroId='+encodeURIComponent(selected.id));if(!valid(token))return;
+      current.beneficiario=selected;current.datos.terceroId=String(selected.id);$e('[name="terceroId"]').value=selected.id;
+      current.datos.lineas=current.datos.lineas.filter(l=>l.tipo!=='FACTURA');dirty=true;
+      options.facturas=data.facturas;renderLines();$e('[data-options-note]').textContent='';notice('');
+    }catch(e){if(valid(token)){restore();notice('No se pudieron cargar las facturas: '+e.message,true);}}
+    finally{busy=false;if(valid(token)&&$e('fieldset'))$e('fieldset').disabled=false;}
   }
   async function save(event){
     event.preventDefault();if(busy)return;capture();
+    if(!current.beneficiario||$e('[data-beneficiary]').value!==beneficiaryLabel(current.beneficiario)){notice('Selecciona un beneficiario de los resultados.',true);return;}
     if(!current.datos.lineas.length){notice('Agrega al menos una factura o gasto.',true);return;}
     if(!confirm('Se contabilizará el egreso y se descontarán los abonos de la cartera. ¿Continuar?'))return;
     const token=++generation;const target=url()+(current.id?'/'+current.id:'');
