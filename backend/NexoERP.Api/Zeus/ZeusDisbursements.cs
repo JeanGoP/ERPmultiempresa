@@ -30,11 +30,6 @@ public sealed partial class ZeusTransport : IDisbursementCheck
             if(!supplier.Third||!supplier.Supplier)throw new ArgumentException("Envía primero el proveedor a Zeus desde su maestro.");
         }
         await CheckPayment(c,null,snapshot,ct);
-        foreach(var invoice in snapshot.Egreso!.Facturas)
-        {
-            var balance=await InvoiceBalance(c,null,snapshot,invoice,ct);
-            if(balance>=0||-balance<invoice.Valor)throw new ArgumentException($"La factura {invoice.Numero} no tiene saldo suficiente en Zeus en el período del pago. No se contabilizó el egreso.");
-        }
     }
     private static async Task<ZeusSnapshot> CheckPayment(SqlConnection c,SqlTransaction? tx,ZeusSnapshot s,CancellationToken ct)
     {
@@ -55,15 +50,6 @@ public sealed partial class ZeusTransport : IDisbursementCheck
             if(Convert.ToInt32(await q.ExecuteScalarAsync(ct))!=1)throw new ArgumentException($"Cuenta {movement.Regla.Cuenta} no habilitada o exige datos adicionales. Los gastos directos no admiten impuestos ni cuentas de cartera/caja.");
         }
         return s with{Egreso=payment with{IndicadorSalida=account.Indicador,CuentaBancaria=account.CuentaBancaria}};
-    }
-    // Clave completa usada por el procedimiento original SpPagosACartera del propietario.
-    private static async Task<decimal> InvoiceBalance(SqlConnection c,SqlTransaction? tx,ZeusSnapshot s,ZeusPaymentInvoice invoice,CancellationToken ct)
-    {
-        await using var q=c.CreateCommand();q.Transaction=tx;q.CommandText="SELECT SUM(Sactfac) FROM dbo.Facturas_Bu WITH(HOLDLOCK) WHERE Anomesfac=@Period AND IdCliprv=@Supplier AND Codicta=@Account AND tipofact=@Type AND numefac=@Invoice AND refefac=@Ref AND Idunidad='' AND Bu=@Bu";
-        foreach(var p in new (string,object)[]{("@Period",s.Origen.FechaContable.ToString("yyyyMM")),("@Supplier",s.Proveedor.CodigoProveedor),("@Account",invoice.Cuenta),("@Type",invoice.Tipo),("@Invoice",invoice.Numero),("@Ref",invoice.Referencia),("@Bu",invoice.UnidadNegocio)})q.Parameters.AddWithValue(p.Item1,p.Item2);
-        var balance=await q.ExecuteScalarAsync(ct);
-        if(balance is null or DBNull)throw new ArgumentException($"No existe saldo verificable para la factura {invoice.Numero} en Zeus en el período del pago. Revisa su cuenta, proveedor y unidad de negocio.");
-        return Convert.ToDecimal(balance);
     }
     private static async Task VerifyPaymentLines(SqlConnection c,SqlTransaction? tx,ZeusSnapshot s,string number,CancellationToken ct)
     {

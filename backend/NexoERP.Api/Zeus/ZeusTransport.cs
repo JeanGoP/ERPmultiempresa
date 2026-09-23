@@ -94,17 +94,10 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             stage="comprobación de envío previo";
             var existing=await VerifyAsync(c,tx,s,key,ct);
             if(existing is not null) { await tx.RollbackAsync(CancellationToken.None);return new("CONTABILIZADO",s.Configuracion.Fuente,existing); }
-            var beforeBalances=new Dictionary<long,decimal>();
             if(s.Egreso is not null)
             {
-                stage="validación del egreso y saldos por factura";
+                stage="validación del egreso";
                 s=await CheckPayment(c,tx,s,ct);
-                foreach(var invoice in s.Egreso!.Facturas)
-                {
-                    var balance=await InvoiceBalance(c,tx,s,invoice,ct);
-                    if(balance>=0||-balance<invoice.Valor)throw new ArgumentException($"Saldo insuficiente en Zeus para la factura {invoice.Numero}.");
-                    beforeBalances.Add(invoice.DocumentoPorPagarId,balance);
-                }
             }
             if(s.Proveedor.CodigoProveedor==s.Proveedor.CodigoTercero)
             {
@@ -147,10 +140,8 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             stage="verificación del comprobante y movimientos creados";
             var number=await VerifyAsync(c,tx,s,key,ct)
                 ?? throw new InvalidOperationException("Zeus no creó el comprobante esperado. Se revierte la transacción.");
-            if(s.Egreso is not null)
-                foreach(var invoice in s.Egreso.Facturas)
-                    if(await InvoiceBalance(c,tx,s,invoice,ct)!=beforeBalances[invoice.DocumentoPorPagarId]+invoice.Valor)
-                        throw new InvalidOperationException($"El comprobante no actualizó el saldo de la factura {invoice.Numero} en Zeus. Se revierte; no se confirma el pago en Zeus.");
+            // Zeus aplica su cartera al procesar los movimientos por factura. Confirmamos
+            // el comprobante y sus líneas, sin depender de sus acumulados por período.
             stage="confirmación de la transacción";commitStarted=true;await tx.CommitAsync(ct);
             return new("CONTABILIZADO",s.Configuracion.Fuente,number);
         }

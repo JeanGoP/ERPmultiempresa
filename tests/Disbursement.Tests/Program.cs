@@ -123,18 +123,26 @@ try
         try{await Exec(tenant,$"UPDATE cxp.Egreso SET Total=1 WHERE EgresoId={postedId}");throw new Exception("Editó comprobante");}catch(SqlException e)when(e.Number==52111){Check(true,"No edita egreso contabilizado");}
         try{await Exec(tenant,"DELETE cxp.EgresoLinea");throw new Exception("Borró líneas");}catch(SqlException e)when(e.Number==52110){Check(true,"No borra asiento contabilizado");}
     }
-    // Procedimiento que crea movimientos pero NO modifica cartera: todo Zeus debe revertirse.
-    await Exec(c,"UPDATE dbo.EgresoTestControl SET UpdateBalance=0");
+    // Zeus administra sus acumulados: no dependemos de saldo en el período ni de actualización inmediata.
+    await Exec(c,"UPDATE dbo.EgresoTestControl SET UpdateBalance=0; UPDATE dbo.Facturas_Bu SET Anomesfac='202608'");
     var second=payment with{OperacionGuid=Guid.NewGuid(),Lineas=[new("FACTURA",1,"","Abono",100)]};
     await posting.PostAsync(1,second,1,default);var rejectedJob=(await queue.ClaimAsync(default))!.Value;
     var rejected=await transport.SendAsync(1,rejectedJob.Snapshot,rejectedJob.Key,default);await queue.FinishAsync(1,rejectedJob.Id,rejected,default);
-    Check(rejected.Estado=="RECHAZADO"&&rejected.Error!.Contains("no actualizó"),"No confirma Zeus si no descontó la factura");
-    Check(Convert.ToInt32(await Scalar(c,"SELECT COUNT(*) FROM dbo.DOCUMENT"))==1,"Rechazo revierte comprobante Zeus completo");
-    await Exec(c,"UPDATE dbo.EgresoTestControl SET UpdateBalance=1");
-    await queue.RetryAsync(1,rejectedJob.Id,1,default);var retryJob=(await queue.ClaimAsync(default))!.Value;
-    await queue.FinishAsync(1,retryJob.Id,await transport.SendAsync(1,retryJob.Snapshot,retryJob.Key,default),default);
-    Check(Convert.ToDecimal(await Scalar(c,"SELECT SaldoPendiente FROM cxp.DocumentoPorPagar WHERE DocumentoPorPagarId=1"))==700,"Reintentar Zeus no descuenta otra vez el ERP");
-    Check(Convert.ToDecimal(await Scalar(c,"SELECT Sactfac FROM dbo.Facturas_Bu"))==-700,"Reintento aplica una vez Zeus");
+    Check(rejected.Estado=="CONTABILIZADO","Confirma comprobante sin depender del acumulado Zeus: "+rejected.Error);
+    Check(Convert.ToInt32(await Scalar(c,"SELECT COUNT(*) FROM dbo.DOCUMENT"))==2,"Conserva comprobante y movimientos confirmados");
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT Sactfac FROM dbo.Facturas_Bu"))==-800,"ERP no modifica directamente la cartera Zeus");
+    await Exec(c,"UPDATE dbo.EgresoTestControl SET UpdateBalance=1; UPDATE dbo.Facturas_Bu SET Anomesfac='202609'");
+    var confirmedAgain=await transport.SendAsync(1,rejectedJob.Snapshot,rejectedJob.Key,default);
+    Check(confirmedAgain.Estado=="CONTABILIZADO"&&Convert.ToInt32(await Scalar(c,"SELECT COUNT(*) FROM dbo.DOCUMENT"))==2,"Consultar envío confirmado no repite el procedimiento");
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT SaldoPendiente FROM cxp.DocumentoPorPagar WHERE DocumentoPorPagarId=1"))==700,"Repetir envío no descuenta otra vez el ERP");
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT Sactfac FROM dbo.Facturas_Bu"))==-800,"No intenta un segundo descuento en Zeus");
+    var paymentXml=System.Xml.Linq.XDocument.Parse(ZeusXml.Build(rejectedJob.Snapshot,rejectedJob.Key));
+    var invoiceLine=paymentXml.Descendants("Transac").Single(x=>x.Element("INDCPITRA")?.Value=="3");
+    var expectedInvoice=rejectedJob.Snapshot.Egreso!.Facturas.Single();
+    Check(invoiceLine.Element("CLIPRV")!.Value==rejectedJob.Snapshot.Proveedor.CodigoProveedor,"XML incluye proveedor");
+    Check(invoiceLine.Element("NUMEFAC")!.Value==expectedInvoice.Numero&&invoiceLine.Element("TIPOFAC")!.Value==expectedInvoice.Tipo,"XML incluye número y tipo de factura");
+    Check(invoiceLine.Element("VENCEFAC")!.Value==expectedInvoice.Vencimiento.ToString("yyyy/MM/dd"),"XML incluye vencimiento de factura");
+    Check(decimal.Parse(invoiceLine.Element("VALORTRA")!.Value,System.Globalization.CultureInfo.InvariantCulture)==expectedInvoice.Valor,"XML incluye valor del abono");
     var cashSnapshot=job.Snapshot with{Movimientos=[new(new("GASTO","519595"),10),new(new("BANCO_CAJA","110505"),-10)],Origen=job.Snapshot.Origen with{Total=10},Egreso=new("Caja","","110505","",[],"EFE")};
     Check((await transport.SendAsync(1,cashSnapshot,Guid.NewGuid(),default)).Estado=="CONTABILIZADO","Admite caja con indicador 6 y medio EFE");
     var concurrentPayment=payment with{OperacionGuid=Guid.NewGuid(),Lineas=[new("FACTURA",1,"","Abono",50)]};
