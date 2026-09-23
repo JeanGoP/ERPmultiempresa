@@ -238,6 +238,7 @@ function applyAccessControls() {
   };
 
   setVisible('[data-nav-group="purchases"]', canPurchases || canServices);
+  setVisible('[data-nav-group="treasury"]', Boolean(state.erpSession?.api)&&hasPermission('TESORERIA.EGRESO.PREPARAR'));
   setVisible('[data-nav-group="inventory"]', canInventory);
   setVisible('[data-nav-group="costs"]', canCosts);
   setVisible('[data-nav-group="masters"]', canMasters);
@@ -263,6 +264,7 @@ function applyAccessControls() {
 }
 
 function enterErp(session) {
+  window.resetEgresos?.();
   window.resetZeus?.();
   state.securityData=null;state.securityEditingUserId=null;state.securityEditingRoleId=null;state.securityPasswordUserId=null;
   state.erpSession = session;
@@ -278,6 +280,7 @@ function enterErp(session) {
 }
 
 function leaveErp() {
+  window.resetEgresos?.();
   window.resetZeus?.();
   state.securityData=null;
   localStorage.removeItem(uiStorage.session);

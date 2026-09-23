@@ -1,5 +1,5 @@
 /*
- REINICIO TOTAL PARA PRUEBAS -- esquema ERP hasta 057.
+ REINICIO TOTAL PARA PRUEBAS -- esquema ERP hasta 058.
  Sustituye el reinicio parcial de compras del archivo recibido.
  NO ES UNA MIGRACION. Nunca ejecutar automaticamente ni en Zeus.
 
@@ -93,6 +93,7 @@ INSERT #ResetTablas(Nombre) VALUES
 (N'cost.PoliticaValoracionGrupo'),
 (N'cost.SaldoCostoLibroBodega'),
 (N'cxp.DocumentoPorPagar'),
+(N'cxp.EgresoBorrador'),
 (N'cxp.MovimientoProveedor'),
 (N'inv.Articulo'),
 (N'inv.ArticuloUnidad'),

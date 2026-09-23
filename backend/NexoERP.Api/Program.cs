@@ -12,6 +12,7 @@ using NexoERP.Api.Purchasing;
 using NexoERP.Api.Production;
 using NexoERP.Api.Security;
 using NexoERP.Api.Zeus;
+using NexoERP.Api.Treasury;
 
 LoadDotEnv();
 var builder = WebApplication.CreateBuilder(args);
@@ -28,6 +29,7 @@ builder.Services.AddScoped<AdvancedControlsRepository>();
 builder.Services.AddScoped<MasterDataRepository>();
 builder.Services.AddScoped<BrandCatalogRepository>();
 builder.Services.AddScoped<PurchasingRepository>();
+builder.Services.AddScoped<DisbursementRepository>();
 builder.Services.AddScoped<AuthRepository>();
 builder.Services.AddScoped<SecurityAdminRepository>();
 builder.Services.Configure<OutboxOptions>(builder.Configuration.GetSection("Outbox"));
@@ -45,7 +47,7 @@ var dataProtection=builder.Services.AddDataProtection().SetApplicationName("Nexo
 if(OperatingSystem.IsWindows())dataProtection.ProtectKeysWithDpapi();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.22.6";
+const string ReleaseVersion="2026.09.23.1";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -687,6 +689,7 @@ app.MapPost("/api/v1/companies/{empresaId:long}/inventory/movements/{id:long}/re
 }).RequireErpPermission("INVENTARIO.AJUSTE.REVERSAR");
 
 app.MapZeus();
+app.MapDisbursements();
 app.MapBranches();
 app.MapCompanyMaster();
 app.Run();

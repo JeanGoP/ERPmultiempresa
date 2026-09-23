@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="zeus.css">
   <link rel="stylesheet" href="tables-compact.css">
+  <link rel="stylesheet" href="disbursements.css">
 </head>
 <body>
   <section id="loginView" class="login-view" aria-labelledby="loginTitle">
@@ -83,11 +84,11 @@
             <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Anticipos a proveedores<span class="nav-soon">Próximamente</span></button>
           </div>
         </details>
-        <details class="nav-group nav-group-future" data-nav-group="treasury">
-          <summary class="nav-item parent"><span class="nav-icon">▣</span><span>Tesorería</span><span class="nav-soon">Próximamente</span><span class="chevron">⌄</span></summary>
+        <details class="nav-group" data-nav-group="treasury">
+          <summary class="nav-item parent"><span class="nav-icon">▣</span><span>Tesorería</span><span class="chevron">⌄</span></summary>
           <div class="nav-children">
             <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Recibos de caja</button>
-            <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Comprobantes de egreso</button>
+            <button id="disbursementsNav" class="nav-subitem" type="button">Comprobantes de egreso</button>
             <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Cajas y bancos</button>
             <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Transferencias</button>
             <button class="nav-subitem muted" type="button" disabled aria-disabled="true">Conciliación bancaria</button>
@@ -518,6 +519,7 @@
   <script src="company-master.js"></script>
   <script src="company-zeus.js"></script>
   <script src="accounts-payable.js"></script>
+  <script src="disbursements.js"></script>
   <script src="supplier-payment-report.js"></script>
   <script src="payment-report-excel.js"></script>
   <script src="inventory-origin.js"></script>
