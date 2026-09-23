@@ -28,12 +28,14 @@ INSERT inv.Articulo(EmpresaId,Codigo,Descripcion,Tipo,UnidadBaseId) SELECT Empre
 INSERT inv.Bodega(EmpresaId,Codigo,Nombre) SELECT EmpresaId,'01','Bodega prueba' FROM core.Empresa;
 INSERT core.Sucursal(EmpresaId,Codigo,Nombre) SELECT EmpresaId,'01','Sucursal prueba' FROM core.Empresa;
 INSERT core.ZeusConfiguracion(EmpresaId,Configuracion,ActualizadoPor) SELECT EmpresaId,'{}',1 FROM core.Empresa;
+INSERT core.ZeusConexion(EmpresaId,Servidor,BaseDatos,UsuarioSql,PasswordProtegido,ActualizadoPor) SELECT EmpresaId,'servidor.invalid','PRUEBA','usuario_prueba','CIFRADO_FICTICIO',1 FROM core.Empresa;
 INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad) SELECT EmpresaId,2,'PRUEBA','test' FROM core.Empresa;
 EXEC sys.sp_set_session_context @key=N'BypassRls',@value=NULL;
 "@
     $script=[IO.File]::ReadAllText((Join-Path $root 'database/scripts/reset-erp-testing.sql'))
     Execute $db $script
     if((Scalar $db 'SELECT COUNT(*) FROM core.Empresa') -ne 2){throw 'Vista previa modifico empresas'}
+    if((Scalar $db "EXEC sys.sp_set_session_context @key=N'BypassRls',@value=1; SELECT COUNT(*) FROM core.ZeusConexion; EXEC sys.sp_set_session_context @key=N'BypassRls',@value=NULL;") -ne 2){throw 'Vista previa modifico conexiones Zeus'}
     if((Scalar $db "SELECT SESSION_CONTEXT(N'BypassRls')") -isnot [DBNull]){throw 'Vista previa no restaura RLS'}
     $server=([string](Scalar $db "SELECT CONVERT(nvarchar(128),SERVERPROPERTY('ServerName'))")).Replace("'","''")
     $confirmed=$script.Replace("N'ERPMontelibano'","N'$name'").Replace("N'CAMBIAR-SERVIDOR'","N'$server'").Replace("N'CAMBIAR-CODIGO'","N'MOTO'").Replace('@SuperAdminId bigint = NULL','@SuperAdminId bigint = 1').Replace("@Confirmacion nvarchar(100) = N'SOLO-VISTA-PREVIA'","@Confirmacion nvarchar(100) = N'BORRAR-TODO-EXCEPTO-MOTOCENTRO'").Replace('@RespaldoVerificado bit = 0, @MantenimientoConfirmado bit = 0','@RespaldoVerificado bit = 1, @MantenimientoConfirmado bit = 1')
@@ -54,6 +56,7 @@ IF (SELECT COUNT(*) FROM core.Empresa)<>1 OR NOT EXISTS(SELECT 1 FROM core.Empre
 IF (SELECT COUNT(*) FROM seg.Usuario)<>1 OR NOT EXISTS(SELECT 1 FROM seg.UsuarioCredencial WHERE UsuarioId=1 AND PasswordHash=0x1234 AND PasswordSalt=0x5678) THROW 52099,'Usuario o credencial alterados',1;
 IF EXISTS(SELECT 1 FROM ter.Tercero) OR EXISTS(SELECT 1 FROM inv.Articulo) OR EXISTS(SELECT 1 FROM inv.Bodega) OR EXISTS(SELECT 1 FROM core.ZeusConfiguracion) THROW 52099,'Quedaron maestros',1;
 IF (SELECT COUNT(*) FROM audit.Evento)<>1 OR NOT EXISTS(SELECT 1 FROM audit.Evento WHERE Operacion='REINICIO_TOTAL_PRUEBAS') THROW 52099,'Auditoria incorrecta',1;
+IF EXISTS(SELECT 1 FROM core.ZeusConexion) THROW 52099,'Quedaron conexiones Zeus',1;
 IF NOT EXISTS(SELECT 1 FROM core.SchemaMigration) OR NOT EXISTS(SELECT 1 FROM seg.Permiso) THROW 52099,'Infraestructura borrada',1;
 IF EXISTS(SELECT 1 FROM sys.foreign_keys WHERE is_disabled=1 OR is_not_trusted=1) THROW 52099,'FK invalidas',1;
 EXEC sys.sp_set_session_context @key=N'BypassRls',@value=NULL;

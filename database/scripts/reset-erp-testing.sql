@@ -10,6 +10,8 @@
  BORRA EN TODAS LAS EMPRESAS: restantes usuarios/empresas, sesiones, auditoria
  historica, proveedores, articulos, marcas, bodegas, sucursales, periodos,
  cartera, comprobantes, inventario, configuraciones y colas Zeus.
+ Incluye core.ZeusConexion (057): elimina las conexiones guardadas incluso de
+ MOTOCENTRO; debera configurarlas nuevamente. No borra claves del servidor ni .env.
  No modifica comprobantes ni proveedores ya enviados a la base externa Zeus.
  No reinicia IDENTITY. Reimportar facturas puede duplicarlas en Zeus: use una
  base Zeus de pruebas limpia y configure de nuevo la integracion conscientemente.
@@ -76,6 +78,7 @@ INSERT #ResetTablas(Nombre) VALUES
 (N'core.Sucursal'),
 (N'core.ZeusBodegaCuenta'),
 (N'core.ZeusConfiguracion'),
+-- Conexion privada guardada en ERP: forma parte del reinicio, no es la base Zeus.
 (N'core.ZeusConexion'),
 (N'core.ZeusEnvio'),
 (N'core.ZeusProveedorEnvio'),
