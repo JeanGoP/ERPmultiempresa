@@ -17,12 +17,13 @@ function zeusReadGeneralSupplier(form,settings){
   return [{...(general||{}),concepto:'PROVEEDOR',cuenta:code,articuloId:null,proveedorId:null,tarifa:null}];
 }
 async function zeusLoadSupplierChart(scope){
-  const form=$('#zeusSettingsForm');
-  if(form.elements.servidorEsperado.value.trim()!==zeusUI.settings.servidorEsperado||form.elements.baseEsperada.value.trim()!==zeusUI.settings.baseEsperada)
-    throw new Error('Guarda primero el cambio de destino. El listado debe corresponder a la empresa configurada.');
+  // El destino se administra en Empresas; aquí solo se usa la configuración guardada.
+  const version=zeusUI.version,baseDatos=zeusUI.settings.baseEsperada;
   const result=await apiRequest(`${scope.base}/supplier-accounts`);
   if(!zeusCurrent(scope))return;
-  if(result.version!==zeusUI.version)throw new Error('La configuración cambió. Actualiza antes de consultar las cuentas.');
+  if(version!==zeusUI.version||result.version!==version||result.baseDatos!==baseDatos)
+    throw new Error('La configuración cambió. Actualiza antes de consultar las cuentas.');
+  if(!$('#zeusSupplierChart')||!$('#zeusSupplierChartStatus'))return;
   $('#zeusSupplierChart').innerHTML=result.cuentas.map(a=>`<option value="${zeusEscape(a.codigo)}">${zeusEscape(a.codigo)} · ${zeusEscape(a.nombre)}</option>`).join('');
   $('#zeusSupplierChartStatus').textContent=result.cuentas.length?'':'No hay cuentas de proveedores disponibles. Revisa el plan y los permisos en Zeus.';
 }

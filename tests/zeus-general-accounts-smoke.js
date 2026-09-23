@@ -1,10 +1,10 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const parts={'#zeusSupplierChart':{},'#zeusSupplierChartStatus':{}};
-let calls=0,current=true;
+let calls=0,current=true,responseVersion=3,responseBase='EMPRESA';
 const settings={servidorEsperado:'SQL',baseEsperada:'EMPRESA',cuentas:[{concepto:'PROVEEDOR',cuenta:'2205',centroCosto:'01'},{concepto:'IVA',cuenta:'2408'}]};
-const form={elements:{cuentaProveedorGeneral:{value:'220501'},habilitado:{checked:true},servidorEsperado:{value:'SQL'},baseEsperada:{value:'EMPRESA'}}};
+const form={elements:{cuentaProveedorGeneral:{value:'220501'},habilitado:{checked:true}}};
 parts['#zeusSettingsForm']=form;
-const ctx=vm.createContext({zeusUI:{version:3,settings},zeusEscape:v=>String(v??'').replaceAll('<','&lt;'),$:id=>parts[id],zeusCurrent:()=>current,apiRequest:async()=>{calls++;return {version:3,baseDatos:'EMPRESA',cuentas:[{codigo:'220501',nombre:'Proveedor <test>'}]};}});
+const ctx=vm.createContext({zeusUI:{version:3,settings},zeusEscape:v=>String(v??'').replaceAll('<','&lt;'),$:id=>parts[id],zeusCurrent:()=>current,apiRequest:async()=>{calls++;return {version:responseVersion,baseDatos:responseBase,cuentas:[{codigo:'220501',nombre:'Proveedor <test>'}]};}});
 vm.runInContext(fs.readFileSync('public/zeus-general-accounts.js','utf8'),ctx);
 (async()=>{
  const html=ctx.zeusGeneralSupplierSection(settings);assert.match(html,/Cuentas generales de la empresa/);assert.match(html,/value="2205"/);
@@ -16,8 +16,10 @@ vm.runInContext(fs.readFileSync('public/zeus-general-accounts.js','utf8'),ctx);
  form.elements.cuentaProveedorGeneral.value='2205';form.elements.confirmarCuentaGeneral={checked:false};assert.throws(()=>ctx.zeusReadGeneralSupplier(form,legacy));form.elements.confirmarCuentaGeneral.checked=true;
  assert.equal(ctx.zeusReadGeneralSupplier(form,legacy)[0].proveedorId,null);
  await ctx.zeusLoadSupplierChart({base:'/company/3'});assert.equal(calls,1);assert.match(parts['#zeusSupplierChart'].innerHTML,/&lt;test>/);
- form.elements.baseEsperada.value='OTRA';await assert.rejects(()=>ctx.zeusLoadSupplierChart({base:'/company/3'}));assert.equal(calls,1);
- form.elements.baseEsperada.value='EMPRESA';current=false;parts['#zeusSupplierChart'].innerHTML='sin cambios';await ctx.zeusLoadSupplierChart({base:'/company/3'});assert.equal(parts['#zeusSupplierChart'].innerHTML,'sin cambios');
+ assert.equal(form.elements.servidorEsperado,undefined,'Carga sin los campos trasladados al maestro de empresas');
+ responseVersion=4;await assert.rejects(()=>ctx.zeusLoadSupplierChart({base:'/company/3'}),/configuración cambió/);assert.equal(calls,2);
+ responseVersion=3;responseBase='OTRA';await assert.rejects(()=>ctx.zeusLoadSupplierChart({base:'/company/3'}),/configuración cambió/);assert.equal(calls,3);
+ responseBase='EMPRESA';current=false;parts['#zeusSupplierChart'].innerHTML='sin cambios';await ctx.zeusLoadSupplierChart({base:'/company/3'});assert.equal(parts['#zeusSupplierChart'].innerHTML,'sin cambios');
  const app=fs.readFileSync('public/zeus.js','utf8');
  vm.runInContext(app.slice(app.indexOf('function zeusRenderSettings(){'),app.indexOf('async function zeusFindReceipts(')),ctx);
  settings.proveedores=[{proveedorId:10,codigoProveedor:'P10',codigoTercero:'T10'}];
