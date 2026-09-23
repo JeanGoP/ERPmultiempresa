@@ -1183,6 +1183,22 @@ function extractParty(root, sectionName) {
   };
 }
 
+function normalizeXmlRetentionLines(items,total){
+  const cents=Math.round(total*100);
+  const values=items.map((item,index)=>{const exact=(item.retention||0)*100;return {index,cents:Math.floor(exact+1e-7),fraction:exact-Math.floor(exact+1e-7)};});
+  let remaining=cents-values.reduce((sum,x)=>sum+x.cents,0);
+  if(remaining<0||remaining>values.length)throw new Error('El reparto de retenciones no coincide con el total del XML.');
+  for(const value of [...values].sort((a,b)=>b.fraction-a.fraction||a.index-b.index)){if(!remaining)break;value.cents++;remaining--;}
+  values.forEach(x=>items[x.index].retention=x.cents/100);
+}
+function xmlPayableWithRetention(raw,before,retention){
+  if(!retention)return raw;
+  const gross=Math.round(before*100),withheld=Math.round(retention*100),net=gross-withheld;
+  if(!Number.isSafeInteger(gross)||net<0)throw new Error('La retención supera el valor pagable de la factura.');
+  if(raw!=null&&Math.round(raw*100)!==gross&&Math.round(raw*100)!==net)
+    throw new Error('El total XML no coincide con el importe antes o después de retenciones. Revisa anticipos, cargos y redondeos antes de guardar.');
+  return net/100;
+}
 function extractInvoiceData(documentNode) {
   const root = documentNode.documentElement;
   const documentType = localName(root);
@@ -1243,7 +1259,7 @@ function extractInvoiceData(documentNode) {
   const retentionSource=standardRetentions.length?standardRetentions:lineRetentions.length?lineRetentions:extractCustomRetentions(root);
   let retentions = retentionSource.filter(component=>includeXmlRetention(component)&&(component.amount||0)>0);
   const explicitLineRetention = items.reduce((sum, item) => sum + (item.retention || 0), 0);
-  const retentionTotal = Math.max(retentions.reduce((sum, retention) => sum + (retention.amount || 0), 0),explicitLineRetention);
+  const retentionTotal = Math.round(Math.max(retentions.reduce((sum, retention) => sum + (retention.amount || 0), 0),explicitLineRetention)*100)/100;
   if(explicitLineRetention>retentions.reduce((sum,x)=>sum+(x.amount||0),0))retentions=[{name:'Retenciones de líneas',rate:null,taxableAmount:null,amount:explicitLineRetention,retention:true}];
   const pendingRetention = Math.max(retentionTotal - explicitLineRetention, 0);
   if (pendingRetention > 0 && items.length) {
@@ -1256,6 +1272,7 @@ function extractInvoiceData(documentNode) {
       allocated += share;
     });
   }
+  normalizeXmlRetentionLines(items,retentionTotal);
   const charges = childrenByLocal(root, 'AllowanceCharge').filter((charge) => /^true$/i.test(textAt(charge, ['ChargeIndicator']))).map((charge) => {
     const reason = textAt(charge, ['AllowanceChargeReason']) || textAt(charge, ['AllowanceChargeReasonCode']) || 'Cargo';
     return { reason, amount: numeric(textAt(charge, ['Amount'])), baseAmount: numeric(textAt(charge, ['BaseAmount'])), isFreight: /flete|freight|transporte|env[ií]o/i.test(reason) };
@@ -1277,6 +1294,9 @@ function extractInvoiceData(documentNode) {
   const lineDiscountTotal = items.reduce((sum, item) => sum + (item.discount || 0), 0);
   const allowanceTotal = numeric(textAt(monetary, ['AllowanceTotalAmount'])) ?? lineDiscountTotal;
   const grossSubtotal = items.reduce((sum, item) => sum + (item.grossTotal || 0), 0) || (netSubtotal === null ? null : netSubtotal + allowanceTotal);
+  const rawPayable=numeric(textAt(monetary,['PayableAmount']));
+  const inclusive=numeric(textAt(monetary,['TaxInclusiveAmount']))??((numeric(textAt(monetary,['TaxExclusiveAmount']))??((netSubtotal??items.reduce((s,x)=>s+(x.lineTotal||0),0))-(numeric(textAt(monetary,['AllowanceTotalAmount']))??0)+(chargeTotal??0)))+taxes.reduce((s,x)=>s+(x.amount||0),0));
+  const beforeRetention=inclusive-(numeric(textAt(monetary,['PrepaidAmount']))??0)+(numeric(textAt(monetary,['PayableRoundingAmount']))??0);
   return {
     documentType,
     number: textAt(root, ['ID']),
@@ -1297,7 +1317,8 @@ function extractInvoiceData(documentNode) {
       allowances: allowanceTotal,
       charges: chargeTotal,
       otherCharges,
-      payable: numeric(textAt(monetary, ['PayableAmount'])),
+      payable: xmlPayableWithRetention(rawPayable,beforeRetention,retentionTotal),
+      xmlPayable: rawPayable,
       freight,
       retentions: retentionTotal,
     },

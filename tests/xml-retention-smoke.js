@@ -37,18 +37,34 @@ assert.equal(parse('<CustomField Name="AutorreteFuenteAmount" Value="120"/><Cust
 assert.equal(parse('<CustomField Name="AutorreteFuenteAmount" Value="120"/><CustomField Name="ReteFuenteAmount" Value="125"/><CustomField Name="TotalRetenciones" Value="245"/>').totals.retentions,125);
 assert.equal(parse('<WithholdingTaxTotal><TaxAmount>120</TaxAmount></WithholdingTaxTotal>').totals.retentions,120,'No inventar una tarifa sin base');
 const invoice=parse(retention(2,200));
+assert.equal(invoice.totals.payable,9800,'Descuenta retención cuando PayableAmount conserva el bruto');
+assert.equal(context.xmlPayableWithRetention(9800,10000,200),9800,'No descuenta dos veces un XML ya neto');
+assert.equal(context.xmlPayableWithRetention(41353448.43,41353448.43,868769.93),40484678.5);
+assert.equal(context.xmlPayableWithRetention(40484678.50,41353448.43,868769.93),40484678.5);
+assert.equal(context.xmlPayableWithRetention(900,1000-100,25),875,'Conserva anticipos antes de descontar retención');
+assert.throws(()=>context.xmlPayableWithRetention(777,1000,25),/no coincide/,'No inventa ajustes ante totales ambiguos');
+const thirds=[{retention:868769.93/3},{retention:868769.93/3},{retention:868769.93/3}];
+context.normalizeXmlRetentionLines(thirds,868769.93);
+assert.deepEqual(thirds.map(x=>x.retention),[289589.98,289589.98,289589.97]);
+assert.equal(thirds.reduce((sum,x)=>sum+Math.round(x.retention*100),0),86876993);
+for(const payable of [41353448.43,40484678.50]){
+  const xml=`<Invoice><ID>MKM11928</ID>${retention(2.5,868769.93).replace('10000','34750797')}<TaxTotal><TaxAmount>6602651.43</TaxAmount></TaxTotal><LegalMonetaryTotal><TaxInclusiveAmount>41353448.43</TaxInclusiveAmount><PayableAmount>${payable}</PayableAmount></LegalMonetaryTotal>${[1,2,3].map(id=>`<InvoiceLine><ID>${id}</ID><InvoicedQuantity>1</InvoicedQuantity><LineExtensionAmount>11583599</LineExtensionAmount><Item><Description>Articulo</Description></Item><Price><PriceAmount>11583599</PriceAmount></Price></InvoiceLine>`).join('')}</Invoice>`;
+  const parsed=context.extractInvoiceData(new DOMParser().parseFromString(xml,'application/xml'));
+  assert.equal(parsed.totals.payable,40484678.50);
+  assert.equal(parsed.items.reduce((sum,x)=>sum+Math.round(x.retention*100),0),86876993);
+}
 invoice.items.push({...invoice.items[0],line:'2',retention:0,lineTotal:3333.33});
 context.updateXmlRetentionTotal(invoice,100.01);
 assert.equal(Math.round(invoice.items.reduce((sum,x)=>sum+x.retention,0)*100),10001);
 assert.equal(invoice.totals.retentions,100.01);assert.equal(invoice.retentions[0].amount,100.01);
-assert.equal(invoice.totals.payable,10099.99);
+assert.equal(invoice.totals.payable,9899.99);
 assert.throws(()=>context.buildSupplierDocumentPayload(invoice),/Confirma/);
 invoice.supplier.identificationType='NIT';
 invoice.supplier.xmlFields={AdditionalAccountID:[{value:'2'}]};
 const payload=context.buildSupplierDocumentPayload(invoice);
 assert.equal(Math.round(payload.lineas.reduce((sum,x)=>sum+x.retencion,0)*100),10001);
-assert.equal(payload.totalPagar,10099.99);assert.equal(payload.xmlOriginal,'<Invoice>original</Invoice>');
-context.updateXmlRetentionTotal(invoice,0);assert.equal(invoice.totals.payable,10200);assert.ok(invoice.items.every(x=>x.retention===0));
+assert.equal(payload.totalPagar,9899.99);assert.equal(payload.xmlOriginal,'<Invoice>original</Invoice>');
+context.updateXmlRetentionTotal(invoice,0);assert.equal(invoice.totals.payable,10000);assert.ok(invoice.items.every(x=>x.retention===0));
 const before=JSON.stringify(invoice);
 for(const value of [-1,NaN,Infinity,999999])assert.throws(()=>context.updateXmlRetentionTotal(invoice,value));
 assert.equal(JSON.stringify(invoice),before,'Validaciones no deben modificar valores');
