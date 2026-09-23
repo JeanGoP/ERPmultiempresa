@@ -150,6 +150,15 @@ try
     Check(Convert.ToDecimal(await Scalar(c,"SELECT SaldoPendiente FROM cxp.DocumentoPorPagar WHERE DocumentoPorPagarId=1"))==650,"Doble clic concurrente aplica una sola vez");
     var finalPayment=payment with{OperacionGuid=Guid.NewGuid(),Lineas=[new("FACTURA",1,"","Saldo completo",650)]};await posting.PostAsync(1,finalPayment,1,default);
     Check(Convert.ToString(await Scalar(c,"SELECT Estado FROM cxp.DocumentoPorPagar WHERE DocumentoPorPagarId=1"))=="PAGADA","Pago total cierra obligación");
+    async Task<JsonElement> FindPayments(string term,long companyId=1,long? before=null)=>JsonSerializer.SerializeToElement(await posting.ListAsync(companyId,before,default,term));
+    Check((await FindPayments("CE-"+postedId)).GetProperty("items").GetArrayLength()==1,"Busca egreso por número exacto");
+    Check((await FindPayments("123")).GetProperty("items").GetArrayLength()>0,"Busca egresos por identificación");
+    Check((await FindPayments("Proveedor")).GetProperty("items").GetArrayLength()>0,"Busca egresos por nombre");
+    Check((await FindPayments("sin resultado")).GetProperty("items").GetArrayLength()==0,"Búsqueda sin coincidencias");
+    Check((await FindPayments("%')).--")).GetProperty("items").GetArrayLength()==0,"Busca texto literal parametrizado");
+    Check((await FindPayments("123",2)).GetProperty("items").GetArrayLength()==0,"Búsqueda aislada por empresa");
+    Check((await FindPayments("CE-"+postedId,1,postedId)).GetProperty("items").GetArrayLength()==0,"Paginación conserva filtro y cursor");
+    await Reject(async()=>{await FindPayments(new string('a',121));},"Limita longitud de búsqueda");
     await Reject(()=>Pay(payment with{Lineas=[new("FACTURA",1,"","Exceso",1)]}),"Factura pagada no admite otro pago");
     await Exec(c,"INSERT dbo.Facturas_Bu VALUES('202609','123','220501','FA','F2','','','Local',-300),('202609','123','220501','FA','F3','','','Otra BU',-500)");
     var multi=job.Snapshot with{Movimientos=[new(new("PROVEEDOR","220501"),100),new(new("PROVEEDOR","220501"),200),new(new("BANCO_CAJA","111005"),-300)],Origen=job.Snapshot.Origen with{Total=300},Egreso=job.Snapshot.Egreso! with{Facturas=[new(2,"220501","FA","F2","","Local",new(2026,10,1),100),new(3,"220501","FA","F3","","Otra BU",new(2026,10,1),200)]}};

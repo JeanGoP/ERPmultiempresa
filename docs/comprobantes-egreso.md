@@ -1,6 +1,9 @@
 # Comprobantes de egreso — contabilización definitiva (059)
 
-Tesorería → Comprobantes de egreso → Nuevo egreso. No existe opción de guardar borrador
+Tesorería → Comprobantes de egreso abre directamente Nuevo egreso. El buscador consulta
+comprobantes guardados por CE, nombre/identificación del beneficiario o documento Zeus,
+con resultados paginados de 50 registros y filtro conservado. No carga el historial al abrir.
+No existe opción de guardar borrador
 ni editar un egreso contabilizado. Los endpoints antiguos `disbursement-drafts` ya no se
 registran; la tabla 058 se conserva para no destruir datos anteriores, sin convertirlos
 automáticamente en pagos. Los borradores de entrada de mercancía no se modifican.
@@ -8,8 +11,9 @@ automáticamente en pagos. Los borradores de entrada de mercancía no se modific
 Permiso nuevo y crítico: `TESORERIA.EGRESO.CONTABILIZAR`. No se concede implícitamente
 a quienes solo podían preparar borradores. El superadministrador conserva acceso.
 
-Configuración inicial: fuente EGRESO por sucursal en Integración Zeus y, en Comprobantes
-de egreso → Caja / banco por sucursal, cuenta y medio del catálogo MONEDAS de Zeus para
+Configuración inicial: fuente EGRESO por sucursal en Integración Zeus. En
+Integración Zeus → Configuración de empresa → Caja / banco por sucursal se configuran
+la cuenta y el medio del catálogo MONEDAS de Zeus para
 EFECTIVO / TRANSFERENCIA / CHEQUE. Se consulta el plan real; no se permite cambiar la
 cuenta de salida al registrar un pago. Esa configuración requiere administración de seguridad.
 

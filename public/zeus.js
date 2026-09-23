@@ -89,6 +89,7 @@ async function zeusLoadTab(scope){
     zeusUI.version=saved?.version||0;zeusUI.settings=saved?.configuracion||{habilitado:false,servidorEsperado:'',baseEsperada:'',fuente:'',serie:'',unidadNegocio:'',usuarioZeus:'',tipoFactura:'',cuentas:[],proveedores:[]};zeusUI.dirty=false;zeusRenderSettings();
     await Promise.all([zeusAutoLoadSupplierChart(scope),zeusAutoLoadRetentionChart(scope)]);
     if(typeof zeusLoadSourceBranches==='function')await zeusLoadSourceBranches(scope);
+    if(typeof loadZeusCashAccounts==='function'&&zeusAdmin())await loadZeusCashAccounts(scope);
   }else if(zeusUI.tab==='prepare'){
     zeusUI.preview=null;zeusUI.receipt=null;
     $('#zeusContent').innerHTML='<div class="zeus-card"><h2>Entradas contabilizadas en el ERP</h2><p>Primero selecciona una factura. La fecha contable se toma de la entrada.</p><form id="zeusSearchForm" class="zeus-toolbar"><label>Factura o proveedor<input name="q" maxlength="100" placeholder="Buscar por número o nombre"></label><button type="submit" class="button secondary">Buscar</button></form><div id="zeusReceipts" class="zeus-scroll"></div></div><div id="zeusPreparation"></div>';
@@ -112,7 +113,7 @@ function zeusRenderSettings(){
   const s=zeusUI.settings;
   $('#zeusContent').innerHTML=`<form id="zeusSettingsForm"><section class="zeus-card"><h2>1. Fuentes de Zeus por sucursal</h2><p>Conexión: ${zeusEscape(s.baseEsperada||'Pendiente de configurar en Seguridad → Empresas')}${s.baseEsperada?' · '+zeusEscape(s.servidorEsperado):''}</p>${typeof zeusSourcesSection==='function'?zeusSourcesSection(s):''}</section>
     ${zeusGeneralSupplierSection(s)}${zeusRetentionSection(s)}
-    <section class="zeus-card zeus-save"><label class="zeus-toggle"><input name="habilitado" type="checkbox" ${s.habilitado?'checked':''}><span><strong>Enviar automáticamente las entradas a Zeus</strong><small>Activa solo después de validar sus cuentas y probar la conexión. El envío también requiere activar el despachador en el servidor.</small></span></label><button type="submit" class="button primary">Guardar configuración de empresa</button></section></form>`;
+    <section class="zeus-card zeus-save"><label class="zeus-toggle"><input name="habilitado" type="checkbox" ${s.habilitado?'checked':''}><span><strong>Enviar automáticamente las entradas a Zeus</strong><small>Activa solo después de validar sus cuentas y probar la conexión. El envío también requiere activar el despachador en el servidor.</small></span></label><button type="submit" class="button primary">Guardar configuración de empresa</button></section></form><section class="zeus-card" id="zeusCashAccounts"></section>`;
 }
 function zeusReadSettings(){
   const form=$('#zeusSettingsForm'),s={habilitado:form.elements.habilitado.checked};

@@ -2,6 +2,11 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
 const source=fs.readFileSync('public/disbursements.js','utf8');
 assert.doesNotMatch(source,/data-search|data-search-button/);
 assert.match(source,/data-beneficiary list="egresoBeneficiarios"/);
+assert.match(source,/searchTerm='';dialog.showModal\(\);await edit\(\)/,'Tesorería abre nuevo egreso');
+assert.doesNotMatch(source,/data-config>Caja/,'No configura caja desde tesorería');
+assert.match(source,/\?q='\+encodeURIComponent\(searchTerm\)/,'Consulta filtrada en servidor');
+assert.match(source,/if\(!searchTerm\)/,'Sin búsqueda no descarga historial');
+assert.match(fs.readFileSync('public/zeus.js','utf8'),/id="zeusCashAccounts"/,'Configuración en integración Zeus');
 const parts={};
 for(const key of ['[data-beneficiary]','#egresoBeneficiarios','[data-options-note]','[name="terceroId"]','fieldset'])parts[key]={value:'',setCustomValidity(v){this.error=v;}};
 let timer,resolveLookup,confirmed=true,requests=[],renders=0;

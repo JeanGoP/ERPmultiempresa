@@ -127,10 +127,13 @@ public sealed class DisbursementPosting(TenantConnectionFactory connections,IDis
         return new{id,estado="CONTABILIZADO",zeusEstado="PENDIENTE",repetido=false};
     }
 
-    public async Task<object> ListAsync(long company,long? before,CancellationToken ct)
+    public async Task<object> ListAsync(long company,long? before,CancellationToken ct,string? search=null)
     {
+        search=search?.Trim()??"";
+        if(search.Length>120)throw new ArgumentException("La búsqueda admite hasta 120 caracteres.");
         await using var c=await connections.OpenAsync(company,false,ct);
-        await using var q=ZeusRepository.Command(c,"SELECT TOP(51) e.EgresoId,e.FechaContable,t.RazonSocial,e.Moneda,e.Total,e.ZeusEstado,e.ZeusFuente,e.ZeusDocumento,e.ZeusError FROM cxp.Egreso e JOIN ter.Tercero t ON t.EmpresaId=e.EmpresaId AND t.TerceroId=e.TerceroId WHERE e.EmpresaId=@E AND (@Before IS NULL OR e.EgresoId<@Before) ORDER BY e.EgresoId DESC",company);
+        await using var q=ZeusRepository.Command(c,"SELECT TOP(51) e.EgresoId,e.FechaContable,t.RazonSocial,e.Moneda,e.Total,e.ZeusEstado,e.ZeusFuente,e.ZeusDocumento,e.ZeusError FROM cxp.Egreso e JOIN ter.Tercero t ON t.EmpresaId=e.EmpresaId AND t.TerceroId=e.TerceroId WHERE e.EmpresaId=@E AND (@Before IS NULL OR e.EgresoId<@Before) AND (@Search='' OR CHARINDEX(@Search,t.RazonSocial)>0 OR CHARINDEX(@Search,t.NumeroIdentificacion)>0 OR CONCAT('CE-',e.EgresoId)=@Search OR CONVERT(varchar(20),e.EgresoId)=@Search OR CHARINDEX(@Search,e.ZeusDocumento)>0) ORDER BY e.EgresoId DESC",company);
+        q.Parameters.Add("@Search",SqlDbType.NVarChar,120).Value=search;
         q.Parameters.Add("@Before",SqlDbType.BigInt).Value=(object?)before??DBNull.Value;var rows=new List<object>();long? next=null;
         await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct)){if(rows.Count==50)return new{items=rows,siguiente=next};next=r.GetInt64(0);rows.Add(new{id=next,fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),beneficiario=r.GetString(2),moneda=r.GetString(3),total=r.GetDecimal(4),estado="CONTABILIZADO",zeusEstado=r.GetString(5),fuente=r.IsDBNull(6)?null:r.GetString(6),documento=r.IsDBNull(7)?null:r.GetString(7),error=r.IsDBNull(8)?null:r.GetString(8)});}
@@ -172,7 +175,7 @@ public static class PostedDisbursementsModule
         g.MapPost("/{id:long}/retry",async(long empresaId,long id,HttpContext http,DisbursementQueue queue,CancellationToken ct)=>{await queue.RetryAsync(empresaId,id,Convert.ToInt64(http.Items["UsuarioId"]),ct);return Results.NoContent();}).RequireErpPermission(DisbursementPosting.Permission);
         g.MapPost("/{id:long}/reconcile",async(long empresaId,long id,DisbursementQueue queue,ZeusTransport transport,CancellationToken ct)=>Results.Ok(await queue.ReconcileAsync(empresaId,id,transport,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
         g.AddEndpointFilter(async(ctx,next)=>{try{return await next(ctx);}catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}catch(DraftConflict e){return Results.Conflict(new{error=e.Message});}catch(SqlException e)when(e.Number is 52112 or 52113 or 52114){return Results.Conflict(new{error=e.Message});}catch(SqlException){return Results.Json(new{error="No se pudo completar la operación. Comprueba conexión, permisos, período y configuración. No repitas un pago sin actualizar su estado."},statusCode:502);}});
-        g.MapGet("",async(long empresaId,long? antes,DisbursementPosting repo,CancellationToken ct)=>Results.Ok(await repo.ListAsync(empresaId,antes,ct))).RequireErpPermission(DisbursementPosting.Permission);
+        g.MapGet("",async(long empresaId,long? antes,string? q,DisbursementPosting repo,CancellationToken ct)=>Results.Ok(await repo.ListAsync(empresaId,antes,ct,q))).RequireErpPermission(DisbursementPosting.Permission);
         g.MapGet("/options",async(long empresaId,string? q,long? terceroId,DisbursementRepository repo,CancellationToken ct)=>Results.Ok(await repo.OptionsAsync(empresaId,q,terceroId,ct))).RequireErpPermission(DisbursementPosting.Permission);
         g.MapGet("/{id:long}",async(long empresaId,long id,DisbursementPosting repo,CancellationToken ct)=>{var result=await repo.GetAsync(empresaId,id,ct);return result is null?Results.NotFound():Results.Ok(result);}).RequireErpPermission(DisbursementPosting.Permission);
         g.MapPost("",async(long empresaId,DisbursementDraft input,HttpContext http,DisbursementPosting repo,CancellationToken ct)=>Results.Ok(await repo.PostAsync(empresaId,input,Convert.ToInt64(http.Items["UsuarioId"]),ct))).RequireErpPermission(DisbursementPosting.Permission);
@@ -181,6 +184,7 @@ public static class PostedDisbursementsModule
             var config=(await repo.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus primero.")).Configuracion;
             return Results.Ok(new{cuentas=await transport.CashAccountsAsync(empresaId,config,ct),medios=await transport.PaymentCurrenciesAsync(empresaId,config,ct)});
         }).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+        g.MapGet("/cash-configuration",async(long empresaId,DisbursementRepository options,DisbursementPosting repo,CancellationToken ct)=>Results.Ok(new{opts=await options.OptionsAsync(empresaId,null,null,ct),saved=await repo.AccountsAsync(empresaId,ct)})).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
         g.MapPut("/accounts",async(long empresaId,CashAccount input,HttpContext http,DisbursementPosting repo,ZeusRepository settings,ZeusTransport transport,CancellationToken ct)=>{
             var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus primero.")).Configuracion;
             var account=(await transport.CashAccountsAsync(empresaId,config,ct)).SingleOrDefault(a=>a.Codigo==input.Cuenta)??throw new ArgumentException("Cuenta de caja/banco no válida en Zeus.");

@@ -5,6 +5,7 @@
   dialog.setAttribute('aria-label','Comprobantes de egreso');document.body.append(dialog);
   let generation=0,company=null,current=null,options=null,dirty=false,busy=false,next=null,accounts=[];
   let beneficiaryTimer=null,beneficiaryRequest=0;
+  let searchTerm='';
   const beneficiaryLabel=x=>x?`${x.identificacion} · ${x.nombre}`:'';
   const $e=s=>dialog.querySelector(s);
   const url=()=>`/api/v1/companies/${company}/disbursements`;
@@ -16,27 +17,29 @@
   dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
   function shell(){
     dialog.innerHTML=`<div class="dialog-heading"><div><span class="dialog-kicker">TESORERÍA · ${esc(state.erpSession?.company?.name||'Empresa activa')}</span><h2>Comprobantes de egreso</h2></div><button type="button" class="dialog-close" data-close aria-label="Cerrar">×</button></div>
-      <p data-notice role="status" aria-live="polite"></p><div data-content></div>`;
+      <form data-find-form class="egreso-toolbar"><label>Buscar egresos guardados<input data-find maxlength="120" placeholder="CE, proveedor, identificación o comprobante Zeus" value="${esc(searchTerm)}" required></label><button class="button secondary">Buscar</button><button type="button" class="button secondary" data-create>Nuevo egreso</button></form><p data-notice role="status" aria-live="polite"></p><div data-content></div>`;
     $e('[data-close]').onclick=()=>close();
+    $e('[data-find-form]').onsubmit=e=>{e.preventDefault();if(busy||dirty&&!confirm('¿Descartar los datos sin contabilizar para buscar?'))return;searchTerm=$e('[data-find]').value.trim();void listing();};
+    $e('[data-create]').onclick=()=>{if(!busy&&(!dirty||confirm('¿Descartar los datos sin contabilizar?')))void edit();};
   }
   async function listing(before=null){
     const token=++generation;current=null;dirty=false;shell();notice('Consultando egresos…');
+    if(!searchTerm){notice('Busca por comprobante, proveedor o identificación.');return;}
     try{
-      const data=await apiRequest(url()+(before?'?antes='+before:''));if(!valid(token))return;
+      const data=await apiRequest(url()+'?q='+encodeURIComponent(searchTerm)+(before?'&antes='+before:''));if(!valid(token))return;
       next=data.siguiente;
-      $e('[data-content]').innerHTML=`<div class="egreso-toolbar"><button type="button" class="button primary" data-new>Nuevo egreso</button><button type="button" class="button secondary" data-refresh>Actualizar</button>${hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?'<button type="button" class="button secondary" data-config>Caja / banco por sucursal</button>':''}</div>
+      $e('[data-content]').innerHTML=`<div class="egreso-toolbar"><button type="button" class="button primary" data-new>Nuevo egreso</button><button type="button" class="button secondary" data-refresh>Actualizar</button></div>
         <div class="table-wrap"><table><thead><tr><th>Comprobante</th><th>Fecha contable</th><th>Beneficiario</th><th>Total</th><th>ERP / Zeus</th><th>Detalle / acción</th></tr></thead><tbody>${data.items.map(x=>`<tr><td>CE-${x.id}</td><td>${esc(x.fecha)}</td><td>${esc(x.beneficiario)}</td><td>${esc(money(x.total,x.moneda))}</td><td>ERP contabilizado<br>Zeus: ${esc(x.zeusEstado)} ${esc(x.fuente||'')} ${esc(x.documento||'')}</td><td>${esc(x.error||'')}<button type="button" class="button secondary" data-open="${x.id}">Ver</button>${x.zeusEstado==='RECHAZADO'?`<button class="button secondary" data-retry="${x.id}">Reintentar solo Zeus</button>`:''}${x.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button class="button secondary" data-reconcile="${x.id}">Conciliar Zeus</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6">No hay egresos contabilizados.</td></tr>'}</tbody></table></div>
         <div class="egreso-toolbar"><button type="button" class="button secondary" data-first>Primera página</button><button type="button" class="button secondary" data-next ${next?'':'disabled'}>Siguientes</button></div>`;
       notice('');$e('[data-new]').onclick=()=>edit();$e('[data-refresh]').onclick=()=>listing(before);$e('[data-first]').onclick=()=>listing();$e('[data-next]').onclick=()=>listing(next);
       dialog.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>view(Number(b.dataset.open)));
-      $e('[data-config]')?.addEventListener('click',configure);
       for(const action of ['retry','reconcile'])dialog.querySelectorAll(`[data-${action}]`).forEach(b=>b.onclick=async()=>{if(busy)return;busy=true;b.disabled=true;try{const result=await apiRequest(url()+`/${b.dataset[action]}/${action}`,{method:'POST'});if(valid(token)){await listing(before);if(result?.error)notice(result.error,true);}}catch(e){if(valid(token))notice(e.message,true);}finally{busy=false;if(valid(token))b.disabled=false;}});
     }catch(e){if(valid(token))notice(e.message,true);}
   }
   window.openEgresos=async()=>{
     if(!state.erpSession?.api||!hasPermission('TESORERIA.EGRESO.CONTABILIZAR')){showError('Requiere conexión al ERP y permiso para contabilizar egresos.');return;}
     if(dialog.open)return;
-    company=state.erpSession.company.id;dialog.showModal();await listing();
+    company=state.erpSession.company.id;searchTerm='';dialog.showModal();await edit();
   };
   document.querySelector('#disbursementsNav').addEventListener('click',window.openEgresos);
   function blank(){return {operacionGuid:crypto.randomUUID(),version:0,sucursalId:'',terceroId:'',fechaContable:new Date().toLocaleDateString('sv-SE',{timeZone:'America/Bogota'}),moneda:'COP',medioPago:'TRANSFERENCIA',bancoCaja:'',cuentaSalida:'',referencia:'',concepto:'',lineas:[]};}
@@ -148,19 +151,27 @@
     busy=true;$e('fieldset').disabled=true;notice('Validando y contabilizando egreso…');
     try{
       const result=await apiRequest(target,{method:current.id?'PUT':'POST',body:JSON.stringify(body)});if(!valid(token))return;
-      dirty=false;await listing();notice('Egreso CE-'+result.id+' contabilizado en el ERP. Consulta aquí el resultado de Zeus. No vuelvas a registrar este pago.');
+      dirty=false;searchTerm='CE-'+result.id;await listing();notice('Egreso CE-'+result.id+' contabilizado en el ERP. Consulta aquí el resultado de Zeus. No vuelvas a registrar este pago.');
     }catch(e){if(valid(token))notice(e.message,true);}
     finally{busy=false;if(valid(token)&&$e('fieldset'))$e('fieldset').disabled=false;}
   }
   function accountHint(){const a=accounts.find(x=>x.sucursalId===Number(current?.datos.sucursalId)&&x.medioPago===current?.datos.medioPago);if($e('[data-account]'))$e('[data-account]').textContent=a?`Salida: ${a.cuenta} · ${a.nombre}`:'Falta configurar caja/banco de esta sucursal y medio de pago.';}
   async function view(id){const token=++generation;shell();try{const result=await apiRequest(url()+'/'+id);if(!valid(token))return;const d=result.datos;$e('[data-content]').innerHTML=`<h3>CE-${id} · Contabilizado</h3><p>${esc(d.concepto)} · ${esc(d.fechaContable)} · ${money(result.asiento.origen.total)}</p><div class="table-wrap"><table><thead><tr><th>Cuenta</th><th>Concepto</th><th>Débito</th><th>Crédito</th></tr></thead><tbody>${result.asiento.movimientos.map(m=>`<tr><td>${esc(m.regla.cuenta)}</td><td>${esc(m.regla.concepto)}</td><td>${m.valor>0?money(m.valor):''}</td><td>${m.valor<0?money(-m.valor):''}</td></tr>`).join('')}</tbody></table></div><h3>Aplicaciones a facturas</h3><p>${result.asiento.egreso.facturas.map(f=>esc(f.numero)+' · '+money(f.valor)).join('<br>')||'Sin aplicaciones de cartera'}</p><button class="button secondary" data-back>Volver</button>`;$e('[data-back]').onclick=()=>listing();}catch(e){if(valid(token))notice(e.message,true);}}
-  async function configure(){
-    const token=++generation;shell();notice('Consultando cuentas y medios de pago de Zeus…');
-    try{const [opts,saved,chart]=await Promise.all([apiRequest(url()+'/options'),apiRequest(url()+'/accounts'),apiRequest(url()+'/cash-chart')]);if(!valid(token))return;
+  window.loadZeusCashAccounts=configure;
+  async function configure(scope){
+    const root=document.querySelector('#zeusCashAccounts');if(!root||!zeusCurrent(scope))return;
+    const company=state.erpSession.company.id;
+    const url=()=>`/api/v1/companies/${company}/disbursements`;
+    const $e=s=>root.querySelector(s),valid=()=>zeusCurrent(scope)&&root.isConnected&&String(company)===String(state.erpSession?.company?.id);
+    let busy=false;const token=0;
+    root.innerHTML='<p data-notice role="status"></p><div data-content></div>';
+    const notice=(text)=>{if(valid())$e('[data-notice]').textContent=text;};
+    notice('Consultando cuentas y medios de pago de Zeus…');
+    try{const [{opts,saved},chart]=await Promise.all([apiRequest(url()+'/cash-configuration'),apiRequest(url()+'/cash-chart')]);if(!valid(token))return;
       $e('[data-content]').innerHTML=`<form data-config-form><fieldset><h3>Caja / banco por sucursal</h3><div class="egreso-grid"><label>Sucursal<select name="branch" required>${opts.sucursales.map(x=>`<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></label><label>Medio de pago<select name="method"><option>TRANSFERENCIA</option><option>EFECTIVO</option><option>CHEQUE</option></select></label><label class="egreso-wide">Cuenta en Zeus<select name="account" required><option value="">Selecciona…</option>${chart.cuentas.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label><label class="egreso-wide">Medio de pago en Zeus<select name="currency" required><option value="">Selecciona…</option>${chart.medios.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label></div><div class="egreso-toolbar"><button class="button primary">Guardar configuración</button><button type="button" class="button secondary" data-back>Volver</button></div></fieldset></form>`;
       const selected=()=>saved.find(x=>x.sucursalId===Number($e('[name="branch"]').value)&&x.medioPago===$e('[name="method"]').value);
       const fill=()=>{const s=selected();$e('[name="account"]').value=s?.cuenta||'';$e('[name="currency"]').value=s?.monedaZeus||'';};$e('[name="branch"]').onchange=fill;$e('[name="method"]').onchange=fill;fill();
-      $e('[data-back]').onclick=()=>listing();$e('[data-config-form]').onsubmit=async e=>{e.preventDefault();if(busy)return;const body={sucursalId:Number($e('[name="branch"]').value),medioPago:$e('[name="method"]').value,cuenta:$e('[name="account"]').value,monedaZeus:$e('[name="currency"]').value,version:selected()?.version||0};busy=true;$e('fieldset').disabled=true;try{await apiRequest(url()+'/accounts',{method:'PUT',body:JSON.stringify(body)});if(valid(token)){await configure();notice('Configuración guardada.');}}catch(err){if(valid(token))notice(err.message,true);}finally{busy=false;if(valid(token))$e('fieldset').disabled=false;}};notice('');
+      $e('[data-back]').remove();$e('[data-config-form]').onsubmit=async e=>{e.preventDefault();e.stopPropagation();if(busy||!valid())return;const body={sucursalId:Number($e('[name="branch"]').value),medioPago:$e('[name="method"]').value,cuenta:$e('[name="account"]').value,monedaZeus:$e('[name="currency"]').value,version:selected()?.version||0};busy=true;$e('fieldset').disabled=true;try{await apiRequest(url()+'/accounts',{method:'PUT',body:JSON.stringify(body)});if(valid(token)){await configure(scope);notice('Configuración guardada.');}}catch(err){if(valid(token))notice(err.message,true);}finally{busy=false;if(valid(token)&&$e('fieldset'))$e('fieldset').disabled=false;}};notice('');
     }catch(e){if(valid(token))notice(e.message,true);}
   }
 })();
