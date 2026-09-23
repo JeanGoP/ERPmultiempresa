@@ -51,17 +51,19 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
         }
         q.CommandText="""
             SELECT RTRIM(CODICTA),CASE WHEN VALORTRA>0 THEN 1 ELSE -1 END,SUM(VALORTRA)
-            FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND STATUSTRA IN('AC','XA') AND BU=@B
+            FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND STATUSTRA IN('AC','XA') AND (@Payment=1 OR BU=@B)
             GROUP BY CODICTA,CASE WHEN VALORTRA>0 THEN 1 ELSE -1 END;
             """;
         q.Parameters.Add("@N",SqlDbType.VarChar,10).Value=number;
         q.Parameters.Add("@B",SqlDbType.VarChar,20).Value=s.Configuracion.UnidadNegocio;
+        q.Parameters.AddWithValue("@Payment",s.Egreso is null?0:1);
         var expected=s.Movimientos.GroupBy(m=>(m.Regla.Cuenta,Math.Sign(m.Valor))).ToDictionary(g=>g.Key,g=>g.Sum(m=>m.Valor));
         await using(var r=await q.ExecuteReaderAsync(ct))
             while(await r.ReadAsync(ct))
                 if(!expected.Remove((r.GetString(0),r.GetInt32(1)),out var amount) || amount!=Convert.ToDecimal(r.GetValue(2)))
                     throw new InvalidOperationException("Los movimientos encontrados no coinciden con las cuentas e importes aprobados.");
         if(expected.Count!=0) throw new InvalidOperationException("Faltan movimientos contables en Zeus.");
+        if(s.Egreso is not null)await VerifyPaymentLines(c,tx,s,number,ct);
         return number;
     }
     public async Task<ZeusResult> ReconcileAsync(long company,ZeusSnapshot s,Guid key,CancellationToken ct)
@@ -92,6 +94,18 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             stage="comprobación de envío previo";
             var existing=await VerifyAsync(c,tx,s,key,ct);
             if(existing is not null) { await tx.RollbackAsync(CancellationToken.None);return new("CONTABILIZADO",s.Configuracion.Fuente,existing); }
+            var beforeBalances=new Dictionary<long,decimal>();
+            if(s.Egreso is not null)
+            {
+                stage="validación del egreso y saldos por factura";
+                s=await CheckPayment(c,tx,s,ct);
+                foreach(var invoice in s.Egreso!.Facturas)
+                {
+                    var balance=await InvoiceBalance(c,tx,s,invoice,ct);
+                    if(balance>=0||-balance<invoice.Valor)throw new ArgumentException($"Saldo insuficiente en Zeus para la factura {invoice.Numero}.");
+                    beforeBalances.Add(invoice.DocumentoPorPagarId,balance);
+                }
+            }
             if(s.Proveedor.CodigoProveedor==s.Proveedor.CodigoTercero)
             {
                 stage="validación del tercero y proveedor";
@@ -110,7 +124,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                     LEFT JOIN dbo.MAECONT m ON m.CODICTA=a.Cuenta
                     WHERE m.CODICTA IS NULL OR ISNULL(m.HABILITARCTA,0)<>1 OR ISNULL(m.TIPOCTA,'')<>'D'
                        OR (a.Proveedor=1 AND ISNULL(m.INDCPICTA,0)<>3)
-                       OR (a.Proveedor=0 AND m.INDCPICTA IN(2,3,6))
+                       OR (a.Proveedor=0 AND (m.INDCPICTA IN(2,3) OR (m.INDCPICTA=6 AND @Payment=0)))
                        OR (a.Retencion=1 AND (m.PORCEIMPUESTO IS NULL OR m.PORCEIMPUESTO<>a.Tarifa OR ISNULL(m.IndValorRetenido,0)<>0)))
                     THROW 51711,'Cuenta no habilitada, incompatible o tarifa de retencion distinta a PORCEIMPUESTO en Zeus. Revisa y guarda las cuentas de la empresa.',1;
                 """;
@@ -119,6 +133,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                 .Select(m=>(m.Regla.Cuenta,Proveedor:m.Regla.Concepto=="PROVEEDOR",Retencion:ZeusJournal.IsRetention(m.Regla.Concepto),m.Tarifa)).Distinct()
                 .Select(a=>new XElement("Cuenta",new XAttribute("Cuenta",a.Cuenta),new XAttribute("Proveedor",a.Proveedor?1:0),new XAttribute("Retencion",a.Retencion?1:0),new XAttribute("Tarifa",a.Tarifa))))
                 .ToString(SaveOptions.DisableFormatting);
+            q.Parameters.AddWithValue("@Payment",s.Egreso is null?0:1);
             await q.ExecuteNonQueryAsync(ct);q.Parameters.Clear();
             stage="dbo.spWSG_Contabilidad";
             q.CommandText="dbo.spWSG_Contabilidad";q.CommandType=CommandType.StoredProcedure;
@@ -132,6 +147,10 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             stage="verificación del comprobante y movimientos creados";
             var number=await VerifyAsync(c,tx,s,key,ct)
                 ?? throw new InvalidOperationException("Zeus no creó el comprobante esperado. Se revierte la transacción.");
+            if(s.Egreso is not null)
+                foreach(var invoice in s.Egreso.Facturas)
+                    if(await InvoiceBalance(c,tx,s,invoice,ct)!=beforeBalances[invoice.DocumentoPorPagarId]+invoice.Valor)
+                        throw new InvalidOperationException($"El comprobante no actualizó el saldo de la factura {invoice.Numero} en Zeus. Se revierte; no se confirma el pago en Zeus.");
             stage="confirmación de la transacción";commitStarted=true;await tx.CommitAsync(ct);
             return new("CONTABILIZADO",s.Configuracion.Fuente,number);
         }

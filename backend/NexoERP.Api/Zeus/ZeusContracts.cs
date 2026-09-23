@@ -22,7 +22,10 @@ public sealed record ZeusSource(long RecepcionId, long ProveedorId, string Factu
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? ProveedorNombre=null);
 public sealed record ZeusMovement(ZeusAccount Regla, decimal Valor, decimal Base = 0, decimal Tarifa = 0,long? BodegaId=null);
 public sealed record ZeusSnapshot(ZeusSettings Configuracion, ZeusSource Origen, ZeusSupplier Proveedor,
-    ZeusMovement[] Movimientos);
+    ZeusMovement[] Movimientos,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ZeusDisbursement? Egreso=null);
+public sealed record ZeusPaymentInvoice(long DocumentoPorPagarId,string Cuenta,string Tipo,string Numero,string Referencia,string UnidadNegocio,DateTime Vencimiento,decimal Valor);
+public sealed record ZeusDisbursement(string Concepto,string Banco,string CuentaSalida,string Referencia,ZeusPaymentInvoice[] Facturas,string MonedaZeus="",int IndicadorSalida=1,string CuentaBancaria="");
 
 public static class ZeusJournal
 {

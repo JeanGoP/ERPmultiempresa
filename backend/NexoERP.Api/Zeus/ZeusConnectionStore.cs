@@ -81,6 +81,7 @@ public sealed class ZeusConnectionStore(TenantConnectionFactory connections,ICon
         else encrypted=Protect(company,input.Password);
         q.CommandText="""
             IF EXISTS(SELECT 1 FROM core.ZeusEnvio WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND Estado IN('PENDIENTE','ENVIANDO','INCIERTO'))
+              OR EXISTS(SELECT 1 FROM cxp.Egreso WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND ZeusEstado IN('PENDIENTE','ENVIANDO','INCIERTO'))
               OR EXISTS(SELECT 1 FROM core.ZeusProveedorEnvio WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND Estado IN('EN_COLA','ENVIANDO','INCIERTO'))
               THROW 52041,'Resuelve los envios Zeus pendientes o inciertos antes de cambiar la conexion.',1;
             """;

@@ -131,7 +131,7 @@ public sealed class DisbursementRepository(TenantConnectionFactory connections)
             SELECT SucursalId,Codigo,Nombre FROM core.Sucursal WHERE EmpresaId=@E AND Activa=1 ORDER BY Codigo;
             SELECT TOP(101) TerceroId,NumeroIdentificacion,RazonSocial FROM ter.Tercero
             WHERE EmpresaId=@E AND Activo=1 AND (@Search='' OR RazonSocial LIKE '%'+@Search+'%' OR NumeroIdentificacion LIKE '%'+@Search+'%' OR TerceroId=@Supplier) ORDER BY CASE WHEN TerceroId=@Supplier THEN 0 ELSE 1 END,RazonSocial,TerceroId;
-            SELECT TOP(501) p.DocumentoPorPagarId,d.NumeroDocumento,p.Moneda,p.SaldoPendiente,p.FechaReconocimiento,p.FechaVencimiento
+            SELECT p.DocumentoPorPagarId,d.NumeroDocumento,p.Moneda,p.SaldoPendiente,p.FechaReconocimiento,p.FechaVencimiento,p.ValorOriginal
             FROM cxp.DocumentoPorPagar p JOIN comp.DocumentoProveedor d ON d.EmpresaId=p.EmpresaId AND d.DocumentoProveedorId=p.DocumentoProveedorId
             WHERE p.EmpresaId=@E AND p.TerceroId=@Supplier AND p.SaldoPendiente>0 AND p.Estado IN('ABIERTA','PARCIAL') ORDER BY p.FechaVencimiento,p.DocumentoPorPagarId;
             """,company);
@@ -140,8 +140,8 @@ public sealed class DisbursementRepository(TenantConnectionFactory connections)
         await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct))branches.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))suppliers.Add(new{id=r.GetInt64(0),identificacion=r.GetString(1),nombre=r.GetString(2)});
-        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))invoices.Add(new{id=r.GetInt64(0),numero=r.GetString(1),moneda=r.GetString(2),saldo=r.GetDecimal(3),fecha=r.GetDateTime(4).ToString("yyyy-MM-dd"),vence=r.GetDateTime(5).ToString("yyyy-MM-dd")});
-        return new{sucursales=branches,beneficiarios=suppliers.Take(100),masBeneficiarios=suppliers.Count>100,facturas=invoices.Take(500),masFacturas=invoices.Count>500};
+        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))invoices.Add(new{id=r.GetInt64(0),numero=r.GetString(1),moneda=r.GetString(2),saldo=r.GetDecimal(3),fecha=r.GetDateTime(4).ToString("yyyy-MM-dd"),vence=r.GetDateTime(5).ToString("yyyy-MM-dd"),original=r.GetDecimal(6)});
+        return new{sucursales=branches,beneficiarios=suppliers.Take(100),masBeneficiarios=suppliers.Count>100,facturas=invoices,masFacturas=false};
     }
 }
 

@@ -1,46 +1,51 @@
-# Comprobantes de egreso — primera entrega
+# Comprobantes de egreso — contabilización definitiva (059)
 
-Tesorería → Comprobantes de egreso permite preparar y recuperar borradores por empresa.
-Permiso: `TESORERIA.EGRESO.PREPARAR`; el superadministrador puede acceder. Los demás usuarios
-requieren asignación explícita. No se amplían permisos de compras o administración.
+Tesorería → Comprobantes de egreso → Nuevo egreso. No existe opción de guardar borrador
+ni editar un egreso contabilizado. Los endpoints antiguos `disbursement-drafts` ya no se
+registran; la tabla 058 se conserva para no destruir datos anteriores, sin convertirlos
+automáticamente en pagos. Los borradores de entrada de mercancía no se modifican.
 
-Un borrador tiene sucursal, beneficiario activo, fecha, moneda, medio de pago, concepto,
-referencia y líneas de facturas o gastos. Banco/caja y cuentas son propuestas opcionales,
-no catálogos validados. El código B-id identifica el borrador, NO un comprobante oficial.
-Los abonos se validan contra el beneficiario, moneda, saldo y fecha de reconocimiento.
-No se repiten facturas. Hasta 100 líneas, importes con dos decimales. API y RLS aíslan empresas.
-La operación GUID evita doble guardado; la versión impide sobrescribir ediciones concurrentes.
-Cada guardado efectivo queda auditado. Los listados tienen páginas de 50 borradores.
+Permiso nuevo y crítico: `TESORERIA.EGRESO.CONTABILIZAR`. No se concede implícitamente
+a quienes solo podían preparar borradores. El superadministrador conserva acceso.
 
-**No contabiliza, no reserva saldo, no descuenta cartera y no envía a Zeus.**
-Los períodos, banco/caja, cuentas e impuestos de gastos deben validarse al implementar
-la contabilización; hoy se permite preparar borradores sin período abierto. Tampoco hay
-reversión, anticipos, PDF de comprobante oficial ni eliminación de borradores todavía.
+Configuración inicial: fuente EGRESO por sucursal en Integración Zeus y, en Comprobantes
+de egreso → Caja / banco por sucursal, cuenta y medio del catálogo MONEDAS de Zeus para
+EFECTIVO / TRANSFERENCIA / CHEQUE. Se consulta el plan real; no se permite cambiar la
+cuenta de salida al registrar un pago. Esa configuración requiere administración de seguridad.
 
-## Contrato Zeus existente
+Al escoger proveedor se consultan todas sus facturas pendientes del ERP. Se seleccionan
+las facturas y se modifica el importe propuesto para hacer abonos. Máximo 100 aplicaciones
+o gastos por comprobante, COP y dos decimales. La cuenta por pagar, tipo, número y unidad
+de negocio se recuperan del snapshot de la entrada contabilizada en Zeus, no de cuentas
+digitadas ni de la configuración actual si cambió. Una obligación sin entrada confirmada
+en Zeus requiere conciliar su origen antes de pagar por esta integración.
 
-Scripts suministrados por el propietario: `spWSG_Contabilidad` (Iden 16) llama a
-`spWSG_ProcesarComprobantes` y este a `spInsertarDatosEnContabilidad`.
-El validador distingue egresos con `Fuentes.IDTIPDOC='003'`; valida cartera mediante
-INDCPITRA, TIPOFAC, NUMEFAC y VENCEFAC, además del proveedor/tercero.
-No se requiere pedir nuevamente esos procedimientos. Falta verificar los efectos de
-los triggers de DOCUMENT/TRANSAC y la identificación completa de la obligación en Zeus.
+La API valida período abierto, proveedor y sucursal activos, cuentas, fuente tipo 003,
+medio de pago y saldo Zeus antes del registro ERP. En una transacción serializable crea
+el CE-id, líneas débito/crédito, pagos en `cxp.MovimientoProveedor`, reduce saldos y deja
+el envío durable pendiente. La GUID evita duplicados; el egreso es inmutable. No ejecuta
+transferencias bancarias: registra contablemente el desembolso realizado.
 
-Ejecutar `database/scripts/inspect-zeus-disbursements.sql` en la base Zeus de pruebas:
-solo consulta metadatos, definiciones de triggers y dependencias directas. Si las definiciones
-están cifradas o no son visibles, solicitar a soporte Zeus la documentación o scripts originales.
-No se infiere el éxito de cartera únicamente porque exista DOCUMENT/TRANSAC.
+El despachador usa `Zeus:Enabled=true` y el contrato existente `spWSG_Contabilidad` Iden 16.
+Verifica DOCUMENT, TRANSAC por factura y la variación exacta de `Facturas_Bu.Sactfac`
+con período, proveedor, cuenta, tipo, número, referencia, unidad base y BU.
+Si el SP no actualiza cartera dentro de esa transacción, revierte Zeus y muestra el error;
+NO llama por su cuenta a SpPagosACartera ni escribe directamente saldos Zeus.
+Reintentar solo Zeus nunca vuelve a aplicar el pago ERP. Los resultados inciertos se
+concilian por clave, no se reenvían automáticamente. No se marcan contabilizados por
+el mero hecho de existir un comprobante.
 
-## Siguiente entrega
+Los gastos directos de esta entrega son valores simples, sin IVA/retenciones, con cuentas
+de detalle que no exigen centro de costo/ítem. Las compras con impuestos se causan antes
+y se pagan como obligaciones. No incluye reversión automática ni PDF oficial todavía.
 
-1. Verificar aplicación por factura y consulta del saldo de Zeus con el contrato real.
-2. Maestro de bancos/cajas y catálogo de gastos ligado al plan contable de cada empresa.
-3. Fuente EGRESO obligatoria por sucursal (sin reutilizar la fuente de compras como fallback).
-4. Contabilización ERP transaccional: período abierto, revalidar saldo bajo bloqueo,
-   aplicaciones por factura, movimiento financiero y envío duradero con snapshot.
-5. Envío idempotente a Zeus, estados visibles, conciliación de resultados inciertos;
-   no reenviar automáticamente si pudo haberse confirmado.
-6. PDF y reversión coordinada, sin editar ni borrar pagos contabilizados.
+Pruebas: `npm run test:egresos` crea una base LocalDB desechable con esquema ERP completo
+y un doble SQL explícito de Zeus (`tests/egreso-zeus-fixture.sql`). Prueba pagos parciales,
+totales, duplicados, aislamiento, bloqueos, rechazo y reversión cuando no cambia la cartera,
+reenvío e inmutabilidad. No es una ejecución de los procedimientos originales cifrados.
+La primera prueba contra Zeus real queda pendiente hasta ejecutar desde el backend
+remoto que tiene su conexión. No se hicieron pagos reales en el despliegue de este cambio.
 
-Migración 058: `cxp.EgresoBorrador`, tres predicados RLS y permiso de preparación.
-El reinicio de pruebas incluye esta tabla. No hay migración ni modificación en Zeus externo.
+El script de reinicio reconoce las tablas 058 y 059. Esta implementación no instala ni
+modifica procedimientos de Zeus externo. El diagnóstico de solo lectura permanece en
+`database/scripts/inspect-zeus-disbursements.sql` para revisar diferencias del contrato real.

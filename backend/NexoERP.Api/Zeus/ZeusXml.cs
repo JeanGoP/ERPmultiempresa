@@ -52,6 +52,29 @@ public static class ZeusXml
             Set(line,"CODPRESU",a.Presupuesto);Set(line,"NRESERVA",a.Reserva);Set(line,"Aplicacion","CONTABILIDAD");
             document.Add(line);
         }
+        if(s.Egreso is { } payment)
+        {
+            Set(header,"DESCDCTO",("COMPROBANTE DE EGRESO - "+origin.ProveedorNombre)[..Math.Min(120,("COMPROBANTE DE EGRESO - "+origin.ProveedorNombre).Length)]);
+            Set(header,"XmlAdicionales",Marker(key));Set(header,"IDBANCO",payment.Banco);
+            Set(header,"BENEFDCTO",origin.ProveedorNombre??s.Proveedor.CodigoTercero);
+            Set(header,"VCHDCTO",origin.Total);Set(header,"CHEDCTO",payment.Referencia);
+            Set(header,"CBADCTO",payment.CuentaBancaria);Set(header,"Moneda",payment.MonedaZeus);Set(header,"VrMoneda",origin.Total);
+            document.Elements("Transac").Remove();
+            void PaymentLine(ZeusMovement m,ZeusPaymentInvoice? invoice)
+            {
+                var line=Create("Transac",DetailText,DetailNumber);
+                Set(line,"ANOTRA",period);Set(line,"IDFUENTE",config.Fuente);Set(line,"NUMDOCTRA",number);Set(line,"FECHATRA",date);
+                Set(line,"CODICTA",m.Regla.Cuenta);Set(line,"NITTRA",s.Proveedor.CodigoTercero);Set(line,"CLIPRV",invoice is null?"":s.Proveedor.CodigoProveedor);
+                Set(line,"DESCRITRA",invoice is null?payment.Concepto[..Math.Min(120,payment.Concepto.Length)]:"ABONO FACTURA "+invoice.Numero);
+                Set(line,"BU",invoice?.UnidadNegocio??config.UnidadNegocio);Set(line,"IDUSUARIO",config.UsuarioZeus);
+                Set(line,"STATUSTRA","XA");Set(line,"INDCPITRA",invoice is null?"1":"3");Set(line,"VALORTRA",m.Valor);Set(line,"TasaCambio",1);Set(line,"Aplicacion","CONTABILIDAD");
+                if(m.Valor<0){Set(line,"IDBANCO",payment.Banco);Set(line,"INDCPITRA",payment.IndicadorSalida);Set(line,"TIPOFAC",payment.MonedaZeus);Set(line,"NUMEFAC",payment.Referencia);Set(line,"VENCEFAC",date);Set(line,"VALORMONEDA",m.Valor);}
+                if(invoice is not null){Set(line,"TIPOFAC",invoice.Tipo);Set(line,"NUMEFAC",invoice.Numero);Set(line,"REFEFAC",invoice.Referencia);Set(line,"VENCEFAC",invoice.Vencimiento.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));}
+                document.Add(line);
+            }
+            foreach(var invoice in payment.Facturas)PaymentLine(new(new ZeusAccount("PROVEEDOR",invoice.Cuenta),invoice.Valor),invoice);
+            foreach(var movement in s.Movimientos.Where(m=>m.Regla.Concepto!="PROVEEDOR"))PaymentLine(movement,null);
+        }
         var xml=new XElement("ZEUS_SQL",document).ToString(SaveOptions.DisableFormatting);
         // El SP recibe varchar: las referencias numéricas conservan Unicode sin depender del codepage SQL.
         var ascii=new StringBuilder();

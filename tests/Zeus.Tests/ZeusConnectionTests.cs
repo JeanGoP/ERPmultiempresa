@@ -11,6 +11,8 @@ internal static class ZeusConnectionTests
     public static async Task Run(string cs,string root,Action<bool,string> check)
     {
         await using var c=new SqlConnection(cs);await c.OpenAsync();await using var q=c.CreateCommand();
+        // Este conjunto usa un esquema mínimo, no el ERP completo de Disbursement.Tests.
+        q.CommandText="IF SCHEMA_ID('cxp') IS NULL EXEC('CREATE SCHEMA cxp'); IF OBJECT_ID('cxp.Egreso') IS NULL CREATE TABLE cxp.Egreso(EmpresaId bigint,ZeusEstado varchar(20));";await q.ExecuteNonQueryAsync();
         var migration=await File.ReadAllTextAsync(Path.Combine(root,"database/migrations/057_company_zeus_connection.sql"));
         for(int pass=0;pass<2;pass++)foreach(var batch in System.Text.RegularExpressions.Regex.Split(migration,@"(?im)^\s*GO\s*$")){if(string.IsNullOrWhiteSpace(batch))continue;q.CommandText=batch;await q.ExecuteNonQueryAsync();}
         check(true,"Migración 057 idempotente");
@@ -41,6 +43,11 @@ internal static class ZeusConnectionTests
         }
         check((await store.GetAsync(3,default)).Version==2,"Rechazo no deja conexión guardada parcialmente");
         q.CommandText="DELETE core.ZeusProveedorEnvio WHERE EmpresaId=3";await q.ExecuteNonQueryAsync();
+        foreach(var status in new[]{"PENDIENTE","ENVIANDO","INCIERTO"}){
+            q.CommandText="DELETE cxp.Egreso;INSERT cxp.Egreso VALUES(3,'"+status+"')";await q.ExecuteNonQueryAsync();
+            try{await Save(3,input with{Version=2,VersionConfiguracion=2});throw new Exception("Cambió destino con egreso pendiente");}catch(SqlException e)when(e.Number==52041){check(true,"Bloquea conexión con egreso "+status);}
+        }
+        q.CommandText="DELETE cxp.Egreso";await q.ExecuteNonQueryAsync();
         await using(var isolated=await factory.OpenAsync(4,false,default)){await using var read=isolated.CreateCommand();read.CommandText="SELECT COUNT(*) FROM core.ZeusConexion";check(Convert.ToInt32(await read.ExecuteScalarAsync())==0,"RLS oculta conexiones de otras empresas");}
         check((await store.GetAsync(4,default)).Origen=="SERVIDOR"&&await store.ResolveAsync(4,default)==legacy,"Conexión heredada del servidor sigue funcionando sin migrar secretos");
         check(await store.ResolveAsync(999,default) is null,"Sin conexión no reutiliza credenciales de otra empresa");

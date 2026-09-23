@@ -4,6 +4,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using NexoERP.Api.Data;
 using NexoERP.Api.Treasury;
+using NexoERP.Api.Zeus;
 
 var root=Directory.GetCurrentDirectory();
 var db="EgresoTest_"+Guid.NewGuid().ToString("N");
@@ -76,6 +77,85 @@ try
     var migration=await File.ReadAllTextAsync(Path.Combine(root,"database/migrations/058_disbursement_drafts.sql"));
     foreach(var batch in Regex.Split(migration,@"(?im)^\s*GO\s*$"))if(!string.IsNullOrWhiteSpace(batch))await Exec(c,batch);
     Check(Convert.ToInt32(await Scalar(c,"SELECT COUNT(*) FROM core.SchemaMigration WHERE MigrationId='058_disbursement_drafts'"))==1,"Migración idempotente");
+    // Flujo real ERP + transporte sobre un doble SQL local del contrato Zeus.
+    foreach(var batch in Regex.Split(await File.ReadAllTextAsync("tests/egreso-zeus-fixture.sql"),@"(?im)^\s*GO\s*$"))if(!string.IsNullOrWhiteSpace(batch))await Exec(c,batch);
+    var transportConfig=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{{"Zeus:Companies:1:ConnectionString",cs}}).Build();
+    var transport=new ZeusTransport(transportConfig);var posting=new DisbursementPosting(factory,transport);
+    var settings=new ZeusSettings(true,"(localdb)\\MSSQLLocalDB",db,"12","00","Local","test","FA",[new("PROVEEDOR","220501")],[],[new("Norte","EGRESO","05","00",[],1,"Local","FA")]);
+    var original=new ZeusSnapshot(settings,new(1,1,"F1",new(2026,9,1),new(2026,9,1),new(2026,10,1),1000,0,0,[],ProveedorNombre:"Proveedor"),new(1,"123","123"),[new(new("PROVEEDOR","220501"),-1000)]);
+    await Exec(c,"""
+        INSERT core.PeriodoInventario(EmpresaId,Codigo,FechaInicio,FechaFin,Estado) VALUES(1,'2026-09','20260901','20260930','ABIERTO');
+        INSERT inv.Bodega(EmpresaId,Codigo,Nombre,SucursalId) VALUES(1,'01','Bodega',1);
+        INSERT inv.RecepcionMercancia(EmpresaId,Numero,DocumentoProveedorId,TerceroId,BodegaId,FechaRecepcion,FechaContable,PeriodoInventarioId,Estado) VALUES(1,'R1',1,1,1,'20260901','20260901',1,'CONTABILIZADA');
+        """);
+    await using(var q=c.CreateCommand())
+    {
+        q.CommandText="INSERT core.ZeusConfiguracion(EmpresaId,Configuracion,ActualizadoPor) VALUES(1,@Settings,1); INSERT core.ZeusEnvio(EmpresaId,RecepcionMercanciaId,Estado,Snapshot) VALUES(1,1,'CONTABILIZADO',@Snapshot);";
+        q.Parameters.AddWithValue("@Settings",JsonSerializer.Serialize(settings));q.Parameters.AddWithValue("@Snapshot",JsonSerializer.Serialize(original));await q.ExecuteNonQueryAsync();
+    }
+    await posting.SaveAccountAsync(1,new(1,"TRANSFERENCIA","111005","TRA"),1,settings,new("111005","Banco","001",1,"123456"),default);
+    var payment=draft with{OperacionGuid=Guid.NewGuid(),BancoCaja="",CuentaSalida="",Referencia="1234"};
+    async Task Pay(DisbursementDraft d)=>await posting.PostAsync(1,d with{OperacionGuid=Guid.NewGuid()},1,default);
+    await Reject(()=>Pay(payment with{FechaContable=new(2026,10,1)}),"Egreso exige período abierto");
+    await Reject(()=>Pay(payment with{SucursalId=2}),"Egreso rechaza sucursal ajena");
+    await Reject(()=>Pay(payment with{TerceroId=3}),"Egreso rechaza factura ajena");
+    await Reject(()=>Pay(payment with{Lineas=[new("FACTURA",1,"","Abono",1000.01m)]}),"Egreso rechaza sobrepago");
+    await Reject(()=>Pay(payment with{CuentaSalida="999"}),"No admite sustitución de cuenta desde navegador");
+    await Reject(()=>Pay(payment with{Referencia=""}),"Transferencia requiere referencia en Zeus");
+    var posted=JsonSerializer.SerializeToElement(await posting.PostAsync(1,payment,1,default));var postedId=posted.GetProperty("id").GetInt64();
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT SaldoPendiente FROM cxp.DocumentoPorPagar WHERE DocumentoPorPagarId=1"))==800,"Contabilizar descuenta abono ERP");
+    Check(Convert.ToInt32(await Scalar(c,"SELECT COUNT(*) FROM cxp.MovimientoProveedor WHERE TipoMovimiento='PAGO'"))==1,"Registra aplicación en extracto de proveedor");
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT SUM(Debito-Credito) FROM cxp.EgresoLinea"))==0,"Asiento mixto de egreso balanceado");
+    await posting.PostAsync(1,payment,1,default);
+    Check(Convert.ToInt32(await Scalar(c,"SELECT COUNT(*) FROM cxp.Egreso"))==1,"Reintento no duplica egreso ni pago");
+    await Reject(()=>posting.PostAsync(1,payment with{Concepto="Otro"},1,default),"Misma operación con otro contenido rechazada");
+    var queue=new DisbursementQueue(factory);var job=(await queue.ClaimAsync(default))!.Value;
+    Check(job.Id==postedId,"Despachador toma egreso persistido");
+    var sent=await transport.SendAsync(1,job.Snapshot,job.Key,default);
+    Check(sent.Estado=="CONTABILIZADO","Zeus doble SQL confirma saldo y comprobante: "+sent.Error);
+    await queue.FinishAsync(1,job.Id,sent,default);
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT Sactfac FROM dbo.Facturas_Bu"))==-800,"Zeus doble SQL aplica factura exacta");
+    var repeat=await transport.SendAsync(1,job.Snapshot,job.Key,default);
+    Check(repeat.Estado=="CONTABILIZADO"&&Convert.ToInt32(await Scalar(c,"SELECT COUNT(*) FROM dbo.DOCUMENT"))==1,"Reenvío de clave existente no duplica Zeus");
+    Check(await posting.GetAsync(2,postedId,default) is null,"Egreso definitivo aislado por empresa");
+    await using(var tenant=await factory.OpenAsync(1,false,default))
+    {
+        try{await Exec(tenant,$"UPDATE cxp.Egreso SET Total=1 WHERE EgresoId={postedId}");throw new Exception("Editó comprobante");}catch(SqlException e)when(e.Number==52111){Check(true,"No edita egreso contabilizado");}
+        try{await Exec(tenant,"DELETE cxp.EgresoLinea");throw new Exception("Borró líneas");}catch(SqlException e)when(e.Number==52110){Check(true,"No borra asiento contabilizado");}
+    }
+    // Procedimiento que crea movimientos pero NO modifica cartera: todo Zeus debe revertirse.
+    await Exec(c,"UPDATE dbo.EgresoTestControl SET UpdateBalance=0");
+    var second=payment with{OperacionGuid=Guid.NewGuid(),Lineas=[new("FACTURA",1,"","Abono",100)]};
+    await posting.PostAsync(1,second,1,default);var rejectedJob=(await queue.ClaimAsync(default))!.Value;
+    var rejected=await transport.SendAsync(1,rejectedJob.Snapshot,rejectedJob.Key,default);await queue.FinishAsync(1,rejectedJob.Id,rejected,default);
+    Check(rejected.Estado=="RECHAZADO"&&rejected.Error!.Contains("no actualizó"),"No confirma Zeus si no descontó la factura");
+    Check(Convert.ToInt32(await Scalar(c,"SELECT COUNT(*) FROM dbo.DOCUMENT"))==1,"Rechazo revierte comprobante Zeus completo");
+    await Exec(c,"UPDATE dbo.EgresoTestControl SET UpdateBalance=1");
+    await queue.RetryAsync(1,rejectedJob.Id,1,default);var retryJob=(await queue.ClaimAsync(default))!.Value;
+    await queue.FinishAsync(1,retryJob.Id,await transport.SendAsync(1,retryJob.Snapshot,retryJob.Key,default),default);
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT SaldoPendiente FROM cxp.DocumentoPorPagar WHERE DocumentoPorPagarId=1"))==700,"Reintentar Zeus no descuenta otra vez el ERP");
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT Sactfac FROM dbo.Facturas_Bu"))==-700,"Reintento aplica una vez Zeus");
+    var cashSnapshot=job.Snapshot with{Movimientos=[new(new("GASTO","519595"),10),new(new("BANCO_CAJA","110505"),-10)],Origen=job.Snapshot.Origen with{Total=10},Egreso=new("Caja","","110505","",[],"EFE")};
+    Check((await transport.SendAsync(1,cashSnapshot,Guid.NewGuid(),default)).Estado=="CONTABILIZADO","Admite caja con indicador 6 y medio EFE");
+    var concurrentPayment=payment with{OperacionGuid=Guid.NewGuid(),Lineas=[new("FACTURA",1,"","Abono",50)]};
+    await Task.WhenAll(posting.PostAsync(1,concurrentPayment,1,default),posting.PostAsync(1,concurrentPayment,1,default));
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT SaldoPendiente FROM cxp.DocumentoPorPagar WHERE DocumentoPorPagarId=1"))==650,"Doble clic concurrente aplica una sola vez");
+    var finalPayment=payment with{OperacionGuid=Guid.NewGuid(),Lineas=[new("FACTURA",1,"","Saldo completo",650)]};await posting.PostAsync(1,finalPayment,1,default);
+    Check(Convert.ToString(await Scalar(c,"SELECT Estado FROM cxp.DocumentoPorPagar WHERE DocumentoPorPagarId=1"))=="PAGADA","Pago total cierra obligación");
+    await Reject(()=>Pay(payment with{Lineas=[new("FACTURA",1,"","Exceso",1)]}),"Factura pagada no admite otro pago");
+    await Exec(c,"INSERT dbo.Facturas_Bu VALUES('202609','123','220501','FA','F2','','','Local',-300),('202609','123','220501','FA','F3','','','Otra BU',-500)");
+    var multi=job.Snapshot with{Movimientos=[new(new("PROVEEDOR","220501"),100),new(new("PROVEEDOR","220501"),200),new(new("BANCO_CAJA","111005"),-300)],Origen=job.Snapshot.Origen with{Total=300},Egreso=job.Snapshot.Egreso! with{Facturas=[new(2,"220501","FA","F2","","Local",new(2026,10,1),100),new(3,"220501","FA","F3","","Otra BU",new(2026,10,1),200)]}};
+    Check((await transport.SendAsync(1,multi,Guid.NewGuid(),default)).Estado=="CONTABILIZADO","Un egreso aplica varias facturas preservando sus unidades de negocio");
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT Sactfac FROM dbo.Facturas_Bu WHERE numefac='F2'"))==-200&&Convert.ToDecimal(await Scalar(c,"SELECT Sactfac FROM dbo.Facturas_Bu WHERE numefac='F3'"))==-300,"Saldos independientes por factura y BU");
+    var abandoned=(await queue.ClaimAsync(default))!.Value;
+    await Exec(c,$"UPDATE cxp.Egreso SET ActualizadoEnUtc=DATEADD(minute,-20,SYSUTCDATETIME()) WHERE EgresoId={abandoned.Id}");
+    await queue.ClaimAsync(default);
+    Check(Convert.ToString(await Scalar(c,$"SELECT ZeusEstado FROM cxp.Egreso WHERE EgresoId={abandoned.Id}"))=="INCIERTO","Envío abandonado no se reenvía automáticamente");
+    try{await queue.RetryAsync(1,abandoned.Id,1,default);throw new Exception("Reenvió incierto");}catch(SqlException e)when(e.Number==52114){Check(true,"Bloquea reenvío de resultado incierto");}
+    await using(var otherTenant=await factory.OpenAsync(2,false,default))
+        Check(Convert.ToInt32(await Scalar(otherTenant,"SELECT COUNT(*) FROM cxp.Egreso"))==0&&Convert.ToInt32(await Scalar(otherTenant,"SELECT COUNT(*) FROM cxp.EgresoLinea"))==0,"RLS protege cabecera y asiento aun sin WHERE");
+    foreach(var batch in Regex.Split(await File.ReadAllTextAsync("database/migrations/059_disbursement_posting.sql"),@"(?im)^\s*GO\s*$"))if(!string.IsNullOrWhiteSpace(batch))await Exec(c,batch);
+    Check(Convert.ToInt32(await Scalar(c,"SELECT COUNT(*) FROM core.SchemaMigration WHERE MigrationId='059_disbursement_posting'"))==1,"Migración 059 idempotente");
     Console.WriteLine($"{checks} comprobaciones de egresos correctas.");
 }
 finally

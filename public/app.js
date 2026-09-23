@@ -238,7 +238,7 @@ function applyAccessControls() {
   };
 
   setVisible('[data-nav-group="purchases"]', canPurchases || canServices);
-  setVisible('[data-nav-group="treasury"]', Boolean(state.erpSession?.api)&&hasPermission('TESORERIA.EGRESO.PREPARAR'));
+  setVisible('[data-nav-group="treasury"]', Boolean(state.erpSession?.api)&&hasPermission('TESORERIA.EGRESO.CONTABILIZAR'));
   setVisible('[data-nav-group="inventory"]', canInventory);
   setVisible('[data-nav-group="costs"]', canCosts);
   setVisible('[data-nav-group="masters"]', canMasters);
