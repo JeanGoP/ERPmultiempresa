@@ -214,20 +214,28 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
         Add(q,"@R",receipt);Add(q,"@J",SerializeSnapshot(snapshot));Add(q,"@U",user);
         var id=Convert.ToInt64(await q.ExecuteScalarAsync(ct));await tx.CommitAsync(ct);return id;
     }
-    public async Task<object> ListAsync(long company,string? state,int offset,CancellationToken ct)
+    public async Task<object> ListAsync(long company,string? state,int offset,CancellationToken ct,bool pendingOnly=false,bool receipts=true,bool payments=true)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=Command(c,"""
-            SELECT e.ZeusEnvioId,e.RecepcionMercanciaId,e.Clave,e.Estado,e.Intentos,e.Fuente,e.Documento,e.Error,e.CreadoEnUtc,e.ActualizadoEnUtc,
+            WITH Envio AS (
+            SELECT 'ENTRADA_MERCANCIA' TipoDocumento,r.RecepcionMercanciaId OrigenId,e.ZeusEnvioId,r.RecepcionMercanciaId,e.Clave,COALESCE(e.Estado,'SIN_PREPARAR') Estado,COALESCE(e.Intentos,0) Intentos,e.Fuente,e.Documento,e.Error,e.CreadoEnUtc,e.ActualizadoEnUtc,
                    d.NumeroDocumento Factura,t.RazonSocial Proveedor,r.FechaContable,d.TotalPagar Total
-            FROM core.ZeusEnvio e
-            JOIN inv.RecepcionMercancia r ON r.EmpresaId=e.EmpresaId AND r.RecepcionMercanciaId=e.RecepcionMercanciaId
+            FROM inv.RecepcionMercancia r
+            LEFT JOIN core.ZeusEnvio e ON r.EmpresaId=e.EmpresaId AND r.RecepcionMercanciaId=e.RecepcionMercanciaId
             LEFT JOIN comp.DocumentoProveedor d ON d.EmpresaId=r.EmpresaId AND d.DocumentoProveedorId=r.DocumentoProveedorId
             LEFT JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
-            WHERE e.EmpresaId=@E AND (@S IS NULL OR e.Estado=@S)
-            ORDER BY e.ZeusEnvioId DESC OFFSET @O ROWS FETCH NEXT 100 ROWS ONLY;
+            WHERE r.EmpresaId=@E AND @Receipts=1 AND r.Estado='CONTABILIZADA' AND d.Estado='CONTABILIZADO'
+            UNION ALL
+            SELECT 'EGRESO',e.EgresoId,NULL,NULL,e.OperacionGuid,e.ZeusEstado,e.Intentos,e.ZeusFuente,e.ZeusDocumento,e.ZeusError,e.CreadoEnUtc,e.ActualizadoEnUtc,
+                   CONCAT('CE-',e.EgresoId),t.RazonSocial,e.FechaContable,e.Total
+            FROM cxp.Egreso e JOIN ter.Tercero t ON t.EmpresaId=e.EmpresaId AND t.TerceroId=e.TerceroId
+            WHERE e.EmpresaId=@E AND @Payments=1)
+            SELECT * FROM Envio WHERE (@S IS NULL OR Estado=@S) AND (@Pending=0 OR Estado<>'CONTABILIZADO')
+            ORDER BY FechaContable DESC,TipoDocumento,OrigenId DESC OFFSET @O ROWS FETCH NEXT 100 ROWS ONLY;
             """,company);
         Add(q,"@S",string.IsNullOrWhiteSpace(state)?DBNull.Value:state);Add(q,"@O",Math.Max(0,offset));
+        Add(q,"@Pending",pendingOnly);Add(q,"@Receipts",receipts);Add(q,"@Payments",payments);
         var rows=new List<Dictionary<string,object?>>(); await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct)) { var row=new Dictionary<string,object?>(); for(int i=0;i<r.FieldCount;i++) row[r.GetName(i)]=r.IsDBNull(i)?null:r.GetValue(i);rows.Add(row); }
         return rows;
@@ -246,6 +254,7 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
             LEFT JOIN core.ZeusEnvio e ON e.EmpresaId=r.EmpresaId AND e.RecepcionMercanciaId=r.RecepcionMercanciaId
             WHERE r.EmpresaId=@E AND r.Estado='CONTABILIZADA' AND d.Estado='CONTABILIZADO'
+                AND COALESCE(e.Estado,'SIN_PREPARAR')<>'CONTABILIZADO'
                 AND (@Q IS NULL OR d.NumeroDocumento LIKE '%'+@Q+'%' OR t.RazonSocial LIKE '%'+@Q+'%')
             ORDER BY r.RecepcionMercanciaId DESC;
             """,company);

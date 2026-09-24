@@ -1,0 +1,15 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('public/zeus.js','utf8');
+const ctx=vm.createContext({zeusAdmin:()=>true,hasPermission:()=>true});
+vm.runInContext(source.slice(source.indexOf('function zeusJobActions('),source.indexOf('function zeusField(')),ctx);
+const job={tipoDocumento:'EGRESO',origenId:7,estado:'RECHAZADO'};
+assert.match(ctx.zeusJobActions(job),/data-zeus-payment="7".*data-payment-action="retry"/);
+assert.match(ctx.zeusJobActions({...job,estado:'INCIERTO'}),/data-payment-action="reconcile"/);
+for(const estado of ['PENDIENTE','ENVIANDO','CONTABILIZADO'])assert.equal(ctx.zeusJobActions({...job,estado}),'');
+assert.match(ctx.zeusJobActions({tipoDocumento:'ENTRADA_MERCANCIA',origenId:7,estado:'SIN_PREPARAR'}),/data-zeus-send-receipt="7"/);
+assert.match(ctx.zeusJobActions({tipoDocumento:'ENTRADA_MERCANCIA',origenId:7,zeusEnvioId:19,estado:'INCIERTO'}),/data-zeus-reconcile="19"/);
+ctx.hasPermission=()=>false;assert.equal(ctx.zeusJobActions(job),'');
+ctx.zeusAdmin=()=>false;assert.equal(ctx.zeusJobActions({...job,estado:'INCIERTO'}),'');
+assert.match(source,/pendientes=\$\{zeusUI.tab==='prepare'\}/);
+assert.doesNotMatch(source,/else if\(zeusUI.tab==='prepare'\)/,'Pendientes usa seguimiento común filtrado en servidor');
+console.log('OK: acciones por tipo, permisos, pendientes y protección contra reenvíos duplicados.');

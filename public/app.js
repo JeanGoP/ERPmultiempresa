@@ -245,7 +245,7 @@ function applyAccessControls() {
   setVisible('[data-nav-group="administration"]', canSecurity || Boolean(state.erpSession?.superAdmin));
   setVisible(elements.companiesAdminNav, Boolean(state.erpSession?.superAdmin));
   setVisible(elements.securityAdminNav, canSecurity);
-  setVisible('#zeusNavGroup',canSecurity||hasPermission('COMPRAS.RECEPCION.CONTABILIZAR'));
+  setVisible('#zeusNavGroup',canSecurity||hasPermission('COMPRAS.RECEPCION.CONTABILIZAR')||hasPermission('TESORERIA.EGRESO.CONTABILIZAR'));
   setVisible(elements.savedPurchasesNav, canUseSavedPurchases());
   setVisible(elements.accountsPayableNav, canUseAccountsPayable());
   setVisible($('#supplierPaymentReportNav'), canUseAccountsPayable());

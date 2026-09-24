@@ -1,5 +1,11 @@
 # Comprobantes de egreso — contabilización definitiva (059)
 
+Integración Zeus → Seguimiento reúne entradas y egresos, con tipo de documento,
+estado, error, intentos y comprobante Zeus. Envíos pendientes utiliza la misma consulta,
+excluyendo los contabilizados en el servidor antes de paginar. Los rechazados permiten
+reintentar solo Zeus; los inciertos requieren conciliación, nunca reenvío automático.
+Cada usuario consulta los tipos de documento permitidos por sus permisos de compras o tesorería.
+
 Tesorería → Comprobantes de egreso abre directamente Nuevo egreso. El buscador consulta
 comprobantes guardados por CE, nombre/identificación del beneficiario o documento Zeus,
 con resultados paginados de 50 registros y filtro conservado. No carga el historial al abrir.

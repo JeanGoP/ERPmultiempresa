@@ -168,6 +168,19 @@ try
     await Exec(c,$"UPDATE cxp.Egreso SET ActualizadoEnUtc=DATEADD(minute,-20,SYSUTCDATETIME()) WHERE EgresoId={abandoned.Id}");
     await queue.ClaimAsync(default);
     Check(Convert.ToString(await Scalar(c,$"SELECT ZeusEstado FROM cxp.Egreso WHERE EgresoId={abandoned.Id}"))=="INCIERTO","Envío abandonado no se reenvía automáticamente");
+    var tracking=new ZeusRepository(factory);
+    async Task<List<Dictionary<string,object?>>> Jobs(bool pending=false,string? status=null,long companyId=1,bool receipts=true,bool payments=true)=>
+        (List<Dictionary<string,object?>>)await tracking.ListAsync(companyId,status,0,default,pending,receipts,payments);
+    var allJobs=await Jobs();
+    Check(allJobs.Any(x=>(string)x["TipoDocumento"]! == "EGRESO"&&(string)x["Estado"]! == "CONTABILIZADO"),"Seguimiento incluye egresos contabilizados");
+    Check(allJobs.Any(x=>(string)x["TipoDocumento"]! == "ENTRADA_MERCANCIA"),"Seguimiento incluye entradas");
+    Check((await Jobs(true)).All(x=>(string)x["Estado"]! != "CONTABILIZADO"),"Pendientes excluye contabilizados antes de paginar");
+    Check((await Jobs(true)).Any(x=>(string)x["Estado"]! == "INCIERTO"),"Pendientes incluye egresos por conciliar");
+    Check((await Jobs(status:"CONTABILIZADO")).All(x=>(string)x["Estado"]! == "CONTABILIZADO"),"Filtro de estado para ambos tipos");
+    Check((await Jobs(companyId:2)).Count==0,"Seguimiento unificado aislado por empresa");
+    Check((await Jobs(receipts:false)).All(x=>(string)x["TipoDocumento"]! == "EGRESO"),"Permiso tesorería no expone entradas");
+    Check((await Jobs(payments:false)).All(x=>(string)x["TipoDocumento"]! == "ENTRADA_MERCANCIA"),"Permiso compras no expone egresos");
+    Check(((List<Dictionary<string,object?>>)await tracking.ReceiptsAsync(1,null,default)).Count==0,"Consulta anterior de pendientes excluye entrada contabilizada");
     try{await queue.RetryAsync(1,abandoned.Id,1,default);throw new Exception("Reenvió incierto");}catch(SqlException e)when(e.Number==52114){Check(true,"Bloquea reenvío de resultado incierto");}
     await using(var otherTenant=await factory.OpenAsync(2,false,default))
         Check(Convert.ToInt32(await Scalar(otherTenant,"SELECT COUNT(*) FROM cxp.Egreso"))==0&&Convert.ToInt32(await Scalar(otherTenant,"SELECT COUNT(*) FROM cxp.EgresoLinea"))==0,"RLS protege cabecera y asiento aun sin WHERE");

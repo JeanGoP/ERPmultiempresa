@@ -206,6 +206,8 @@ if(args.Contains("--sql"))
             CREATE TABLE core.Empresa(EmpresaId bigint PRIMARY KEY);INSERT core.Empresa VALUES(1),(2);
             CREATE TABLE seg.Usuario(UsuarioId bigint PRIMARY KEY);INSERT seg.Usuario VALUES(1);
             EXEC('CREATE SCHEMA ter');
+            EXEC('CREATE SCHEMA cxp');
+            CREATE TABLE cxp.Egreso(EmpresaId bigint,EgresoId bigint,OperacionGuid uniqueidentifier,ZeusEstado varchar(30),Intentos int,ZeusFuente varchar(2),ZeusDocumento varchar(10),ZeusError nvarchar(2000),CreadoEnUtc datetime2,ActualizadoEnUtc datetime2,TerceroId bigint,FechaContable date,Total decimal(20,4));
             CREATE TABLE ter.Tercero(EmpresaId bigint,TerceroId bigint,RazonSocial nvarchar(200));
             INSERT ter.Tercero VALUES(1,10,N'Proveedor de prueba');
             CREATE TABLE core.Probe(EmpresaId bigint);

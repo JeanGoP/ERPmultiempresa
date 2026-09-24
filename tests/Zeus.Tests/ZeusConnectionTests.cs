@@ -44,7 +44,7 @@ internal static class ZeusConnectionTests
         check((await store.GetAsync(3,default)).Version==2,"Rechazo no deja conexión guardada parcialmente");
         q.CommandText="DELETE core.ZeusProveedorEnvio WHERE EmpresaId=3";await q.ExecuteNonQueryAsync();
         foreach(var status in new[]{"PENDIENTE","ENVIANDO","INCIERTO"}){
-            q.CommandText="DELETE cxp.Egreso;INSERT cxp.Egreso VALUES(3,'"+status+"')";await q.ExecuteNonQueryAsync();
+            q.CommandText="DELETE cxp.Egreso;INSERT cxp.Egreso(EmpresaId,ZeusEstado) VALUES(3,'"+status+"')";await q.ExecuteNonQueryAsync();
             try{await Save(3,input with{Version=2,VersionConfiguracion=2});throw new Exception("Cambió destino con egreso pendiente");}catch(SqlException e)when(e.Number==52041){check(true,"Bloquea conexión con egreso "+status);}
         }
         q.CommandText="DELETE cxp.Egreso";await q.ExecuteNonQueryAsync();
