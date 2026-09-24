@@ -16,6 +16,10 @@ Integración Zeus → Configuración de empresa → Caja / banco por sucursal se
 la cuenta y el medio del catálogo MONEDAS de Zeus para
 EFECTIVO / TRANSFERENCIA / CHEQUE. Se consulta el plan real; no se permite cambiar la
 cuenta de salida al registrar un pago. Esa configuración requiere administración de seguridad.
+Las cuentas de caja/banco están integradas en la primera sección junto a las fuentes.
+El único botón «Guardar configuración de empresa» guarda la configuración general y
+los cambios bancarios pendientes de las sucursales/medios editados. Si falla un guardado
+bancario después del general, se informa el resultado parcial y se conservan los pendientes.
 
 Al escoger proveedor se consultan todas sus facturas pendientes del ERP. Se seleccionan
 las facturas y se modifica el importe propuesto para hacer abonos. Máximo 100 aplicaciones

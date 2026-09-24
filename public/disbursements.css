@@ -10,6 +10,8 @@
 .egreso-dialog [data-pending] input[type="checkbox"]{width:16px;height:16px;min-height:16px;padding:0;margin:0;vertical-align:middle}
 .egreso-dialog [data-pending] td:first-child,.egreso-dialog [data-pending] th:first-child{min-width:40px;width:40px;text-align:center}
 #zeusCashAccounts:empty{display:none}
+#zeusCashAccounts{margin-top:20px;padding-top:16px;border-top:1px solid #dce5df}
+#zeusCashAccounts h3{font-size:14px;margin:0 0 12px}
 #zeusCashAccounts fieldset{border:0;padding:0;min-width:0}
 #zeusCashAccounts input,#zeusCashAccounts select{width:100%;min-width:0;height:35px;border:1px solid #cbdad4;border-radius:5px;padding:6px 8px;background:white;color:inherit}
 .egreso-dialog [data-find-form] label{flex:1;min-width:220px;font-size:12px}

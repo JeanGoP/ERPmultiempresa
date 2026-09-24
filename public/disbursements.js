@@ -163,15 +163,33 @@
     const company=state.erpSession.company.id;
     const url=()=>`/api/v1/companies/${company}/disbursements`;
     const $e=s=>root.querySelector(s),valid=()=>zeusCurrent(scope)&&root.isConnected&&String(company)===String(state.erpSession?.company?.id);
-    let busy=false;const token=0;
+    const token=0;
     root.innerHTML='<p data-notice role="status"></p><div data-content></div>';
     const notice=(text)=>{if(valid())$e('[data-notice]').textContent=text;};
     notice('Consultando cuentas y medios de pago de Zeus…');
     try{const [{opts,saved},chart]=await Promise.all([apiRequest(url()+'/cash-configuration'),apiRequest(url()+'/cash-chart')]);if(!valid(token))return;
-      $e('[data-content]').innerHTML=`<form data-config-form><fieldset><h3>Caja / banco por sucursal</h3><div class="egreso-grid"><label>Sucursal<select name="branch" required>${opts.sucursales.map(x=>`<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></label><label>Medio de pago<select name="method"><option>TRANSFERENCIA</option><option>EFECTIVO</option><option>CHEQUE</option></select></label><label class="egreso-wide">Cuenta en Zeus<select name="account" required><option value="">Selecciona…</option>${chart.cuentas.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label><label class="egreso-wide">Medio de pago en Zeus<select name="currency" required><option value="">Selecciona…</option>${chart.medios.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label></div><div class="egreso-toolbar"><button class="button primary">Guardar configuración</button><button type="button" class="button secondary" data-back>Volver</button></div></fieldset></form>`;
+      $e('[data-content]').innerHTML=`<fieldset><h3>Caja / banco por sucursal</h3><div class="egreso-grid"><label>Sucursal<select name="branch">${opts.sucursales.map(x=>`<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></label><label>Medio de pago<select name="method"><option>TRANSFERENCIA</option><option>EFECTIVO</option><option>CHEQUE</option></select></label><label class="egreso-wide">Cuenta en Zeus<select name="account"><option value="">Selecciona…</option>${chart.cuentas.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label><label class="egreso-wide">Medio de pago en Zeus<select name="currency"><option value="">Selecciona…</option>${chart.medios.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label></div></fieldset>`;
       const selected=()=>saved.find(x=>x.sucursalId===Number($e('[name="branch"]').value)&&x.medioPago===$e('[name="method"]').value);
-      const fill=()=>{const s=selected();$e('[name="account"]').value=s?.cuenta||'';$e('[name="currency"]').value=s?.monedaZeus||'';};$e('[name="branch"]').onchange=fill;$e('[name="method"]').onchange=fill;fill();
-      $e('[data-back]').remove();$e('[data-config-form]').onsubmit=async e=>{e.preventDefault();e.stopPropagation();if(busy||!valid())return;const body={sucursalId:Number($e('[name="branch"]').value),medioPago:$e('[name="method"]').value,cuenta:$e('[name="account"]').value,monedaZeus:$e('[name="currency"]').value,version:selected()?.version||0};busy=true;$e('fieldset').disabled=true;try{await apiRequest(url()+'/accounts',{method:'PUT',body:JSON.stringify(body)});if(valid(token)){await configure(scope);notice('Configuración guardada.');}}catch(err){if(valid(token))notice(err.message,true);}finally{busy=false;if(valid(token)&&$e('fieldset'))$e('fieldset').disabled=false;}};notice('');
+      const changes=new Map(),key=()=>`${$e('[name="branch"]').value}:${$e('[name="method"]').value}`;
+      const fill=()=>{const s=changes.get(key())||selected();$e('[name="account"]').value=s?.cuenta||'';$e('[name="currency"]').value=s?.monedaZeus||'';};
+      const stage=()=>changes.set(key(),{sucursalId:Number($e('[name="branch"]').value),medioPago:$e('[name="method"]').value,cuenta:$e('[name="account"]').value,monedaZeus:$e('[name="currency"]').value,version:selected()?.version||0});
+      $e('[name="branch"]').onchange=fill;$e('[name="method"]').onchange=fill;
+      $e('[name="account"]').onchange=stage;$e('[name="currency"]').onchange=stage;fill();
+      root.prepareSave=()=>{
+        if(!valid())throw new Error('Actualiza la configuración de la empresa.');
+        const pending=[...changes.entries()];
+        for(const [,body] of pending)if(!body.sucursalId||!chart.cuentas.some(x=>x.codigo===body.cuenta)||!chart.medios.some(x=>x.codigo===body.monedaZeus))throw new Error('Completa la cuenta y el medio de pago Zeus de cada sucursal modificada.');
+        return async()=>{
+          for(const [id,body] of pending){
+            if(!valid())throw new Error('Cambió la empresa o la pantalla.');
+            await apiRequest(url()+'/accounts',{method:'PUT',body:JSON.stringify(body)});
+            if(!valid())return;
+            const previous=saved.find(x=>x.sucursalId===body.sucursalId&&x.medioPago===body.medioPago);
+            if(previous)Object.assign(previous,body,{version:body.version+1});else saved.push({...body,version:1});
+            changes.delete(id);
+          }
+        };
+      };notice('');
     }catch(e){if(valid(token))notice(e.message,true);}
   }
 })();

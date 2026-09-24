@@ -111,9 +111,9 @@ function zeusField(label,name,value='',type='text',max=20){return `<label>${labe
 function zeusOptions(rows,value,label,selected,empty='Predeterminado'){return `<option value="">${empty}</option>`+rows.map(row=>`<option value="${zeusEscape(row[value])}" ${String(row[value])===String(selected)?'selected':''}>${zeusEscape(label(row))}</option>`).join('');}
 function zeusRenderSettings(){
   const s=zeusUI.settings;
-  $('#zeusContent').innerHTML=`<form id="zeusSettingsForm"><section class="zeus-card"><h2>1. Fuentes de Zeus por sucursal</h2><p>Conexión: ${zeusEscape(s.baseEsperada||'Pendiente de configurar en Seguridad → Empresas')}${s.baseEsperada?' · '+zeusEscape(s.servidorEsperado):''}</p>${typeof zeusSourcesSection==='function'?zeusSourcesSection(s):''}</section>
+  $('#zeusContent').innerHTML=`<form id="zeusSettingsForm"><section class="zeus-card"><h2>1. Fuentes y medios de pago por sucursal</h2><p>Conexión: ${zeusEscape(s.baseEsperada||'Pendiente de configurar en Seguridad → Empresas')}${s.baseEsperada?' · '+zeusEscape(s.servidorEsperado):''}</p>${typeof zeusSourcesSection==='function'?zeusSourcesSection(s):''}<div id="zeusCashAccounts"></div></section>
     ${zeusGeneralSupplierSection(s)}${zeusRetentionSection(s)}
-    <section class="zeus-card zeus-save"><label class="zeus-toggle"><input name="habilitado" type="checkbox" ${s.habilitado?'checked':''}><span><strong>Enviar automáticamente las entradas a Zeus</strong><small>Activa solo después de validar sus cuentas y probar la conexión. El envío también requiere activar el despachador en el servidor.</small></span></label><button type="submit" class="button primary">Guardar configuración de empresa</button></section></form><section class="zeus-card" id="zeusCashAccounts"></section>`;
+    <section class="zeus-card zeus-save"><label class="zeus-toggle"><input name="habilitado" type="checkbox" ${s.habilitado?'checked':''}><span><strong>Enviar automáticamente las entradas a Zeus</strong><small>Activa solo después de validar sus cuentas y probar la conexión. El envío también requiere activar el despachador en el servidor.</small></span></label><button type="submit" class="button primary">Guardar configuración de empresa</button></section></form>`;
 }
 function zeusReadSettings(){
   const form=$('#zeusSettingsForm'),s={habilitado:form.elements.habilitado.checked};
@@ -143,7 +143,13 @@ zeusPanel.addEventListener('change',event=>{if(event.target.id==='zeusState'){ze
 zeusPanel.addEventListener('submit',event=>{
   event.preventDefault();const form=event.target;if(!form.reportValidity())return;
   void zeusRun(async scope=>{
-    if(form.id==='zeusSettingsForm'){const value=zeusReadSettings();await apiRequest(`${scope.base}/configuration`,{method:'PUT',body:JSON.stringify({version:zeusUI.version,configuracion:value})});if(!zeusCurrent(scope))return;zeusUI.dirty=false;await zeusLoadStatus(scope);if(!zeusCurrent(scope))return;await zeusLoadTab(scope);if(zeusCurrent(scope))zeusNotice('Configuración guardada en esta empresa. No se envió ningún comprobante.');}
+    if(form.id==='zeusSettingsForm'){
+      const value=zeusReadSettings(),saveCash=$('#zeusCashAccounts')?.prepareSave?.();
+      await apiRequest(`${scope.base}/configuration`,{method:'PUT',body:JSON.stringify({version:zeusUI.version,configuracion:value})});
+      if(!zeusCurrent(scope))return;zeusUI.version++;
+      try{if(saveCash)await saveCash();}catch(error){throw new Error('Se guardó la configuración general, pero quedan cambios de caja/banco pendientes: '+error.message);}
+      if(!zeusCurrent(scope))return;zeusUI.dirty=false;await zeusLoadStatus(scope);if(!zeusCurrent(scope))return;await zeusLoadTab(scope);if(zeusCurrent(scope))zeusNotice('Configuración de empresa guardada.');
+    }
     else if(form.id==='zeusSearchForm'){await zeusFindReceipts(scope,new FormData(form).get('q'));}
     else if(form.id==='zeusPreviewForm'){const payload=zeusTaxesPayload();zeusInvalidatePreview();const result=await apiRequest(`${scope.base}/receipts/${zeusUI.receipt.recepcionId}/preview`,{method:'POST',body:JSON.stringify(payload)});if(zeusCurrent(scope)){zeusRenderPreview(result,payload);zeusNotice('Comprobante generado para revisión. Aún no está enviado.');}}
   });
