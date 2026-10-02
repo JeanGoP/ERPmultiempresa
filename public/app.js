@@ -165,7 +165,7 @@ function canUseInventoryOperations() { return hasAnyPermission(ACCESS.inventoryO
 function canUseSavedPurchases() { return hasPermission('COMPRAS.DOCUMENTO.CREAR'); }
 function canUseAccountsPayable() { return hasPermission('COMPRAS.DOCUMENTO.CREAR'); }
 function isMasterViewAllowed(view) {
-  const required = { branches:'SEGURIDAD.PERMISOS.ADMINISTRAR', suppliers: 'MAESTROS.PROVEEDOR.ADMINISTRAR', articles: 'MAESTROS.ARTICULO.ADMINISTRAR', brands: 'MAESTROS.ARTICULO.ADMINISTRAR', units: 'MAESTROS.INVENTARIO.ADMINISTRAR', warehouses: 'MAESTROS.INVENTARIO.ADMINISTRAR', mappings: 'COMPRAS.HOMOLOGACION.ADMINISTRAR' }[view];
+  const required = { branches:'SEGURIDAD.PERMISOS.ADMINISTRAR', clients:'MAESTROS.CLIENTE.ADMINISTRAR', suppliers: 'MAESTROS.PROVEEDOR.ADMINISTRAR', articles: 'MAESTROS.ARTICULO.ADMINISTRAR', brands: 'MAESTROS.ARTICULO.ADMINISTRAR', units: 'MAESTROS.INVENTARIO.ADMINISTRAR', warehouses: 'MAESTROS.INVENTARIO.ADMINISTRAR', mappings: 'COMPRAS.HOMOLOGACION.ADMINISTRAR' }[view];
   return Boolean(required && hasPermission(required));
 }
 function isInventoryViewAllowed(view) {
@@ -343,6 +343,7 @@ function setupCollapsibleNavigation() {
 }
 
 const masterViewConfig = {
+  clients: ['Clientes', 'Registra el cliente en ERP y sincroniza su tercero en Zeus. La creación del maestro CLIENTES queda para el flujo de la primera factura.', 'clientes'],
   suppliers: ['Proveedores', 'Terceros habilitados para compras.', 'proveedores'],
   articles: ['Artículos y servicios', 'Catálogo interno y controles de inventario.', 'artículos y servicios'],
   brands: ['Marcas', 'Marcas de esta empresa. Las referencias del catálogo permiten reconocerlas al leer el XML.', 'marcas'],
@@ -355,7 +356,7 @@ const masterViewConfig = {
 const pendingApiMasterData = {};
 function pendingApiMasterDataFor(companyId) {
   const key=String(companyId||'sin-empresa');
-  if(!pendingApiMasterData[key])pendingApiMasterData[key]={suppliers:[],units:[],articles:[],brands:[],warehouses:[],mappings:[]};
+  if(!pendingApiMasterData[key])pendingApiMasterData[key]={clients:[],suppliers:[],units:[],articles:[],brands:[],warehouses:[],mappings:[]};
   return pendingApiMasterData[key];
 }
 
@@ -371,18 +372,20 @@ async function loadApiCompanyContext() {
   if(state.runtimeMode!=='api'||!state.erpSession?.company?.id||!apiToken()) return;
   const companyId=state.erpSession.company.id; const base=`/api/v1/companies/${companyId}`;
   try {
-    const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies,permissions,brands,branches]=await Promise.all([
+    const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies,permissions,brands,branches,clients]=await Promise.all([
       apiRequest(`${base}/master-data/suppliers`),apiRequest(`${base}/master-data/units`),apiRequest(`${base}/master-data/articles`),
       apiRequest(`${base}/master-data/item-mappings`),apiRequest(`${base}/warehouses`),apiRequest(`${base}/inventory-periods`),
       apiRequest(`${base}/accounting-periods`),apiRequest(`${base}/accounting-accounts`),apiRequest('/api/v1/companies'),apiRequest(`${base}/permissions`),
       apiRequest(`${base}/master-data/brands`).then(rows=>({rows,error:null})).catch(error=>({rows:[],error:error.message})),
       apiRequest(`${base}/master-data/branches`).then(rows=>({rows,error:null})).catch(error=>({rows:[],error:error.message})),
+      apiRequest(`${base}/master-data/clients`).then(rows=>({rows,error:null})).catch(error=>({rows:[],error:error.message})),
     ]);
     if(String(state.erpSession?.company?.id)!==String(companyId))return;
     renderCompanyOptions(companies);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);
     state.apiContext={ warehouses,periods,accountingPeriods,accounts,permissions,permissionCodes:new Set(permissions.map(permissionCode)),masterData:{
       brands:brands.rows,brandsError:brands.error,
       branches:branches.rows,branchesError:branches.error,
+      clients:clients.rows.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',personType:x.tipoPersona,firstName:x.nombre1||'',lastName:x.apellido1||'',seller:x.vendedorZeus||'',clientType:x.tipoClienteZeus||'',division:x.divisionPoliticaZeus||'',zeusEstado:x.zeusEstado,zeusMensaje:x.zeusMensaje,active:x.activo})),clientsError:clients.error,
       suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,zeusEstado:x.zeusEstado,zeusMensaje:x.zeusMensaje,active:x.activo})),
       units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
       articles:articles.map(x=>({id:x.articuloId,code:x.codigo,description:x.descripcion,brand:x.marca,type:x.tipo,unitId:x.unidadBaseId,inventory:x.manejaInventario,lot:x.manejaLote,serial:x.manejaSerial,expiry:x.requiereVencimiento,ivaVenta:x.porcentajeIvaVenta,active:x.activo})),
@@ -444,11 +447,11 @@ function renderManualReferenceOptions() {
 
 function renderMasterStats(data) {
   const definitions = [
-    ['suppliers', data.suppliers.length, 'Proveedores'], ['articles', data.articles.length, 'Artículos'], ['units', data.units.length, 'Unidades'],
+    ['clients', (data.clients||[]).length, 'Clientes'], ['suppliers', data.suppliers.length, 'Proveedores'], ['articles', data.articles.length, 'Artículos'], ['units', data.units.length, 'Unidades'],
     ['warehouses', data.warehouses.length, 'Bodegas'], ['mappings', data.mappings.length, 'Homologaciones'],
   ];
   elements.masterStats.replaceChildren();
-  definitions.forEach(([view,count,label]) => {
+  definitions.filter(([view])=>isMasterViewAllowed(view)).forEach(([view,count,label]) => {
     const button=document.createElement('button'); button.type='button'; button.className=`master-stat${state.masterView===view?' active':''}`; button.dataset.masterView=view;
     const strong=document.createElement('strong'); strong.textContent=count; const span=document.createElement('span'); span.textContent=label; button.append(strong,span);
     button.addEventListener('click',()=>showMasterView(view)); elements.masterStats.append(button);
@@ -498,6 +501,26 @@ function renderSupplierMasterTable(data,query) {
   table.append(head,body);const refresh=document.createElement('button');refresh.type='button';refresh.className='button secondary';refresh.textContent='Actualizar estado de proveedores';refresh.addEventListener('click',async()=>{const company=state.erpSession?.company?.id;refresh.disabled=true;try{await loadApiCompanyContext();if(company===state.erpSession?.company?.id&&state.masterView==='suppliers')renderMasterView();}catch(error){showMasterNotice(error.message,true);}finally{refresh.disabled=false;}});elements.masterTable.replaceChildren(refresh,table);return suppliers.length;
 }
 
+function renderClientMasterTable(data,query) {
+  const clients=(data.clients||[]).filter(client=>!query||Object.values(client).join(' ').toLocaleLowerCase('es-CO').includes(query));
+  const table=buildDataTable(['Identificación','Cliente','Ciudad','Contacto','Zeus','Acciones'],clients.map(x=>[
+    `${x.identificationType} ${x.identification}`,x.name,x.city||'—',[x.phone,x.email].filter(Boolean).join(' · ')||'—',
+    `${x.zeusEstado||'PENDIENTE'}${x.zeusMensaje?` · ${x.zeusMensaje}`:''}`,'']));
+  table.querySelectorAll('tbody tr').forEach((row,index)=>{
+    const client=clients[index];if(!client)return;
+    const edit=document.createElement('button');edit.type='button';edit.className='button secondary';edit.textContent='Editar';
+    edit.addEventListener('click',()=>openMasterForm(client));row.lastElementChild.append(edit);
+    if(['RECHAZADO','INCIERTO'].includes(client.zeusEstado)){
+      const retry=document.createElement('button');retry.type='button';retry.className='button secondary';retry.textContent='Reintentar Zeus';
+      retry.addEventListener('click',async()=>{retry.disabled=true;try{await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/clients/${client.id}/zeus/retry`,{method:'POST'});await loadApiCompanyContext();showMasterNotice('Se verificará el tercero en Zeus; actualiza el estado en unos segundos.');}catch(error){showMasterNotice(error.message,true);}finally{retry.disabled=false;}});
+      row.lastElementChild.append(retry);
+    }
+  });
+  const refresh=document.createElement('button');refresh.type='button';refresh.className='button secondary';refresh.textContent='Actualizar estado de clientes';
+  refresh.addEventListener('click',async()=>{refresh.disabled=true;try{await loadApiCompanyContext();}catch(error){showMasterNotice(error.message,true);}finally{refresh.disabled=false;}});
+  elements.masterTable.replaceChildren(refresh,table);return clients.length;
+}
+
 function showMasterNotice(message,isError=false) {
   elements.masterNotice.textContent=message; elements.masterNotice.classList.toggle('error',isError); elements.masterNotice.hidden=!message;
 }
@@ -508,6 +531,10 @@ function renderMasterView() {
   elements.addMasterRecord.disabled=(state.masterView==='brands'&&Boolean(data.brandsError))||(state.masterView==='branches'&&Boolean(data.branchesError));
   renderMasterStats(data);
   const query=elements.masterSearch.value.trim().toLocaleLowerCase('es-CO');
+  if(state.masterView==='clients'){
+    if(data.clientsError){elements.masterTable.replaceChildren(emptyMessage(`No se pudieron consultar los clientes: ${data.clientsError}`));elements.masterCount.textContent='Consulta no disponible';return;}
+    const count=renderClientMasterTable(data,query);elements.masterCount.textContent=`${count} clientes`;return;
+  }
   if(state.masterView==='suppliers'){const count=renderSupplierMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
   if(state.masterView==='branches'){
     if(data.branchesError){elements.masterTable.replaceChildren(emptyMessage(`No se pudo consultar el catálogo de sucursales: ${data.branchesError}`));elements.masterCount.textContent='Consulta no disponible';return;}
@@ -781,18 +808,32 @@ function addMasterCheck(labelText,name,checked=false) {
 }
 
 function openMasterForm(record=null) {
-  const data=getCompanyMasterData().data; const editingArticle=state.masterView==='articles'&&record?.id!=null?record:null;const editingSupplier=state.masterView==='suppliers'&&record?.id!=null?record:null;state.masterEditingArticleId=editingArticle?.id||null;state.masterEditingSupplierId=editingSupplier?.id||null;state.masterEditingBrandId=state.masterView==='brands'?record?.id||null:null;
+  const data=getCompanyMasterData().data; const editingArticle=state.masterView==='articles'&&record?.id!=null?record:null;const editingSupplier=state.masterView==='suppliers'&&record?.id!=null?record:null;const editingClient=state.masterView==='clients'&&record?.id!=null?record:null;state.masterEditingArticleId=editingArticle?.id||null;state.masterEditingSupplierId=editingSupplier?.id||null;state.masterEditingClientId=editingClient?.id||null;state.masterEditingBrandId=state.masterView==='brands'?record?.id||null:null;
   elements.masterFormFields.replaceChildren(); elements.masterFormError.hidden=true;
   state.masterEditingBranchId=state.masterView==='branches'?record?.id||null:null;
-  elements.masterDialogTitle.textContent=editingArticle?'Editar artículo':editingSupplier?'Editar proveedor':`Nuevo: ${masterViewConfig[state.masterView][0]}`;
-  elements.masterDialogSubtitle.textContent=editingArticle?'Actualiza la información permitida del artículo.':editingSupplier?'Corrige o completa los datos fiscales, de ubicación y contacto del proveedor.':'Completa la información requerida.';
-  if(state.masterView==='suppliers') {
+  elements.masterDialogTitle.textContent=editingArticle?'Editar artículo':editingSupplier?'Editar proveedor':editingClient?'Editar cliente':`Nuevo: ${masterViewConfig[state.masterView][0]}`;
+  elements.masterDialogSubtitle.textContent=editingArticle?'Actualiza la información permitida del artículo.':editingSupplier?'Corrige o completa los datos fiscales, de ubicación y contacto del proveedor.':state.masterView==='clients'?'Se sincronizará el tercero en Zeus. El maestro CLIENTES se incorporará al flujo de la primera factura.':'Completa la información requerida.';
+  if(state.masterView==='suppliers'||state.masterView==='clients') {
     const person=addMasterField('Tipo de persona *','personType','text',[['','Pendiente de confirmación'],['N','Persona natural'],['J','Persona jurídica']]);
     if(editingSupplier)person.value=resolvedSupplierPersonType({...editingSupplier,xmlFields:JSON.parse(editingSupplier.xmlData||'{}')});
+    if(editingClient)person.value=editingClient.personType;
     addMasterField('Tipo de identificación','identificationType','text',[['NIT','NIT'],['CC','Cédula'],['CE','Cédula de extranjería']]);addMasterField('Número de identificación *','identification');addMasterField('Dígito de verificación','verificationDigit','text',null,false,false);addMasterField('Razón social *','name','text',null,true);addMasterField('Nombre comercial','commercialName','text',null,true,false);
     addMasterField('Responsabilidad fiscal','taxResponsibility','text',null,false,false);addMasterField('Código de régimen fiscal','taxSchemeCode','text',null,false,false);addMasterField('Nombre del régimen fiscal','taxSchemeName','text',null,false,false);addMasterField('Dirección','address','text',null,true,false);
     addMasterField('Código de ciudad','cityCode','text',null,false,false);addMasterField('Ciudad','city','text',null,false,false);addMasterField('Código de departamento','departmentCode','text',null,false,false);addMasterField('Departamento','department','text',null,false,false);addMasterField('Código postal','postalCode','text',null,false,false);addMasterField('Código de país','countryCode','text',null,false,false);addMasterField('País','country','text',null,false,false);
     addMasterField('Persona de contacto','contactName','text',null,false,false);addMasterField('Teléfono','phone','tel',null,false,false);addMasterField('Correo','email','email',null,false,false);addMasterField('Sitio web','website','url',null,true,false);
+    if(state.masterView==='clients'){
+      addMasterField('Nombres (persona natural)','firstName','text',null,false,false);
+      addMasterField('Apellidos (persona natural)','lastName','text',null,false,false);
+      const seller=addMasterField('Vendedor en Zeus *','seller','text',[['','Cargando vendedores…']]);
+      const kind=addMasterField('Tipo de cliente en Zeus *','clientType','text',[['','Cargando tipos…']]);
+      const company=state.erpSession.company.id;
+      void apiRequest(`/api/v1/companies/${company}/zeus/client-catalogs`).then(result=>{
+        if(company!==state.erpSession?.company?.id||state.masterView!=='clients'||!elements.masterRecordDialog.open)return;
+        seller.replaceChildren(new Option('Selecciona vendedor…',''),...(result.vendedores||[]).map(x=>new Option(x.codigo,x.codigo)));
+        kind.replaceChildren(new Option('Selecciona tipo…',''),...(result.tipos||[]).map(x=>new Option(x.codigo,x.codigo)));
+        seller.value=editingClient?.seller||'';kind.value=editingClient?.clientType||'';
+      }).catch(error=>{elements.masterFormError.textContent=`No se pudieron cargar vendedor y tipo de cliente de Zeus: ${error.message}`;elements.masterFormError.hidden=false;});
+    }
   }
   else if(state.masterView==='brands') { const name=addMasterField('Nombre de la marca *','name','text',null,true);name.maxLength=100;name.value=record?.nombre||'';addMasterCheck('Activa para reconocimiento','active',record?.activa??true);if(record?.id)elements.masterDialogTitle.textContent='Editar marca'; }
   else if(state.masterView==='branches') {const code=addMasterField('Código *','code');code.maxLength=20;code.value=record?.codigo||'';const name=addMasterField('Nombre *','name','text',null,true);name.maxLength=80;name.value=record?.nombre||'';addMasterCheck('Activa','active',record?.activa??true);if(record?.id)elements.masterDialogTitle.textContent='Editar sucursal';}
@@ -800,12 +841,12 @@ function openMasterForm(record=null) {
   else if(state.masterView==='articles') { addMasterField('Código interno *','code'); addMasterField('Tipo *','type','text',[['INVENTARIO','Artículo inventariable'],['SERVICIO','Servicio'],['ACTIVO_FIJO','Activo fijo'],['CONCEPTO','Concepto de costo']]); addMasterField('Descripción *','description','text',null,true); addMasterField('Unidad base *','unitId','text',data.units.map(x=>[x.id,`${x.code} · ${x.name}`])); addMasterField('Unidad de compra','purchaseUnitId','text',[['','Igual a la unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const purchaseFactor=addMasterField('Factor a unidad base','purchaseFactor','number',null,false,false); purchaseFactor.min='0.0000000001'; purchaseFactor.step='0.0000000001'; purchaseFactor.value='1'; const iva=addMasterField('IVA de venta % (0 = no grava)','ivaVenta','number',null,false,false);iva.min='0';iva.max='100';iva.step='0.0001';iva.placeholder='Pendiente de clasificar'; addMasterCheck('Maneja inventario','inventory',true); addMasterCheck('Maneja serial / motor / chasis','serial'); addMasterCheck('Maneja lote','lot'); addMasterCheck('Requiere vencimiento','expiry'); }
   else if(state.masterView==='warehouses') { const code=addMasterField('Código *','code');code.value=record?.code||'';code.readOnly=Boolean(record?.id);const name=addMasterField('Nombre *','name');name.value=record?.name||'';const branch=addMasterField('Sucursal *','sucursalId','text',[['','Selecciona sucursal…'],...(data.branches||[]).filter(x=>x.activa).map(x=>[x.id,`${x.codigo} · ${x.nombre}`])]);branch.value=String(record?.sucursalId||'');addMasterCheck('Usa ubicaciones','locations',record?.locations||false); addMasterCheck('Es bodega de tránsito','transit',record?.transit||false);if(record?.id)elements.masterDialogTitle.textContent='Editar bodega'; }
   else { addMasterField('Proveedor *','supplierId','text',data.suppliers.map(x=>[x.id,`${x.identification} · ${x.name}`]),true); addMasterField('Código externo *','externalCode'); addMasterField('Descripción externa','externalDescription','text',null,true,false); addMasterField('Artículo interno *','articleId','text',data.articles.map(x=>[x.id,`${x.code} · ${x.description}`]),true); addMasterField('Unidad','unitId','text',[['','Unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const factor=addMasterField('Factor a unidad base *','factor','number'); factor.min='0.0000000001'; factor.step='0.0000000001'; factor.value='1'; }
-  if(state.masterView==='suppliers'){
+  if(state.masterView==='suppliers'||state.masterView==='clients'){
     const identification=elements.masterRecordForm.elements.identificationType;
     const division=addMasterField('División política Zeus (automática)','divisionPoliticaZeus','text',null,false,false);division.readOnly=true;
     const updateDivision=()=>{division.value=supplierPoliticalDivision({countryCode:elements.masterRecordForm.elements.countryCode.value,cityCode:elements.masterRecordForm.elements.cityCode.value});};
     ['countryCode','cityCode'].forEach(name=>elements.masterRecordForm.elements[name].addEventListener('input',updateDivision));
-    division.value=editingSupplier?supplierPoliticalDivision(editingSupplier):'';
+    division.value=editingSupplier?supplierPoliticalDivision(editingSupplier):editingClient?supplierPoliticalDivision(editingClient):'';
     [['RC','Registro civil'],['TI','Tarjeta de identidad'],['TE','Tarjeta de extranjería'],['PAS','Pasaporte'],['DE','Documento extranjero'],['OTRO','Otro'],['NITEXT','NIT extranjero'],['NUIP','NUIP']].forEach(([value,label])=>identification.add(new Option(label,value)));
     if(editingSupplier&&!Array.from(identification.options).some(o=>o.value===editingSupplier.identificationType))identification.add(new Option(editingSupplier.identificationType||'Pendiente',editingSupplier.identificationType||''));
   }
@@ -816,6 +857,10 @@ function openMasterForm(record=null) {
   }
   if(editingSupplier){
     const values={identificationType:editingSupplier.identificationType,identification:editingSupplier.identification,verificationDigit:editingSupplier.verificationDigit,name:editingSupplier.name,commercialName:editingSupplier.commercialName,taxResponsibility:editingSupplier.taxResponsibility,taxSchemeCode:editingSupplier.taxSchemeCode,taxSchemeName:editingSupplier.taxSchemeName,address:editingSupplier.address,cityCode:editingSupplier.cityCode,city:editingSupplier.city,departmentCode:editingSupplier.departmentCode,department:editingSupplier.department,postalCode:editingSupplier.postalCode,countryCode:editingSupplier.countryCode,country:editingSupplier.country,contactName:editingSupplier.contactName,phone:editingSupplier.phone,email:editingSupplier.email,website:editingSupplier.website};
+    Object.entries(values).forEach(([name,value])=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].value=String(value??'');});
+  }
+  if(editingClient){
+    const values={identificationType:editingClient.identificationType,identification:editingClient.identification,verificationDigit:editingClient.verificationDigit,name:editingClient.name,commercialName:editingClient.commercialName,taxResponsibility:editingClient.taxResponsibility,taxSchemeCode:editingClient.taxSchemeCode,taxSchemeName:editingClient.taxSchemeName,address:editingClient.address,cityCode:editingClient.cityCode,city:editingClient.city,departmentCode:editingClient.departmentCode,department:editingClient.department,postalCode:editingClient.postalCode,countryCode:editingClient.countryCode,country:editingClient.country,contactName:editingClient.contactName,phone:editingClient.phone,email:editingClient.email,website:editingClient.website,firstName:editingClient.firstName,lastName:editingClient.lastName};
     Object.entries(values).forEach(([name,value])=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].value=String(value??'');});
   }
   openErpDialog(elements.masterRecordDialog);
@@ -837,6 +882,12 @@ async function saveMasterRecord(event) {
       state.masterEditingBrandId=null;await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice('Marca guardada correctamente.');return;
     }
     if(state.masterView==='suppliers'){const current=findById(data.suppliers,state.masterEditingSupplierId);path='suppliers';payload=supplierApiPayload({identificationType:values.identificationType,identification:values.identification,name:values.name,verificationDigit:values.verificationDigit,commercialName:values.commercialName,taxResponsibility:values.taxResponsibility,taxSchemeCode:values.taxSchemeCode,taxSchemeName:values.taxSchemeName,address:values.address,cityCode:values.cityCode,city:values.city,departmentCode:values.departmentCode,department:values.department,postalCode:values.postalCode,countryCode:values.countryCode,country:values.country,contactName:values.contactName,phone:values.phone,email:values.email,website:values.website,xmlData:current?.xmlData||null});}
+    else if(state.masterView==='clients'){
+      if(!['N','J'].includes(values.personType))throw new Error('Selecciona el tipo de persona del cliente.');
+      if(!values.seller||!values.clientType)throw new Error('Selecciona vendedor y tipo de cliente del catálogo de Zeus.');
+      if(values.personType==='N'&&(!values.firstName?.trim()||!values.lastName?.trim()))throw new Error('Completa nombres y apellidos de la persona natural.');
+      path='clients';payload={...supplierApiPayload({identificationType:values.identificationType,identification:values.identification,name:values.name,verificationDigit:values.verificationDigit,commercialName:values.commercialName,taxResponsibility:values.taxResponsibility,taxSchemeCode:values.taxSchemeCode,taxSchemeName:values.taxSchemeName,address:values.address,cityCode:values.cityCode,city:values.city,departmentCode:values.departmentCode,department:values.department,postalCode:values.postalCode,countryCode:values.countryCode,country:values.country,contactName:values.contactName,phone:values.phone,email:values.email,website:values.website}),tipoPersona:values.personType,nombre1:values.firstName?.trim()||null,apellido1:values.lastName?.trim()||null,vendedorZeus:values.seller,tipoClienteZeus:values.clientType};
+    }
     else if(state.masterView==='units'){path='units';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),simbolo:values.symbol.trim()};}
     else if(state.masterView==='articles'){path='articles';payload={codigo:values.code.trim().toUpperCase(),descripcion:values.description.trim(),tipo:values.type,unidadBaseId:Number(values.unitId),manejaInventario:values.type==='SERVICIO'?false:checkbox('inventory'),manejaLote:checkbox('lot'),manejaSerial:checkbox('serial'),requiereVencimiento:checkbox('expiry'),pesoBaseKg:null,volumenBaseM3:null,porcentajeIvaVenta:values.ivaVenta===''?null:Number(values.ivaVenta)};}
     else if(state.masterView==='warehouses'){path='warehouses';payload={codigo:values.code.trim().toUpperCase(),nombre:values.name.trim(),usaUbicaciones:checkbox('locations'),esTransito:checkbox('transit'),sucursalId:Number(values.sucursalId)};}
@@ -848,8 +899,8 @@ async function saveMasterRecord(event) {
       fields.NexoPersonConfirmation={type:values.personType,identification:payload.numeroIdentificacion,identificationType:payload.tipoIdentificacion};
       payload.datosXmlJson=JSON.stringify(fields);
     }
-    const editingArticle=state.masterView==='articles'&&state.masterEditingArticleId;const editingSupplier=state.masterView==='suppliers'&&state.masterEditingSupplierId;const endpoint=editingArticle?`${base}/articles/${editingArticle}`:editingSupplier?`${base}/suppliers/${editingSupplier}`:`${base}/${path}`;
-    await apiRequest(endpoint,{method:editingArticle||editingSupplier?'PUT':'POST',body:JSON.stringify(payload)});state.masterEditingArticleId=null;state.masterEditingSupplierId=null;await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice(editingArticle?'Artículo actualizado correctamente.':editingSupplier?'Proveedor actualizado correctamente.':'Registro guardado correctamente.');if(state.invoice)renderInvoice();
+    const editingArticle=state.masterView==='articles'&&state.masterEditingArticleId;const editingSupplier=state.masterView==='suppliers'&&state.masterEditingSupplierId;const editingClient=state.masterView==='clients'&&state.masterEditingClientId;const endpoint=editingArticle?`${base}/articles/${editingArticle}`:editingSupplier?`${base}/suppliers/${editingSupplier}`:editingClient?`${base}/clients/${editingClient}`:`${base}/${path}`;
+    await apiRequest(endpoint,{method:editingArticle||editingSupplier||editingClient?'PUT':'POST',body:JSON.stringify(payload)});state.masterEditingArticleId=null;state.masterEditingSupplierId=null;state.masterEditingClientId=null;await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice(editingArticle?'Artículo actualizado correctamente.':editingSupplier?'Proveedor actualizado correctamente.':editingClient?'Cliente actualizado correctamente.':state.masterView==='clients'?'Cliente guardado en ERP. Consulta el estado de su tercero en Zeus en este maestro.':'Registro guardado correctamente.');if(state.invoice)renderInvoice();
   } catch(error) { elements.masterFormError.textContent=error.message||'No fue posible guardar el registro.'; elements.masterFormError.hidden=false; }
 }
 

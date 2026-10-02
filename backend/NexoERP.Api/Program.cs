@@ -13,6 +13,7 @@ using NexoERP.Api.Production;
 using NexoERP.Api.Security;
 using NexoERP.Api.Zeus;
 using NexoERP.Api.Treasury;
+using NexoERP.Api.Sales;
 
 LoadDotEnv();
 var builder = WebApplication.CreateBuilder(args);
@@ -27,6 +28,8 @@ builder.Services.AddScoped<InventoryRepository>();
 builder.Services.AddScoped<InventoryOperationsRepository>();
 builder.Services.AddScoped<AdvancedControlsRepository>();
 builder.Services.AddScoped<MasterDataRepository>();
+builder.Services.AddScoped<CustomerRepository>();
+builder.Services.AddHostedService<CustomerZeusWorker>();
 builder.Services.AddScoped<BrandCatalogRepository>();
 builder.Services.AddScoped<PurchasingRepository>();
 builder.Services.AddScoped<DisbursementRepository>();
@@ -694,6 +697,7 @@ app.MapPost("/api/v1/companies/{empresaId:long}/inventory/movements/{id:long}/re
 
 app.MapZeus();
 app.MapPostedDisbursements();
+app.MapSales();
 app.MapBranches();
 app.MapCompanyMaster();
 app.Run();
