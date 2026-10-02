@@ -2,7 +2,26 @@ function zeusGeneralSupplierSection(settings){
   const rules=settings.cuentas.filter(r=>r.concepto==='PROVEEDOR');
   const general=rules.find(r=>r.proveedorId==null&&r.articuloId==null&&r.tarifa==null);
   const legacy=rules.some(r=>r.proveedorId!=null||r.articuloId!=null||r.tarifa!=null)||rules.length>1;
-  return `<section class="zeus-card"><h2>2. Cuentas generales de la empresa</h2><div class="zeus-grid"><label>Cuenta por pagar a proveedores<input name="cuentaProveedorGeneral" maxlength="16" list="zeusSupplierChart" autocomplete="off" placeholder="Seleccionar código del plan de Zeus" value="${zeusEscape(general?.cuenta||'')}"></label><div><p id="zeusSupplierChartStatus" role="status">${zeusUI.version?'Cargando cuentas de proveedores…':'Primero guarda el destino con las aprobaciones desactivadas. Las cuentas se cargarán automáticamente.'}</p></div></div><datalist id="zeusSupplierChart"></datalist>${legacy?`<p class="zeus-notice">Existen reglas específicas de proveedores: ${rules.map(r=>zeusEscape(r.cuenta)).join(', ')}. Al guardar serán reemplazadas por la cuenta general que selecciones. No se modifican comprobantes ni proveedores ya creados en Zeus.</p><label><input type="checkbox" name="confirmarCuentaGeneral" required> Confirmo reemplazar las reglas de proveedores por una cuenta general.</label>`:''}</section>`;
+  const advance=settings.cuentas.find(r=>r.concepto==='ANTICIPO'&&r.proveedorId==null&&r.articuloId==null&&r.tarifa==null);
+  return `<section class="zeus-card"><h2>2. Cuentas generales de la empresa</h2><div class="zeus-grid"><label>Cuenta por pagar a proveedores<input name="cuentaProveedorGeneral" maxlength="16" list="zeusSupplierChart" autocomplete="off" placeholder="Seleccionar código del plan de Zeus" value="${zeusEscape(general?.cuenta||'')}"></label><div><p id="zeusSupplierChartStatus" role="status">${zeusUI.version?'Cargando cuentas de proveedores…':'Primero guarda el destino con las aprobaciones desactivadas. Las cuentas se cargarán automáticamente.'}</p></div><label>Cuenta de anticipos recibidos de clientes<input name="cuentaAnticipoGeneral" maxlength="16" list="zeusAdvanceChart" autocomplete="off" placeholder="Seleccionar cuenta de Zeus" value="${zeusEscape(advance?.cuenta||'')}"></label><div><p id="zeusAdvanceChartStatus" role="status"></p></div></div><datalist id="zeusSupplierChart"></datalist><datalist id="zeusAdvanceChart"></datalist>${legacy?`<p class="zeus-notice">Existen reglas específicas de proveedores: ${rules.map(r=>zeusEscape(r.cuenta)).join(', ')}. Al guardar serán reemplazadas por la cuenta general que selecciones. No se modifican comprobantes ni proveedores ya creados en Zeus.</p><label><input type="checkbox" name="confirmarCuentaGeneral" required> Confirmo reemplazar las reglas de proveedores por una cuenta general.</label>`:''}</section>`;
+}
+function zeusReadGeneralAdvance(form,settings){
+  const code=form.elements.cuentaAnticipoGeneral?.value?.trim()||'';
+  const rules=settings.cuentas.filter(r=>r.concepto==='ANTICIPO');
+  if(rules.length>1||rules.some(r=>r.proveedorId!=null||r.articuloId!=null||r.tarifa!=null))throw new Error('La cuenta de anticipos debe ser una única cuenta general. Revisa las reglas existentes.');
+  if(!code)return [];
+  return [{...(rules[0]||{}),concepto:'ANTICIPO',cuenta:code,articuloId:null,proveedorId:null,tarifa:null}];
+}
+async function zeusAutoLoadAdvanceChart(scope){
+  if(!zeusUI.version||!$('#zeusAdvanceChart'))return;
+  try{
+    const version=zeusUI.version,baseDatos=zeusUI.settings.baseEsperada;
+    const result=await apiRequest(`${scope.base}/advance-accounts`);
+    if(!zeusCurrent(scope))return;
+    if(result.version!==version||result.baseDatos!==baseDatos)throw new Error('La configuración cambió. Actualiza antes de seleccionar la cuenta.');
+    $('#zeusAdvanceChart').innerHTML=result.cuentas.map(a=>`<option value="${zeusEscape(a.codigo)}">${zeusEscape(a.codigo)} · ${zeusEscape(a.nombre)}</option>`).join('');
+    $('#zeusAdvanceChartStatus').textContent=result.cuentas.length?'':'No hay cuentas de anticipos compatibles habilitadas en Zeus.';
+  }catch(error){if(zeusCurrent(scope)&&$('#zeusAdvanceChartStatus'))$('#zeusAdvanceChartStatus').textContent=`No se pudieron cargar los anticipos: ${error.message}`;}
 }
 function zeusReadGeneralSupplier(form,settings){
   const code=form.elements.cuentaProveedorGeneral.value.trim();

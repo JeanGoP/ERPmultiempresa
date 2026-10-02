@@ -28,6 +28,16 @@ public sealed record ZeusWarehouseConfig(int Version,string Servidor,string Base
 
 public sealed partial class ZeusTransport
 {
+    public async Task<ZeusChartAccount[]> AdvanceAccountsAsync(long company,ZeusSettings settings,CancellationToken ct)
+    {
+        await using var c=await OpenAsync(company,settings,ct);
+        await using var q=c.CreateCommand();
+        q.CommandText="SELECT RTRIM(CODICTA),RTRIM(DESCCTA) FROM dbo.MAECONT WHERE HABILITARCTA=1 AND TIPOCTA='D' AND ISNULL(INDCPICTA,0)=1 AND ISNULL(INDCCOCTA,0)<>1 AND ISNULL(ExigeItem,0)=0 AND ISNULL(PORCEIMPUESTO,0)=0 AND ISNULL(IDBANCO,'')='' ORDER BY CODICTA";
+        var result=new List<ZeusChartAccount>();
+        await using var r=await q.ExecuteReaderAsync(ct);
+        while(await r.ReadAsync(ct))result.Add(new(r.GetString(0),r.GetString(1)));
+        return result.ToArray();
+    }
     public async Task<ZeusChartAccount[]> ChartAsync(long company,ZeusSettings settings,CancellationToken ct,bool suppliers=false,bool clients=false)
     {
         await using var c=await OpenAsync(company,settings,ct);

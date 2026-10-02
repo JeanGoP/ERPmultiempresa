@@ -57,6 +57,14 @@ public static class ZeusJournal
             throw new ArgumentException("Selecciona la cuenta general por pagar a proveedores antes de habilitar aprobaciones.");
         return rules.SingleOrDefault();
     }
+    public static ZeusAccount? GeneralAdvanceAccount(ZeusSettings settings)
+    {
+        Validate(settings);
+        var rules=settings.Cuentas.Where(a=>a.Concepto=="ANTICIPO").ToArray();
+        if(rules.Length>1||rules.Any(a=>a.ArticuloId is not null||a.ProveedorId is not null||a.Tarifa is not null))
+            throw new ArgumentException("La cuenta de anticipos de clientes debe ser una única cuenta general de la empresa, sin artículo, tercero ni tarifa específicos.");
+        return rules.SingleOrDefault();
+    }
     public static readonly string[] Concepts = ["INVENTARIO", "PROVEEDOR", "CUENTA_POR_COBRAR", "IVA",
         "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "DESCUENTO", "REDONDEO"];
     public static void Validate(ZeusSettings s)

@@ -103,6 +103,12 @@ public static class ZeusModule
             try{return Results.Ok(new{version=settings.Version,baseDatos=settings.Configuracion.BaseEsperada,cuentas=await transport.ChartAsync(empresaId,settings.Configuracion,ct,true)});}
             catch(SqlException){return Results.Json(new{error="No fue posible consultar las cuentas de proveedores en Zeus. Revisa la conexión y el permiso EXECUTE sobre dbo.SpMae_Maecont."},statusCode:502);}
         }).RequireErpPermission(admin);
+        group.MapGet("/advance-accounts",async(long empresaId,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
+        {
+            var settings=await repo.SettingsAsync(empresaId,ct)??throw new ArgumentException("Guarda primero el destino de Zeus de esta empresa.");
+            try{return Results.Ok(new{version=settings.Version,baseDatos=settings.Configuracion.BaseEsperada,cuentas=await transport.AdvanceAccountsAsync(empresaId,settings.Configuracion,ct)});}
+            catch(SqlException){return Results.Json(new{error="No se pudo consultar las cuentas de anticipos en Zeus."},statusCode:502);}
+        }).RequireErpPermission(admin);
         group.MapPut("/configuration",async(long empresaId,ZeusSettingsRequest input,HttpContext http,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
         {
             if(input.Configuracion is null)throw new ArgumentException("Falta la configuración de empresa.");
@@ -118,6 +124,16 @@ public static class ZeusModule
                     if(!chart.Any(a=>a.Codigo==account.Cuenta))throw new ArgumentException("La cuenta por pagar debe ser de detalle, habilitada y de proveedores en el plan de Zeus de esta empresa.");
                 }
                 catch(SqlException){return Results.Json(new{error="No se pudo validar la cuenta general en Zeus. No se guardaron cambios."},statusCode:502);}
+            }
+            var advance=ZeusJournal.GeneralAdvanceAccount(input.Configuracion);
+            if(advance is not null)
+            {
+                try
+                {
+                    var chart=await transport.AdvanceAccountsAsync(empresaId,input.Configuracion,ct);
+                    if(!chart.Any(a=>a.Codigo==advance.Cuenta))throw new ArgumentException("La cuenta de anticipos debe ser de detalle, habilitada y compatible con anticipos recibidos en Zeus.");
+                }
+                catch(SqlException){return Results.Json(new{error="No se pudo validar la cuenta de anticipos en Zeus. No se guardaron cambios."},statusCode:502);}
             }
             if(input.Configuracion.Cuentas.Any(a=>ZeusJournal.IsRetention(a.Concepto)))
             {

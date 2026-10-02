@@ -8,6 +8,10 @@ const ctx=vm.createContext({zeusUI:{version:3,settings},zeusEscape:v=>String(v??
 vm.runInContext(fs.readFileSync('public/zeus-general-accounts.js','utf8'),ctx);
 (async()=>{
  const html=ctx.zeusGeneralSupplierSection(settings);assert.match(html,/Cuentas generales de la empresa/);assert.match(html,/value="2205"/);
+ assert.match(html,/name="cuentaAnticipoGeneral"/);
+ form.elements.cuentaAnticipoGeneral={value:'280505'};
+ const advance=ctx.zeusReadGeneralAdvance(form,settings)[0];assert.equal(advance.concepto,'ANTICIPO');assert.equal(advance.cuenta,'280505');
+ form.elements.cuentaAnticipoGeneral.value='';assert.equal(ctx.zeusReadGeneralAdvance(form,settings).length,0);
  assert.doesNotMatch(html,/Consultar plan de proveedores|data-zeus="supplier-chart"/,'No requiere botón de consulta');
  const rule=ctx.zeusReadGeneralSupplier(form,settings)[0];assert.equal(rule.cuenta,'220501');assert.equal(rule.centroCosto,'01');assert.equal(rule.proveedorId,null);assert.equal(rule.articuloId,null);
  form.elements.cuentaProveedorGeneral.value='';assert.throws(()=>ctx.zeusReadGeneralSupplier(form,settings));
