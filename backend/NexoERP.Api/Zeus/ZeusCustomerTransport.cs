@@ -5,9 +5,55 @@ using NexoERP.Api.Sales;
 namespace NexoERP.Api.Zeus;
 
 public sealed record ZeusCustomerResult(string Estado,string Mensaje);
+public sealed record ZeusCity(string DivisionPolitica,string CiudadCodigo,string Ciudad,string DepartamentoCodigo,
+    string Departamento,string PaisCodigo,string Pais);
 
 public sealed partial class ZeusTransport
 {
+    public async Task<ZeusCity[]> SearchCitiesAsync(long company,ZeusSettings settings,string search,CancellationToken ct)
+    {
+        search=search.Trim();
+        if(search.Length<2||search.Length>80)throw new ArgumentException("Escribe al menos dos caracteres para buscar la ciudad en Zeus.");
+        await using var c=await OpenAsync(company,settings,ct);
+        await using var q=c.CreateCommand();q.CommandText="""
+            SELECT TOP(30) RTRIM(d.IDDIVPOLITICA),RTRIM(d.DESDIVPOLITICA),
+                RTRIM(ISNULL(p.DESDIVPOLITICA,''))
+            FROM dbo.DIVPOLITICA d
+            LEFT JOIN dbo.DIVPOLITICA p ON p.IDDIVPOLITICA=LEFT(RTRIM(d.IDDIVPOLITICA),4)
+            WHERE d.TIPODIVPOLITICA='D'
+              AND LEN(RTRIM(d.IDDIVPOLITICA))=7
+              AND RTRIM(d.IDDIVPOLITICA) LIKE '57[0-9][0-9][0-9][0-9][0-9]'
+              AND (d.DESDIVPOLITICA COLLATE Latin1_General_CI_AI LIKE @Search OR d.IDDIVPOLITICA LIKE @Code)
+            ORDER BY d.DESDIVPOLITICA,d.IDDIVPOLITICA;
+            """;
+        q.Parameters.Add("@Search",SqlDbType.VarChar,90).Value="%"+search+"%";
+        q.Parameters.Add("@Code",SqlDbType.VarChar,30).Value="%"+search+"%";
+        var cities=new List<ZeusCity>();await using var r=await q.ExecuteReaderAsync(ct);
+        while(await r.ReadAsync(ct))cities.Add(City(r.GetString(0),r.GetString(1),r.GetString(2)));
+        return cities.ToArray();
+    }
+    public async Task<ZeusCity> FindCityAsync(long company,ZeusSettings settings,string? cityCode,CancellationToken ct)
+    {
+        cityCode=cityCode?.Trim();
+        if(cityCode is null||cityCode.Length!=5||cityCode.Any(c=>!char.IsAsciiDigit(c)))
+            throw new ArgumentException("Selecciona una ciudad del catálogo Zeus.");
+        await using var c=await OpenAsync(company,settings,ct);
+        await using var q=c.CreateCommand();q.CommandText="""
+            SELECT RTRIM(d.IDDIVPOLITICA),RTRIM(d.DESDIVPOLITICA),RTRIM(ISNULL(p.DESDIVPOLITICA,''))
+            FROM dbo.DIVPOLITICA d
+            LEFT JOIN dbo.DIVPOLITICA p ON p.IDDIVPOLITICA=LEFT(RTRIM(d.IDDIVPOLITICA),4)
+            WHERE d.IDDIVPOLITICA=@Division AND d.TIPODIVPOLITICA='D';
+            """;
+        q.Parameters.Add("@Division",SqlDbType.VarChar,25).Value="57"+cityCode;
+        await using var r=await q.ExecuteReaderAsync(ct);
+        if(!await r.ReadAsync(ct))throw new ArgumentException("La ciudad seleccionada ya no existe como división política válida en Zeus.");
+        return City(r.GetString(0),r.GetString(1),r.GetString(2));
+    }
+    private static ZeusCity City(string division,string city,string department)
+    {
+        division=division.Trim();
+        return new(division,division[2..],city.Trim(),division.Substring(2,2),department.Trim(),"57","Colombia");
+    }
     private static async Task<bool> CustomerThirdExists(SqlConnection c,SqlTransaction? tx,string id,CancellationToken ct)
     {
         await using var q=c.CreateCommand();q.Transaction=tx;

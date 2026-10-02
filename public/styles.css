@@ -478,6 +478,7 @@ footer p { margin: 0; }
 .permission-critical { color: #9b4d35 !important; }
 .role-dialog { width: min(94vw,850px); }
 .master-dialog { width: min(94vw,650px); }
+.master-dialog.person-master-dialog { width: min(96vw,1040px); }
 .company-zeus-fields { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 4px 0; min-width: 0; }
 .company-zeus-fields legend { font-weight: 700; padding: 0 6px; }
 .company-zeus-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin: 12px 0; }
@@ -486,6 +487,14 @@ footer p { margin: 0; }
 @media(max-width:560px) { .company-zeus-grid { grid-template-columns: 1fr; } }
 #masterRecordForm { padding: 22px 28px 27px; }
 .master-form-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 15px; margin-bottom: 18px; }
+.person-master-dialog .master-form-fields { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 11px 14px; }
+.master-form-heading { grid-column: 1/-1; display: flex; align-items: baseline; gap: 10px; padding: 12px 0 5px; border-bottom: 1px solid var(--line); }
+.master-form-heading:first-child { padding-top: 0; }
+.master-form-heading strong { color: var(--green-dark); font-size: 13px; }
+.master-form-heading small { color: var(--muted); font-size: 11px; font-weight: 400; }
+.person-master-dialog .master-form-fields label > span { font-size: 11px; margin-bottom: 5px; }
+.person-master-dialog .master-form-fields input,.person-master-dialog .master-form-fields select { min-height: 36px; padding: 7px 9px; }
+.person-master-dialog .master-form-fields input[readonly] { background: #f3f6f4; color: #40534a; }
 .master-form-fields label { display: block; }
 .master-form-fields label.wide { grid-column: 1/-1; }
 .master-form-fields label > span { display: block; margin-bottom: 7px; color: #43584e; font-size: 9px; font-weight: 850; }
@@ -918,4 +927,12 @@ footer p { margin: 0; }
   .editor-actions .button,.export-actions .button{flex:1 1 100%}
   .manual-submit-actions{display:grid;grid-template-columns:minmax(0,1fr)}
   .manual-submit-actions .button{width:100%}
+}
+@media(max-width:820px){
+  .person-master-dialog .master-form-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:560px){
+  .person-master-dialog .master-form-fields{grid-template-columns:1fr}
+  .master-form-heading{display:block}
+  .master-form-heading small{display:block;margin-top:3px}
 }

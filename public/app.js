@@ -807,23 +807,101 @@ function addMasterCheck(labelText,name,checked=false) {
   const span=document.createElement('span'); span.textContent=labelText; label.append(input,span); elements.masterFormFields.append(label); return input;
 }
 
+function addMasterHeading(title,description='') {
+  const heading=document.createElement('div');heading.className='master-form-heading';
+  const strong=document.createElement('strong');strong.textContent=title;heading.append(strong);
+  if(description){const small=document.createElement('small');small.textContent=description;heading.append(small);}
+  elements.masterFormFields.append(heading);
+}
+
+function setupCustomerCityLookup(record=null) {
+  const form=elements.masterRecordForm;
+  const search=form.elements.cityLookup;
+  const list=document.createElement('datalist');list.id='zeus-city-options';
+  search.setAttribute('list',list.id);search.autocomplete='off';search.placeholder='Escribe ciudad o código DANE…';
+  search.after(list);
+  const company=state.erpSession.company.id;
+  const fields=['cityCode','city','departmentCode','department','countryCode','country','divisionPoliticaZeus'];
+  const clear=()=>fields.forEach(name=>{form.elements[name].value='';});
+  const label=city=>`${city.ciudad} · ${city.departamento||city.departamentoCodigo} (${city.ciudadCodigo})`;
+  let choices=[],sequence=0,timer;
+  function select(city){
+    search.value=label(city);search.dataset.selectedCode=city.ciudadCodigo;
+    form.elements.cityCode.value=city.ciudadCodigo;form.elements.city.value=city.ciudad;
+    form.elements.departmentCode.value=city.departamentoCodigo;form.elements.department.value=city.departamento;
+    form.elements.countryCode.value=city.paisCodigo;form.elements.country.value=city.pais;
+    form.elements.divisionPoliticaZeus.value=city.divisionPolitica;
+  }
+  if(record?.cityCode){
+    search.value=`${record.city||'Ciudad'} · ${record.department||record.departmentCode||''} (${record.cityCode})`;
+    search.dataset.selectedCode=record.cityCode;
+  }
+  search.addEventListener('input',()=>{
+    clearTimeout(timer);sequence++;
+    const chosen=choices.find(city=>label(city)===search.value);
+    if(chosen){select(chosen);return;}
+    search.dataset.selectedCode='';clear();list.replaceChildren();
+    const query=search.value.trim();if(query.length<2)return;
+    const request=sequence;
+    timer=setTimeout(async()=>{
+      try{
+        const cities=await apiRequest(`/api/v1/companies/${company}/zeus/cities?q=${encodeURIComponent(query)}`);
+        if(request!==sequence||!elements.masterRecordDialog.open||company!==state.erpSession?.company?.id)return;
+        choices=cities;list.replaceChildren(...cities.map(city=>new Option(label(city),label(city))));
+      }catch(error){if(request===sequence){elements.masterFormError.textContent=`No se pudieron consultar las ciudades de Zeus: ${error.message}`;elements.masterFormError.hidden=false;}}
+    },250);
+  });
+}
+
 function openMasterForm(record=null) {
   const data=getCompanyMasterData().data; const editingArticle=state.masterView==='articles'&&record?.id!=null?record:null;const editingSupplier=state.masterView==='suppliers'&&record?.id!=null?record:null;const editingClient=state.masterView==='clients'&&record?.id!=null?record:null;state.masterEditingArticleId=editingArticle?.id||null;state.masterEditingSupplierId=editingSupplier?.id||null;state.masterEditingClientId=editingClient?.id||null;state.masterEditingBrandId=state.masterView==='brands'?record?.id||null:null;
   elements.masterFormFields.replaceChildren(); elements.masterFormError.hidden=true;
   state.masterEditingBranchId=state.masterView==='branches'?record?.id||null:null;
   elements.masterDialogTitle.textContent=editingArticle?'Editar artículo':editingSupplier?'Editar proveedor':editingClient?'Editar cliente':`Nuevo: ${masterViewConfig[state.masterView][0]}`;
   elements.masterDialogSubtitle.textContent=editingArticle?'Actualiza la información permitida del artículo.':editingSupplier?'Corrige o completa los datos fiscales, de ubicación y contacto del proveedor.':state.masterView==='clients'?'Se sincronizará el tercero en Zeus. El maestro CLIENTES se incorporará al flujo de la primera factura.':'Completa la información requerida.';
+  elements.masterRecordDialog.classList.toggle('person-master-dialog',state.masterView==='suppliers'||state.masterView==='clients');
   if(state.masterView==='suppliers'||state.masterView==='clients') {
+    addMasterHeading('1. Identificación',state.masterView==='clients'?'Datos del cliente tal como aparecerán en Zeus.':'Verifica los datos capturados del XML antes de guardarlos.');
     const person=addMasterField('Tipo de persona *','personType','text',[['','Pendiente de confirmación'],['N','Persona natural'],['J','Persona jurídica']]);
     if(editingSupplier)person.value=resolvedSupplierPersonType({...editingSupplier,xmlFields:JSON.parse(editingSupplier.xmlData||'{}')});
     if(editingClient)person.value=editingClient.personType;
-    addMasterField('Tipo de identificación','identificationType','text',[['NIT','NIT'],['CC','Cédula'],['CE','Cédula de extranjería']]);addMasterField('Número de identificación *','identification');addMasterField('Dígito de verificación','verificationDigit','text',null,false,false);addMasterField('Razón social *','name','text',null,true);addMasterField('Nombre comercial','commercialName','text',null,true,false);
-    addMasterField('Responsabilidad fiscal','taxResponsibility','text',null,false,false);addMasterField('Código de régimen fiscal','taxSchemeCode','text',null,false,false);addMasterField('Nombre del régimen fiscal','taxSchemeName','text',null,false,false);addMasterField('Dirección','address','text',null,true,false);
-    addMasterField('Código de ciudad','cityCode','text',null,false,false);addMasterField('Ciudad','city','text',null,false,false);addMasterField('Código de departamento','departmentCode','text',null,false,false);addMasterField('Departamento','department','text',null,false,false);addMasterField('Código postal','postalCode','text',null,false,false);addMasterField('Código de país','countryCode','text',null,false,false);addMasterField('País','country','text',null,false,false);
-    addMasterField('Persona de contacto','contactName','text',null,false,false);addMasterField('Teléfono','phone','tel',null,false,false);addMasterField('Correo','email','email',null,false,false);addMasterField('Sitio web','website','url',null,true,false);
+    addMasterField('Tipo de identificación','identificationType','text',[['NIT','NIT'],['CC','Cédula'],['CE','Cédula de extranjería']]);
+    addMasterField('Número de identificación *','identification');
+    addMasterField('Dígito de verificación','verificationDigit','text',null,false,false);
+    addMasterField('Razón social / nombre completo *','name','text',null,true);
+    addMasterField('Nombre comercial','commercialName','text',null,false,false);
     if(state.masterView==='clients'){
       addMasterField('Nombres (persona natural)','firstName','text',null,false,false);
       addMasterField('Apellidos (persona natural)','lastName','text',null,false,false);
+    }
+    addMasterHeading('2. Ubicación',state.masterView==='clients'?'Selecciona la ciudad de Zeus; los códigos se completan solos.':'Dirección y división política del proveedor.');
+    if(state.masterView==='clients')addMasterField('Buscar ciudad en Zeus *','cityLookup','search',null,true);
+    addMasterField('Dirección','address','text',null,true,false);
+    const cityCode=addMasterField('Código DANE ciudad','cityCode','text',null,false,false);
+    const city=addMasterField('Ciudad','city','text',null,false,false);
+    const departmentCode=addMasterField('Código departamento','departmentCode','text',null,false,false);
+    const department=addMasterField('Departamento','department','text',null,false,false);
+    const countryCode=addMasterField('Código país','countryCode','text',null,false,false);
+    const country=addMasterField('País','country','text',null,false,false);
+    const division=addMasterField('División política Zeus','divisionPoliticaZeus','text',null,false,false);
+    division.readOnly=true;
+    if(state.masterView==='clients'){
+      [cityCode,city,departmentCode,department,countryCode,country].forEach(field=>field.readOnly=true);
+    }else{
+      const updateDivision=()=>{division.value=supplierPoliticalDivision({countryCode:countryCode.value,cityCode:cityCode.value});};
+      [countryCode,cityCode].forEach(field=>field.addEventListener('input',updateDivision));
+    }
+    addMasterField('Código postal','postalCode','text',null,false,false);
+    addMasterHeading('3. Contacto y datos fiscales');
+    addMasterField('Persona de contacto','contactName','text',null,false,false);
+    addMasterField('Teléfono','phone','tel',null,false,false);
+    addMasterField('Correo','email','email',null,false,false);
+    addMasterField('Sitio web','website','url',null,false,false);
+    addMasterField('Responsabilidad fiscal','taxResponsibility','text',null,false,false);
+    addMasterField('Código régimen fiscal','taxSchemeCode','text',null,false,false);
+    addMasterField('Régimen fiscal','taxSchemeName','text',null,false,false);
+    if(state.masterView==='clients'){
+      addMasterHeading('4. Clasificación Zeus','Se utilizará al crear el maestro CLIENTES con la primera factura.');
       const seller=addMasterField('Vendedor en Zeus *','seller','text',[['','Cargando vendedores…']]);
       const kind=addMasterField('Tipo de cliente en Zeus *','clientType','text',[['','Cargando tipos…']]);
       const company=state.erpSession.company.id;
@@ -843,12 +921,9 @@ function openMasterForm(record=null) {
   else { addMasterField('Proveedor *','supplierId','text',data.suppliers.map(x=>[x.id,`${x.identification} · ${x.name}`]),true); addMasterField('Código externo *','externalCode'); addMasterField('Descripción externa','externalDescription','text',null,true,false); addMasterField('Artículo interno *','articleId','text',data.articles.map(x=>[x.id,`${x.code} · ${x.description}`]),true); addMasterField('Unidad','unitId','text',[['','Unidad base'],...data.units.map(x=>[x.id,`${x.code} · ${x.name}`])],false,false); const factor=addMasterField('Factor a unidad base *','factor','number'); factor.min='0.0000000001'; factor.step='0.0000000001'; factor.value='1'; }
   if(state.masterView==='suppliers'||state.masterView==='clients'){
     const identification=elements.masterRecordForm.elements.identificationType;
-    const division=addMasterField('División política Zeus (automática)','divisionPoliticaZeus','text',null,false,false);division.readOnly=true;
-    const updateDivision=()=>{division.value=supplierPoliticalDivision({countryCode:elements.masterRecordForm.elements.countryCode.value,cityCode:elements.masterRecordForm.elements.cityCode.value});};
-    ['countryCode','cityCode'].forEach(name=>elements.masterRecordForm.elements[name].addEventListener('input',updateDivision));
-    division.value=editingSupplier?supplierPoliticalDivision(editingSupplier):editingClient?supplierPoliticalDivision(editingClient):'';
     [['RC','Registro civil'],['TI','Tarjeta de identidad'],['TE','Tarjeta de extranjería'],['PAS','Pasaporte'],['DE','Documento extranjero'],['OTRO','Otro'],['NITEXT','NIT extranjero'],['NUIP','NUIP']].forEach(([value,label])=>identification.add(new Option(label,value)));
-    if(editingSupplier&&!Array.from(identification.options).some(o=>o.value===editingSupplier.identificationType))identification.add(new Option(editingSupplier.identificationType||'Pendiente',editingSupplier.identificationType||''));
+    const existingPerson=editingSupplier||editingClient;
+    if(existingPerson&&!Array.from(identification.options).some(o=>o.value===existingPerson.identificationType))identification.add(new Option(existingPerson.identificationType||'Pendiente',existingPerson.identificationType||''));
   }
   if(editingArticle){
     const values={code:editingArticle.code,type:editingArticle.type,description:editingArticle.description,unitId:editingArticle.unitId,purchaseUnitId:editingArticle.purchaseUnitId||'',purchaseFactor:editingArticle.purchaseFactor||1,ivaVenta:editingArticle.ivaVenta??''};
@@ -858,11 +933,14 @@ function openMasterForm(record=null) {
   if(editingSupplier){
     const values={identificationType:editingSupplier.identificationType,identification:editingSupplier.identification,verificationDigit:editingSupplier.verificationDigit,name:editingSupplier.name,commercialName:editingSupplier.commercialName,taxResponsibility:editingSupplier.taxResponsibility,taxSchemeCode:editingSupplier.taxSchemeCode,taxSchemeName:editingSupplier.taxSchemeName,address:editingSupplier.address,cityCode:editingSupplier.cityCode,city:editingSupplier.city,departmentCode:editingSupplier.departmentCode,department:editingSupplier.department,postalCode:editingSupplier.postalCode,countryCode:editingSupplier.countryCode,country:editingSupplier.country,contactName:editingSupplier.contactName,phone:editingSupplier.phone,email:editingSupplier.email,website:editingSupplier.website};
     Object.entries(values).forEach(([name,value])=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].value=String(value??'');});
+    elements.masterRecordForm.elements.divisionPoliticaZeus.value=supplierPoliticalDivision(editingSupplier);
   }
   if(editingClient){
     const values={identificationType:editingClient.identificationType,identification:editingClient.identification,verificationDigit:editingClient.verificationDigit,name:editingClient.name,commercialName:editingClient.commercialName,taxResponsibility:editingClient.taxResponsibility,taxSchemeCode:editingClient.taxSchemeCode,taxSchemeName:editingClient.taxSchemeName,address:editingClient.address,cityCode:editingClient.cityCode,city:editingClient.city,departmentCode:editingClient.departmentCode,department:editingClient.department,postalCode:editingClient.postalCode,countryCode:editingClient.countryCode,country:editingClient.country,contactName:editingClient.contactName,phone:editingClient.phone,email:editingClient.email,website:editingClient.website,firstName:editingClient.firstName,lastName:editingClient.lastName};
     Object.entries(values).forEach(([name,value])=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].value=String(value??'');});
+    elements.masterRecordForm.elements.divisionPoliticaZeus.value=editingClient.division||supplierPoliticalDivision(editingClient);
   }
+  if(state.masterView==='clients')setupCustomerCityLookup(editingClient);
   openErpDialog(elements.masterRecordDialog);
 }
 
@@ -884,6 +962,8 @@ async function saveMasterRecord(event) {
     if(state.masterView==='suppliers'){const current=findById(data.suppliers,state.masterEditingSupplierId);path='suppliers';payload=supplierApiPayload({identificationType:values.identificationType,identification:values.identification,name:values.name,verificationDigit:values.verificationDigit,commercialName:values.commercialName,taxResponsibility:values.taxResponsibility,taxSchemeCode:values.taxSchemeCode,taxSchemeName:values.taxSchemeName,address:values.address,cityCode:values.cityCode,city:values.city,departmentCode:values.departmentCode,department:values.department,postalCode:values.postalCode,countryCode:values.countryCode,country:values.country,contactName:values.contactName,phone:values.phone,email:values.email,website:values.website,xmlData:current?.xmlData||null});}
     else if(state.masterView==='clients'){
       if(!['N','J'].includes(values.personType))throw new Error('Selecciona el tipo de persona del cliente.');
+      if(!values.cityCode||elements.masterRecordForm.elements.cityLookup.dataset.selectedCode!==values.cityCode)
+        throw new Error('Selecciona una ciudad de las opciones de Zeus antes de guardar.');
       if(!values.seller||!values.clientType)throw new Error('Selecciona vendedor y tipo de cliente del catálogo de Zeus.');
       if(values.personType==='N'&&(!values.firstName?.trim()||!values.lastName?.trim()))throw new Error('Completa nombres y apellidos de la persona natural.');
       path='clients';payload={...supplierApiPayload({identificationType:values.identificationType,identification:values.identification,name:values.name,verificationDigit:values.verificationDigit,commercialName:values.commercialName,taxResponsibility:values.taxResponsibility,taxSchemeCode:values.taxSchemeCode,taxSchemeName:values.taxSchemeName,address:values.address,cityCode:values.cityCode,city:values.city,departmentCode:values.departmentCode,department:values.department,postalCode:values.postalCode,countryCode:values.countryCode,country:values.country,contactName:values.contactName,phone:values.phone,email:values.email,website:values.website}),tipoPersona:values.personType,nombre1:values.firstName?.trim()||null,apellido1:values.lastName?.trim()||null,vendedorZeus:values.seller,tipoClienteZeus:values.clientType};
