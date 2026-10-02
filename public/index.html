@@ -41,7 +41,9 @@
   </section>
 
   <div id="erpShell" class="erp-shell" hidden>
-    <aside class="sidebar" aria-label="Navegación principal">
+    <button id="mobileNavBackdrop" class="mobile-nav-backdrop" type="button" aria-label="Cerrar menú" hidden></button>
+    <aside id="erpSidebar" class="sidebar" aria-label="Navegación principal">
+      <button id="mobileNavClose" class="mobile-nav-close" type="button" aria-label="Cerrar menú">×</button>
       <a class="erp-brand" href="#" aria-label="Inicio del ERP">
         <span class="erp-brand-mark">N</span>
         <span><strong>Nexo</strong><small>ERP OPERATIVO</small></span>
@@ -176,6 +178,7 @@
 
     <div class="erp-content">
       <header class="erp-topbar">
+        <button id="mobileNavToggle" class="mobile-nav-toggle" type="button" aria-label="Abrir menú" aria-controls="erpSidebar" aria-expanded="false"><span aria-hidden="true">☰</span></button>
         <div class="breadcrumb"><span>Compras</span><b>/</b><strong id="breadcrumbCurrent">Entrada automática</strong></div>
         <div class="topbar-actions">
           <button class="icon-button" type="button" aria-label="Notificaciones">●</button>

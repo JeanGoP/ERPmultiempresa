@@ -15,3 +15,13 @@
 #zeusCashAccounts fieldset{border:0;padding:0;min-width:0}
 #zeusCashAccounts input,#zeusCashAccounts select{width:100%;min-width:0;height:35px;border:1px solid #cbdad4;border-radius:5px;padding:6px 8px;background:white;color:inherit}
 .egreso-dialog [data-find-form] label{flex:1;min-width:220px;font-size:12px}
+@media(max-width:480px){
+  .egreso-dialog{width:calc(100vw - 16px);max-height:calc(100dvh - 16px);padding:12px}
+  .egreso-grid{grid-template-columns:minmax(0,1fr)}
+  .egreso-wide{grid-column:auto}
+  .egreso-dialog .table-wrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .egreso-dialog table{min-width:620px}
+  .egreso-toolbar{align-items:stretch;flex-direction:column}
+  .egreso-toolbar .button{width:100%}
+  .egreso-dialog [data-find-form] label{min-width:0;width:100%}
+}

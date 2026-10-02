@@ -52,3 +52,19 @@
 @media(max-width:1000px){#zeusSettingsForm .zeus-source-rule { grid-template-columns: repeat(3,minmax(0,1fr)); }}
 @media(max-width:700px){#zeusSettingsForm > .zeus-card:first-child > .zeus-connection,#zeusSettingsForm .zeus-source-rule { grid-template-columns: repeat(2,minmax(0,1fr)); }}
 @media(max-width:420px){#zeusSettingsForm .zeus-source-rule { grid-template-columns: minmax(0,1fr); }}
+@media(max-width:700px){
+  .zeus-heading{min-width:0;flex-wrap:wrap}
+  .zeus-heading>div{min-width:0}
+  .zeus-card,.zeus-mode,.zeus-review{min-width:0;overflow-wrap:anywhere}
+  .zeus-tabs{max-width:100%;-webkit-overflow-scrolling:touch}
+  .zeus-scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .zeus-supplier-dialog{width:calc(100vw - 20px);max-height:calc(100dvh - 20px);padding:16px}
+  .warehouse-account-fields{grid-template-columns:minmax(0,1fr);gap:12px}
+  #zeusSettingsForm .zeus-grid:has([name=cuentaProveedorGeneral]){grid-template-columns:minmax(0,1fr);max-width:100%}
+}
+@media(max-width:420px){
+  .zeus-kpis{grid-template-columns:minmax(0,1fr)}
+  .zeus-pagination{flex-wrap:wrap;justify-content:center}
+  .zeus-pagination span{flex:1 0 100%;order:-1;text-align:center}
+  #zeusSettingsForm>.zeus-card:first-child>.zeus-connection{grid-template-columns:minmax(0,1fr)}
+}

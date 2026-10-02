@@ -2462,6 +2462,29 @@ elements.masterTable.addEventListener('click',(event)=>{const supplierButton=eve
 elements.masterRecordForm.addEventListener('submit', saveMasterRecord);
 elements.masterSearch.addEventListener('input', renderMasterView);
 elements.logoutButton.addEventListener('click', leaveErp);
+
+const mobileNavToggle=document.querySelector('#mobileNavToggle');
+const mobileNavClose=document.querySelector('#mobileNavClose');
+const mobileNavBackdrop=document.querySelector('#mobileNavBackdrop');
+const mobileNavSidebar=document.querySelector('#erpSidebar');
+const mobileNavMedia=window.matchMedia('(max-width: 960px)');
+function setMobileNav(open,restoreFocus=false){
+  const visible=Boolean(open&&mobileNavMedia.matches&&!elements.erpShell.hidden);
+  document.body.classList.toggle('mobile-nav-open',visible);
+  mobileNavToggle.setAttribute('aria-expanded',String(visible));
+  mobileNavBackdrop.hidden=!visible;
+  mobileNavSidebar.inert=mobileNavMedia.matches&&!visible;
+  if(restoreFocus&&!visible&&mobileNavMedia.matches)mobileNavToggle.focus();
+}
+mobileNavToggle.addEventListener('click',()=>{setMobileNav(true);mobileNavClose.focus();});
+mobileNavClose.addEventListener('click',()=>setMobileNav(false,true));
+mobileNavBackdrop.addEventListener('click',()=>setMobileNav(false,true));
+mobileNavSidebar.addEventListener('click',event=>{
+  if(event.target.closest('.erp-nav button:not(:disabled), #companySwitcher, #logoutButton'))setMobileNav(false);
+});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&document.body.classList.contains('mobile-nav-open'))setMobileNav(false,true);});
+mobileNavMedia.addEventListener('change',()=>setMobileNav(false));
+setMobileNav(false);
 setupCollapsibleNavigation();
 initializeErpUi();
 
