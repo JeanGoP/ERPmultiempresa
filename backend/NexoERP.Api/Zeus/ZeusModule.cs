@@ -39,7 +39,7 @@ public static class ZeusModule
         {
             var saved=await warehouses.GetAsync(empresaId,warehouseId,ct);
             var settings=await repo.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura primero el destino Zeus de esta empresa.");
-            try{return Results.Ok(new{configuracion=saved,versionEmpresa=settings.Version,servidor=settings.Configuracion.ServidorEsperado,baseDatos=settings.Configuracion.BaseEsperada,cuentas=await transport.ChartAsync(empresaId,settings.Configuracion,ct)});}
+            try{return Results.Ok(new{configuracion=saved,versionEmpresa=settings.Version,servidor=settings.Configuracion.ServidorEsperado,baseDatos=settings.Configuracion.BaseEsperada,cuentas=await transport.ChartAsync(empresaId,settings.Configuracion,ct),cuentasClientes=await transport.ChartAsync(empresaId,settings.Configuracion,ct,clients:true)});}
             catch(SqlException){return Results.Json(new{error="No fue posible consultar el plan de Zeus. Verifica la conexión privada y permiso EXECUTE sobre dbo.SpMae_Maecont."},statusCode:502);}
         }).RequireErpPermission(admin);
         group.MapPut("/warehouses/{warehouseId:long}/accounts",async(long empresaId,long warehouseId,ZeusWarehouseSave input,HttpContext http,ZeusWarehouseRepository warehouses,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
@@ -47,7 +47,12 @@ public static class ZeusModule
             await warehouses.GetAsync(empresaId,warehouseId,ct);
             var settings=await repo.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura primero el destino Zeus de esta empresa.");
             if(input.Cuentas is null)throw new ArgumentException("Faltan las cuentas de la bodega.");
-            try{input.Cuentas.Validate(await transport.ChartAsync(empresaId,settings.Configuracion,ct));}
+            try
+            {
+                input.Cuentas.Validate(await transport.ChartAsync(empresaId,settings.Configuracion,ct));
+                if(!string.IsNullOrWhiteSpace(input.Cuentas.CarteraClientes))
+                    input.Cuentas.ValidateClientReceivable(await transport.ChartAsync(empresaId,settings.Configuracion,ct,clients:true));
+            }
             catch(SqlException){return Results.Json(new{error="No fue posible validar las cuentas en Zeus. No se guardaron cambios."},statusCode:502);}
             await warehouses.SaveAsync(empresaId,warehouseId,Convert.ToInt64(http.Items["UsuarioId"]),input,settings,ct);
             return Results.NoContent();

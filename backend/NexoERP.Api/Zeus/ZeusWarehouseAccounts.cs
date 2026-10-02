@@ -7,7 +7,7 @@ namespace NexoERP.Api.Zeus;
 
 public sealed record ZeusChartAccount(string Codigo,string Nombre,decimal? Tarifa=null,bool? BaseEsValorRetenido=null);
 public sealed record ZeusWarehouseAccounts(string Inventario,string IvaCompras,string IvaVentas,
-    string IvaDevolucionVentas,string Ingreso,string CostoVenta,string DevolucionVenta)
+    string IvaDevolucionVentas,string Ingreso,string CostoVenta,string DevolucionVenta,string? CarteraClientes=null)
 {
     public string[] Codes()=>[Inventario,IvaCompras,IvaVentas,IvaDevolucionVentas,Ingreso,CostoVenta,DevolucionVenta];
     public void Validate(IEnumerable<ZeusChartAccount> chart)
@@ -16,13 +16,19 @@ public sealed record ZeusWarehouseAccounts(string Inventario,string IvaCompras,s
         if(Codes().Any(c=>string.IsNullOrWhiteSpace(c)||c.Length>16||c!=c.Trim()||!allowed.Contains(c)))
             throw new ArgumentException("Selecciona las siete cuentas de detalle habilitadas del plan de Zeus de esta empresa.");
     }
+    public void ValidateClientReceivable(IEnumerable<ZeusChartAccount> chart)
+    {
+        if(string.IsNullOrWhiteSpace(CarteraClientes)||!CarteraClientes.StartsWith("13",StringComparison.Ordinal)
+            ||!chart.Any(a=>a.Codigo==CarteraClientes))
+            throw new ArgumentException("Selecciona una cuenta 13 de clientes, de detalle y habilitada en Zeus para esta bodega.");
+    }
 }
 public sealed record ZeusWarehouseSave(int Version,int VersionEmpresa,ZeusWarehouseAccounts Cuentas);
 public sealed record ZeusWarehouseConfig(int Version,string Servidor,string BaseDatos,ZeusWarehouseAccounts? Cuentas);
 
 public sealed partial class ZeusTransport
 {
-    public async Task<ZeusChartAccount[]> ChartAsync(long company,ZeusSettings settings,CancellationToken ct,bool suppliers=false)
+    public async Task<ZeusChartAccount[]> ChartAsync(long company,ZeusSettings settings,CancellationToken ct,bool suppliers=false,bool clients=false)
     {
         await using var c=await OpenAsync(company,settings,ct);
         await using var q=c.CreateCommand();q.CommandType=CommandType.StoredProcedure;
@@ -43,7 +49,7 @@ public sealed partial class ZeusTransport
                 {
                     if(r["HABILITARCTA"] is DBNull||Convert.ToInt32(r["HABILITARCTA"])!=1||Convert.ToString(r["TIPOCTA"])?.Trim()!="D")continue;
                     var indicator=r["INDCPICTA"] is DBNull?0:Convert.ToInt32(r["INDCPICTA"]);
-                    if(suppliers?indicator!=3:new[]{2,3,6}.Contains(indicator))continue;
+                    if(clients?indicator!=2:suppliers?indicator!=3:new[]{2,3,6}.Contains(indicator))continue;
                     accounts.Add(new(Convert.ToString(r["CODICTA"])!.Trim(),Convert.ToString(r["DESCCTA"])!.Trim(),
                         columns.Contains("PORCEIMPUESTO")&&r["PORCEIMPUESTO"] is not DBNull?Convert.ToDecimal(r["PORCEIMPUESTO"]):null,
                         columns.Contains("IndValorRetenido")?r["IndValorRetenido"] is not DBNull&&Convert.ToInt32(r["IndValorRetenido"])!=0:null));
