@@ -25,3 +25,9 @@
   .egreso-toolbar .button{width:100%}
   .egreso-dialog [data-find-form] label{min-width:0;width:100%}
 }
+.customer-documents-dialog{width:min(1180px,calc(100vw - 24px));max-height:calc(100dvh - 24px)}
+.customer-documents-dialog [data-content]{overflow-x:auto}
+.customer-documents-dialog [data-lines] select,.customer-documents-dialog [data-lines] input{min-width:0;width:100%}
+.customer-documents-dialog [data-lines] td:first-child{min-width:250px}
+.customer-documents-dialog [data-allocations] td:last-child input{max-width:150px}
+@media(max-width:720px){.customer-documents-dialog{width:calc(100vw - 12px);max-height:calc(100dvh - 12px)}.customer-documents-dialog .egreso-grid{grid-template-columns:1fr}.customer-documents-dialog .egreso-toolbar{flex-wrap:wrap}.customer-documents-dialog [data-lines] td:first-child{min-width:190px}}

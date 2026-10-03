@@ -41,7 +41,7 @@ function zeusEscape(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':
 function zeusNormalize(row){return Object.fromEntries(Object.entries(row).map(([key,value])=>[key[0].toLowerCase()+key.slice(1),value]));}
 function zeusMoney(value){return new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:2}).format(Number(value)||0);}
 function zeusAdmin(){return hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR');}
-function zeusPosting(){return hasPermission('COMPRAS.RECEPCION.CONTABILIZAR')||hasPermission('TESORERIA.EGRESO.CONTABILIZAR');}
+function zeusPosting(){return ['COMPRAS.RECEPCION.CONTABILIZAR','TESORERIA.EGRESO.CONTABILIZAR','VENTAS.FACTURA.CONTABILIZAR','TESORERIA.RECIBO.CONTABILIZAR'].some(hasPermission);}
 function zeusScope(){return {epoch:zeusUI.epoch,company:String(state.erpSession?.company?.id),base:`/api/v1/companies/${state.erpSession?.company?.id}/zeus`};}
 function zeusCurrent(s){return s.epoch===zeusUI.epoch&&s.company===String(state.erpSession?.company?.id);}
 function closeZeus(){zeusPanel.hidden=true;$('#zeusNav').classList.remove('active');}
@@ -91,7 +91,7 @@ async function zeusLoadTab(scope){
     if(typeof zeusLoadSourceBranches==='function')await zeusLoadSourceBranches(scope);
     if(typeof loadZeusCashAccounts==='function'&&zeusAdmin())await loadZeusCashAccounts(scope);
   }else{
-    $('#zeusContent').innerHTML=`<div class="zeus-kpis" id="zeusKpis"></div><section class="zeus-card"><div class="zeus-toolbar"><label>Estado<select id="zeusState"><option value="">${zeusUI.tab==='prepare'?'Todos los pendientes':'Todos los estados'}</option>${Object.entries(zeusStates).filter(([k])=>zeusUI.tab!=='prepare'||k!=='CONTABILIZADO').map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label><p>Entradas y egresos · Hasta 100 documentos por página. Los resultados inciertos se concilian, no se reenvían.</p></div><div id="zeusJobs" class="zeus-scroll"></div><div class="zeus-pagination"><button type="button" class="button secondary" data-zeus="previous">Anterior</button><span id="zeusPage"></span><button type="button" class="button secondary" data-zeus="next">Siguiente</button></div></section>`;
+    $('#zeusContent').innerHTML=`<div class="zeus-kpis" id="zeusKpis"></div><section class="zeus-card"><div class="zeus-toolbar"><label>Estado<select id="zeusState"><option value="">${zeusUI.tab==='prepare'?'Todos los pendientes':'Todos los estados'}</option>${Object.entries(zeusStates).filter(([k])=>zeusUI.tab!=='prepare'||k!=='CONTABILIZADO').map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label><p>Entradas, egresos, recibos y facturas · Hasta 100 documentos por página. Los resultados inciertos se concilian, no se reenvían.</p></div><div id="zeusJobs" class="zeus-scroll"></div><div class="zeus-pagination"><button type="button" class="button secondary" data-zeus="previous">Anterior</button><span id="zeusPage"></span><button type="button" class="button secondary" data-zeus="next">Siguiente</button></div></section>`;
     zeusUI.offset=0;await zeusLoadJobs(scope);
   }
 }
@@ -99,12 +99,17 @@ async function zeusLoadJobs(scope){
   const filter=$('#zeusState').value;const rows=await apiRequest(`${scope.base}/jobs?offset=${zeusUI.offset}&estado=${encodeURIComponent(filter)}&pendientes=${zeusUI.tab==='prepare'}`);
   if(!zeusCurrent(scope))return;zeusUI.jobs=rows.map(zeusNormalize);
   $('#zeusKpis').innerHTML=[['Por revisar',['SIN_PREPARAR','REQUIERE_REVISION','RECHAZADO']],['En proceso',['PENDIENTE','ENVIANDO']],['Contabilizados',['CONTABILIZADO']],['Por conciliar',['INCIERTO']]].map(([title,statuses])=>`<article><span>${title}</span><strong>${zeusUI.jobs.filter(j=>statuses.includes(j.estado)).length}</strong><small>En esta página</small></article>`).join('');
-  $('#zeusJobs').innerHTML=zeusUI.jobs.length?`<table><thead><tr><th>Documento / beneficiario</th><th>Fecha contable</th><th>Valor</th><th>Estado</th><th>Comprobante Zeus</th><th>Detalle / acción</th></tr></thead><tbody>${zeusUI.jobs.map(j=>`<tr><td><small>${j.tipoDocumento==='EGRESO'?'Comprobante de egreso':'Entrada de mercancía'}</small><strong>${zeusEscape(j.factura||'Entrada '+j.recepcionMercanciaId)}</strong><small>${zeusEscape(j.proveedor)}</small></td><td>${zeusEscape(String(j.fechaContable||'').slice(0,10))}</td><td class="zeus-money">${zeusMoney(j.total)}</td><td>${zeusBadge(j.estado)}<small>${j.intentos} intento(s)</small></td><td>${zeusEscape([j.fuente,j.documento].filter(Boolean).join(' · ')||'—')}</td><td><span class="zeus-error-detail">${zeusEscape(j.error||'')}</span>${zeusJobActions(j)}</td></tr>`).join('')}</tbody></table>`:'<div class="zeus-empty"><h3>No hay documentos con este filtro</h3></div>';
+  $('#zeusJobs').innerHTML=zeusUI.jobs.length?`<table><thead><tr><th>Documento / tercero</th><th>Fecha contable</th><th>Valor</th><th>Estado</th><th>Comprobante Zeus</th><th>Detalle / acción</th></tr></thead><tbody>${zeusUI.jobs.map(j=>`<tr><td><small>${({EGRESO:'Comprobante de egreso',FACTURA_VENTA:'Factura de venta',RECIBO_CAJA:'Recibo de caja'})[j.tipoDocumento]||'Entrada de mercancía'}</small><strong>${zeusEscape(j.factura||'Entrada '+j.recepcionMercanciaId)}</strong><small>${zeusEscape(j.proveedor)}</small></td><td>${zeusEscape(String(j.fechaContable||'').slice(0,10))}</td><td class="zeus-money">${zeusMoney(j.total)}</td><td>${zeusBadge(j.estado)}<small>${j.intentos} intento(s)</small></td><td>${zeusEscape([j.fuente,j.documento].filter(Boolean).join(' · ')||'—')}</td><td><span class="zeus-error-detail">${zeusEscape(j.error||'')}</span>${zeusJobActions(j)}</td></tr>`).join('')}</tbody></table>`:'<div class="zeus-empty"><h3>No hay documentos con este filtro</h3></div>';
   $('#zeusPage').textContent=`Página ${Math.floor(zeusUI.offset/100)+1} · ${rows.length} envíos`;
   $('[data-zeus="previous"]').disabled=zeusUI.offset===0;$('[data-zeus="next"]').disabled=rows.length<100;
 }
 function zeusJobActions(j){
   const payment=j.tipoDocumento==='EGRESO',id=Number(j.origenId||j.recepcionMercanciaId);
+  if(j.tipoDocumento==='FACTURA_VENTA'||j.tipoDocumento==='RECIBO_CAJA'){
+    const invoice=j.tipoDocumento==='FACTURA_VENTA',scope=invoice?'sales-invoices':'cash-receipts',permission=invoice?'VENTAS.FACTURA.CONTABILIZAR':'TESORERIA.RECIBO.CONTABILIZAR';
+    if(j.estado==='INCIERTO'&&zeusAdmin())return `<button type="button" class="button secondary" data-zeus-customer="${scope}" data-customer-id="${id}" data-customer-action="reconcile">Conciliar sin reenviar</button>`;
+    return j.estado==='RECHAZADO'&&hasPermission(permission)?`<button type="button" class="button secondary" data-zeus-customer="${scope}" data-customer-id="${id}" data-customer-action="retry">Reintentar solo Zeus</button>`:'';
+  }
   if(j.estado==='INCIERTO'&&zeusAdmin())return payment?`<button type="button" class="button secondary" data-zeus-payment="${id}" data-payment-action="reconcile">Conciliar sin reenviar</button>`:`<button type="button" class="button secondary" data-zeus-reconcile="${Number(j.zeusEnvioId)}">Conciliar sin reenviar</button>`;
   if(payment)return j.estado==='RECHAZADO'&&hasPermission('TESORERIA.EGRESO.CONTABILIZAR')?`<button type="button" class="button secondary" data-zeus-payment="${id}" data-payment-action="retry">Reintentar solo Zeus</button>`:'';
   return ['SIN_PREPARAR','REQUIERE_REVISION','RECHAZADO'].includes(j.estado)&&hasPermission('COMPRAS.RECEPCION.CONTABILIZAR')?`<button type="button" class="button secondary" data-zeus-send-receipt="${id}">Enviar a Zeus</button>`:'';
@@ -175,6 +180,12 @@ zeusPanel.addEventListener('click',event=>{
       if(!['retry','reconcile'].includes(action)||!confirm(action==='retry'?'¿Reintentar este egreso solo en Zeus? No se repetirá el pago ERP.':'¿Consultar el resultado del egreso en Zeus sin reenviarlo?'))return;
       const result=await apiRequest(`/api/v1/companies/${scope.company}/disbursements/${Number(button.dataset.zeusPayment)}/${action}`,{method:'POST'});
       if(!zeusCurrent(scope))return;await zeusLoadJobs(scope);if(zeusCurrent(scope))zeusNotice(result?.error|| (action==='retry'?'Egreso en cola para reintentar en Zeus.':'Consulta de conciliación completada.'),!!result?.error);
+    }
+    else if(button.dataset.zeusCustomer){
+      const action=button.dataset.customerAction;
+      if(!['retry','reconcile'].includes(action)||!confirm(action==='retry'?'¿Reintentar solo en Zeus? El documento ERP no se duplicará.':'¿Conciliar en Zeus sin reenviar?'))return;
+      const result=await apiRequest(`/api/v1/companies/${scope.company}/${button.dataset.zeusCustomer}/${Number(button.dataset.customerId)}/${action}`,{method:'POST'});
+      if(!zeusCurrent(scope))return;await zeusLoadJobs(scope);if(zeusCurrent(scope))zeusNotice(result?.error||'Seguimiento actualizado.',!!result?.error);
     }
     else if(button.dataset.zeusSendReceipt){
       if(!confirm('¿Enviar esta entrada a Zeus sin volver a contabilizarla en el ERP?'))return;

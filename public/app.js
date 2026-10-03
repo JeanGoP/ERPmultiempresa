@@ -238,14 +238,17 @@ function applyAccessControls() {
   };
 
   setVisible('[data-nav-group="purchases"]', canPurchases || canServices);
-  setVisible('[data-nav-group="treasury"]', Boolean(state.erpSession?.api)&&hasPermission('TESORERIA.EGRESO.CONTABILIZAR'));
+  setVisible('[data-nav-group="sales"]', Boolean(state.erpSession?.api)&&hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
+  setVisible('[data-nav-group="treasury"]', Boolean(state.erpSession?.api)&&(hasPermission('TESORERIA.EGRESO.CONTABILIZAR')||hasPermission('TESORERIA.RECIBO.CONTABILIZAR')));
   setVisible('[data-nav-group="inventory"]', canInventory);
   setVisible('[data-nav-group="costs"]', canCosts);
   setVisible('[data-nav-group="masters"]', canMasters);
   setVisible('[data-nav-group="administration"]', canSecurity || Boolean(state.erpSession?.superAdmin));
   setVisible(elements.companiesAdminNav, Boolean(state.erpSession?.superAdmin));
   setVisible(elements.securityAdminNav, canSecurity);
-  setVisible('#zeusNavGroup',canSecurity||hasPermission('COMPRAS.RECEPCION.CONTABILIZAR')||hasPermission('TESORERIA.EGRESO.CONTABILIZAR'));
+  setVisible('#zeusNavGroup',canSecurity||hasPermission('COMPRAS.RECEPCION.CONTABILIZAR')||hasPermission('TESORERIA.EGRESO.CONTABILIZAR')||hasPermission('VENTAS.FACTURA.CONTABILIZAR')||hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
+  setVisible('#salesInvoicesNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
+  setVisible('#cashReceiptsNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
   setVisible(elements.savedPurchasesNav, canUseSavedPurchases());
   setVisible(elements.accountsPayableNav, canUseAccountsPayable());
   setVisible($('#supplierPaymentReportNav'), canUseAccountsPayable());
@@ -265,6 +268,7 @@ function applyAccessControls() {
 
 function enterErp(session) {
   window.resetEgresos?.();
+  window.resetCustomerDocuments?.();
   window.resetZeus?.();
   state.securityData=null;state.securityEditingUserId=null;state.securityEditingRoleId=null;state.securityPasswordUserId=null;
   state.erpSession = session;
@@ -281,6 +285,7 @@ function enterErp(session) {
 
 function leaveErp() {
   window.resetEgresos?.();
+  window.resetCustomerDocuments?.();
   window.resetZeus?.();
   state.securityData=null;
   localStorage.removeItem(uiStorage.session);

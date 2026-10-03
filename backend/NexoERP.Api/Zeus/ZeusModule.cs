@@ -152,7 +152,7 @@ public static class ZeusModule
         group.MapGet("/status",async(long empresaId,HttpContext http,AuthRepository auth,ZeusRepository repo,IConfiguration config,CancellationToken ct)=>
         {
             var user=Convert.ToInt64(http.Items["UsuarioId"]);
-            if(!await auth.HasPermissionAsync(user,empresaId,admin,ct)&&!await auth.HasPermissionAsync(user,empresaId,posting,ct)&&!await auth.HasPermissionAsync(user,empresaId,"TESORERIA.EGRESO.CONTABILIZAR",ct))return Results.StatusCode(403);
+            if(!await auth.HasPermissionAsync(user,empresaId,admin,ct)&&!await auth.HasPermissionAsync(user,empresaId,posting,ct)&&!await auth.HasPermissionAsync(user,empresaId,"TESORERIA.EGRESO.CONTABILIZAR",ct)&&!await auth.HasPermissionAsync(user,empresaId,"VENTAS.FACTURA.CONTABILIZAR",ct)&&!await auth.HasPermissionAsync(user,empresaId,"TESORERIA.RECIBO.CONTABILIZAR",ct))return Results.StatusCode(403);
             var settings=await repo.SettingsAsync(empresaId,ct);
             return Results.Ok(new {configurado=settings is not null,habilitado=settings?.Configuracion.Habilitado??false,despachadorActivo=config.GetValue<bool>("Zeus:Enabled")});
         });
@@ -174,8 +174,10 @@ public static class ZeusModule
             if(!http.Items.TryGetValue("UsuarioId",out var user))return Results.Unauthorized();
             var receipts=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,posting,ct);
             var payments=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,"TESORERIA.EGRESO.CONTABILIZAR",ct);
-            if(!receipts&&!payments)return Results.StatusCode(403);
-            return Results.Ok(await repo.ListAsync(empresaId,estado,offset??0,ct,pendientes??false,receipts,payments));
+            var sales=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,"VENTAS.FACTURA.CONTABILIZAR",ct);
+            var cash=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,"TESORERIA.RECIBO.CONTABILIZAR",ct);
+            if(!receipts&&!payments&&!sales&&!cash)return Results.StatusCode(403);
+            return Results.Ok(await repo.ListAsync(empresaId,estado,offset??0,ct,pendientes??false,receipts,payments,sales,cash));
         });
         group.MapPost("/receipts/{receiptId:long}/send-automatic",async(long empresaId,long receiptId,HttpContext http,ZeusRepository repo,CancellationToken ct)=>
             Results.Ok(await repo.RetryAutomaticAsync(empresaId,receiptId,Convert.ToInt64(http.Items["UsuarioId"]),ct))).RequireErpPermission(posting);

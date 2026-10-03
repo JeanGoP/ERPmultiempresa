@@ -214,7 +214,7 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
         Add(q,"@R",receipt);Add(q,"@J",SerializeSnapshot(snapshot));Add(q,"@U",user);
         var id=Convert.ToInt64(await q.ExecuteScalarAsync(ct));await tx.CommitAsync(ct);return id;
     }
-    public async Task<object> ListAsync(long company,string? state,int offset,CancellationToken ct,bool pendingOnly=false,bool receipts=true,bool payments=true)
+    public async Task<object> ListAsync(long company,string? state,int offset,CancellationToken ct,bool pendingOnly=false,bool receipts=true,bool payments=true,bool sales=false,bool cash=false)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=Command(c,"""
@@ -230,12 +230,22 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             SELECT 'EGRESO',e.EgresoId,NULL,NULL,e.OperacionGuid,e.ZeusEstado,e.Intentos,e.ZeusFuente,e.ZeusDocumento,e.ZeusError,e.CreadoEnUtc,e.ActualizadoEnUtc,
                    CONCAT('CE-',e.EgresoId),t.RazonSocial,e.FechaContable,e.Total
             FROM cxp.Egreso e JOIN ter.Tercero t ON t.EmpresaId=e.EmpresaId AND t.TerceroId=e.TerceroId
-            WHERE e.EmpresaId=@E AND @Payments=1)
+            WHERE e.EmpresaId=@E AND @Payments=1
+            UNION ALL
+            SELECT 'FACTURA_VENTA',f.FacturaVentaId,NULL,NULL,f.OperacionGuid,f.ZeusEstado,f.ZeusIntentos,f.ZeusFuente,f.ZeusDocumento,f.ZeusError,f.CreadoEnUtc,f.ZeusActualizadoEnUtc,
+                   f.Numero,t.RazonSocial,f.FechaContable,f.Total
+            FROM ven.FacturaVenta f JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
+            WHERE f.EmpresaId=@E AND @Sales=1
+            UNION ALL
+            SELECT 'RECIBO_CAJA',r.ReciboCajaId,NULL,NULL,r.OperacionGuid,r.ZeusEstado,r.ZeusIntentos,r.ZeusFuente,r.ZeusDocumento,r.ZeusError,r.CreadoEnUtc,r.ZeusActualizadoEnUtc,
+                   CONCAT('RC-',r.ReciboCajaId),t.RazonSocial,r.FechaContable,r.Total
+            FROM cxc.ReciboCaja r JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.ClienteId
+            WHERE r.EmpresaId=@E AND @Cash=1)
             SELECT * FROM Envio WHERE (@S IS NULL OR Estado=@S) AND (@Pending=0 OR Estado<>'CONTABILIZADO')
             ORDER BY FechaContable DESC,TipoDocumento,OrigenId DESC OFFSET @O ROWS FETCH NEXT 100 ROWS ONLY;
             """,company);
         Add(q,"@S",string.IsNullOrWhiteSpace(state)?DBNull.Value:state);Add(q,"@O",Math.Max(0,offset));
-        Add(q,"@Pending",pendingOnly);Add(q,"@Receipts",receipts);Add(q,"@Payments",payments);
+        Add(q,"@Pending",pendingOnly);Add(q,"@Receipts",receipts);Add(q,"@Payments",payments);Add(q,"@Sales",sales);Add(q,"@Cash",cash);
         var rows=new List<Dictionary<string,object?>>(); await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct)) { var row=new Dictionary<string,object?>(); for(int i=0;i<r.FieldCount;i++) row[r.GetName(i)]=r.IsDBNull(i)?null:r.GetValue(i);rows.Add(row); }
         return rows;

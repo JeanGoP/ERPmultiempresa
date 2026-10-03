@@ -56,7 +56,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             """;
         q.Parameters.Add("@N",SqlDbType.VarChar,10).Value=number;
         q.Parameters.Add("@B",SqlDbType.VarChar,20).Value=s.Configuracion.UnidadNegocio;
-        q.Parameters.AddWithValue("@Payment",s.Egreso is null?0:1);
+        q.Parameters.AddWithValue("@Payment",s.Egreso is null&&s.ClienteDocumento?.Tipo!="RECIBO"?0:1);
         var expected=s.Movimientos.GroupBy(m=>(m.Regla.Cuenta,Math.Sign(m.Valor))).ToDictionary(g=>g.Key,g=>g.Sum(m=>m.Valor));
         await using(var r=await q.ExecuteReaderAsync(ct))
             while(await r.ReadAsync(ct))
@@ -64,6 +64,16 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                     throw new InvalidOperationException("Los movimientos encontrados no coinciden con las cuentas e importes aprobados.");
         if(expected.Count!=0) throw new InvalidOperationException("Faltan movimientos contables en Zeus.");
         if(s.Egreso is not null)await VerifyPaymentLines(c,tx,s,number,ct);
+        if(s.ClienteDocumento is { Tipo:"RECIBO" } receipt)
+            foreach(var invoice in receipt.Facturas??[])
+            {
+                await using var line=c.CreateCommand();line.Transaction=tx;
+                line.CommandText="SELECT SUM(VALORTRA) FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND CODICTA=@A AND CLIPRV=@C AND NITTRA=@T AND TIPOFAC=@Type AND NUMEFAC=@Invoice AND BU=@Bu AND INDCPITRA='2' AND STATUSTRA IN('AC','XA')";
+                foreach(var p in new (string,object)[]{("@F",s.Configuracion.Fuente),("@N",number),("@A",invoice.Cuenta),("@C",s.Proveedor.CodigoProveedor),("@T",s.Proveedor.CodigoTercero),("@Type",invoice.Tipo),("@Invoice",invoice.Numero),("@Bu",invoice.UnidadNegocio)})line.Parameters.AddWithValue(p.Item1,p.Item2);
+                var value=await line.ExecuteScalarAsync(ct);
+                if(value is null or DBNull||Convert.ToDecimal(value)!=-invoice.Valor)
+                    throw new InvalidOperationException($"Zeus no confirmó el recaudo de la factura {invoice.Numero}.");
+            }
         return number;
     }
     public async Task<ZeusResult> ReconcileAsync(long company,ZeusSnapshot s,Guid key,CancellationToken ct)
@@ -99,7 +109,30 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                 stage="validación del egreso";
                 s=await CheckPayment(c,tx,s,ct);
             }
-            if(s.Proveedor.CodigoProveedor==s.Proveedor.CodigoTercero)
+            if(s.ClienteDocumento is { } customerDocument)
+            {
+                stage="validación del cliente y recibo/factura";
+                if(s.Movimientos.Sum(m=>m.Valor)!=0)throw new ArgumentException("El comprobante de cliente no está balanceado.");
+                if(!await CustomerThirdExists(c,tx,s.Proveedor.CodigoTercero,ct))throw new ArgumentException("El tercero del cliente no existe en Zeus.");
+                if(customerDocument.Tipo=="FACTURA")
+                {
+                    q.Parameters.Clear();q.CommandText="SELECT COUNT(*) FROM dbo.CLIENTES WHERE IDCLIENTE=@Id AND IDTERCERO=@Id AND ISNULL(Deshabilitado,0)=0";
+                    q.Parameters.AddWithValue("@Id",s.Proveedor.CodigoTercero);
+                    if(Convert.ToInt32(await q.ExecuteScalarAsync(ct))!=1)throw new ArgumentException("Crea el cliente en Zeus antes de emitir su primera factura.");
+                }
+                else if(customerDocument.Tipo=="RECIBO")
+                {
+                    var cash=(await CashAccounts(c,tx,ct)).SingleOrDefault(a=>a.Codigo==customerDocument.CuentaCaja)
+                        ??throw new ArgumentException("La cuenta de caja/banco del recibo no está habilitada en Zeus.");
+                    if(cash.Banco!=customerDocument.Banco)throw new ArgumentException("El banco de la cuenta cambió en Zeus.");
+                    s=s with{ClienteDocumento=customerDocument with{IndicadorCaja=cash.Indicador,CuentaBancaria=cash.CuentaBancaria}};
+                }
+                else throw new ArgumentException("Tipo de documento de cliente no válido.");
+                q.Parameters.Clear();q.CommandText="SELECT COUNT(*) FROM dbo.FUENTES WHERE IDFUENTE=@F AND Deshabilitado=0";
+                q.Parameters.AddWithValue("@F",s.Configuracion.Fuente);
+                if(Convert.ToInt32(await q.ExecuteScalarAsync(ct))!=1)throw new ArgumentException("La fuente del documento no está habilitada en Zeus.");
+            }
+            else if(s.Proveedor.CodigoProveedor==s.Proveedor.CodigoTercero)
             {
                 stage="validación del tercero y proveedor";
                 (bool Third,bool Supplier) master;
@@ -112,21 +145,24 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             q.CommandText="""
                 IF EXISTS(SELECT 1 FROM
                     (SELECT n.value('@Cuenta','varchar(20)') Cuenta,n.value('@Proveedor','bit') Proveedor,
-                            n.value('@Retencion','bit') Retencion,n.value('@Tarifa','decimal(18,6)') Tarifa
+                            n.value('@Retencion','bit') Retencion,n.value('@Tarifa','decimal(18,6)') Tarifa,
+                            n.value('@Cliente','bit') Cliente,n.value('@Caja','bit') Caja
                      FROM @Accounts.nodes('/Cuentas/Cuenta') x(n)) a
                     LEFT JOIN dbo.MAECONT m ON m.CODICTA=a.Cuenta
                     WHERE m.CODICTA IS NULL OR ISNULL(m.HABILITARCTA,0)<>1 OR ISNULL(m.TIPOCTA,'')<>'D'
                        OR (a.Proveedor=1 AND ISNULL(m.INDCPICTA,0)<>3)
-                       OR (a.Proveedor=0 AND (m.INDCPICTA IN(2,3) OR (m.INDCPICTA=6 AND @Payment=0)))
+                       OR (a.Cliente=1 AND ISNULL(m.INDCPICTA,0)<>2)
+                       OR (a.Caja=1 AND ISNULL(m.INDCPICTA,0) NOT IN(1,6))
+                       OR (a.Proveedor=0 AND a.Cliente=0 AND a.Caja=0 AND m.INDCPICTA IN(2,3,6))
                        OR (a.Retencion=1 AND (m.PORCEIMPUESTO IS NULL OR m.PORCEIMPUESTO<>a.Tarifa OR ISNULL(m.IndValorRetenido,0)<>0)))
                     THROW 51711,'Cuenta no habilitada, incompatible o tarifa de retencion distinta a PORCEIMPUESTO en Zeus. Revisa y guarda las cuentas de la empresa.',1;
                 """;
             // Zeus puede conservar compatibilidad 100: XML evita depender de OPENJSON (130+).
             q.Parameters.Add("@Accounts",SqlDbType.Xml).Value=new XElement("Cuentas",s.Movimientos
-                .Select(m=>(m.Regla.Cuenta,Proveedor:m.Regla.Concepto=="PROVEEDOR",Retencion:ZeusJournal.IsRetention(m.Regla.Concepto),m.Tarifa)).Distinct()
-                .Select(a=>new XElement("Cuenta",new XAttribute("Cuenta",a.Cuenta),new XAttribute("Proveedor",a.Proveedor?1:0),new XAttribute("Retencion",a.Retencion?1:0),new XAttribute("Tarifa",a.Tarifa))))
+                .Select(m=>(m.Regla.Cuenta,Proveedor:m.Regla.Concepto=="PROVEEDOR",Cliente:m.Regla.Concepto=="CLIENTE",Caja:m.Regla.Concepto=="BANCO_CAJA",Retencion:ZeusJournal.IsRetention(m.Regla.Concepto),m.Tarifa)).Distinct()
+                .Select(a=>new XElement("Cuenta",new XAttribute("Cuenta",a.Cuenta),new XAttribute("Proveedor",a.Proveedor?1:0),new XAttribute("Cliente",a.Cliente?1:0),new XAttribute("Caja",a.Caja?1:0),new XAttribute("Retencion",a.Retencion?1:0),new XAttribute("Tarifa",a.Tarifa))))
                 .ToString(SaveOptions.DisableFormatting);
-            q.Parameters.AddWithValue("@Payment",s.Egreso is null?0:1);
+            q.Parameters.AddWithValue("@Payment",s.Egreso is null&&s.ClienteDocumento?.Tipo!="RECIBO"?0:1);
             await q.ExecuteNonQueryAsync(ct);q.Parameters.Clear();
             stage="dbo.spWSG_Contabilidad";
             q.CommandText="dbo.spWSG_Contabilidad";q.CommandType=CommandType.StoredProcedure;
