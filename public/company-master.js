@@ -50,6 +50,12 @@ function openCompanyMasterForm(record=null){
   const form=document.createElement('form');form.className='company-create-form';
   const field=(label,name,max,value,readOnly=false)=>{const wrap=document.createElement('label');const caption=document.createElement('span');caption.textContent=label;wrap.append(caption);const input=document.createElement('input');input.name=name;input.maxLength=max;input.required=name!=='digitoVerificacion';input.value=value||'';input.readOnly=readOnly;wrap.append(input);form.append(wrap);return input;};
   field('Código','codigo',20,record?.codigo);field('NIT','nit',20,record?.nit);field('Dígito de verificación','digitoVerificacion',1,record?.digitoVerificacion).pattern='[0-9]';field('Razón social','razonSocial',200,record?.razonSocial);
+  const nit=form.elements.nit;
+  const digit=form.elements.digitoVerificacion;
+  nit.maxLength=15;nit.inputMode='numeric';nit.pattern='[0-9]{1,15}';
+  digit.readOnly=true;
+  const updateDigit=()=>{digit.value=calculateNitVerificationDigit(nit.value);};
+  nit.addEventListener('input',updateDigit);updateDigit();
   field('Moneda funcional','monedaFuncional',3,record?.monedaFuncional||'COP',!!record);
   field('Zona horaria','zonaHoraria',80,record?.zonaHoraria||'America/Bogota',!!record);
   const marcoLabel=document.createElement('label');marcoLabel.textContent='Marco contable';const marco=document.createElement('select');marco.name='marcoContable';['GRUPO_1','GRUPO_2','GRUPO_3'].forEach(v=>marco.add(new Option(v.replace('_',' '),v)));marco.value=record?.marcoContable||'GRUPO_2';marco.disabled=!!record;marcoLabel.append(marco);form.append(marcoLabel);

@@ -794,6 +794,16 @@ function renderInventoryOperationPanel(){
   form.elements.type.addEventListener('change',()=>void configure());form.addEventListener('submit',async event=>{event.preventDefault();const output=form.querySelector('.operation-result');output.hidden=false;output.textContent='Procesando operación…';try{if(state.runtimeMode!=='api'||!state.erpSession?.api)throw new Error('Activa API ERP para registrar movimientos reales.');const base=`/api/v1/companies/${state.erpSession.company.id}`;const serials=form.elements.serials.value.split(',').map(x=>Number(x.trim())).filter(Boolean);const number=form.elements.number.value;const date=form.elements.date.value;const period=Number(form.elements.period.value);let created,posted;if(form.elements.type.value==='transfer'){created=await apiRequest(`${base}/transfers`,{method:'POST',body:JSON.stringify({numero:number,bodegaOrigenId:Number(form.elements.origin.value),bodegaTransitoId:null,bodegaDestinoId:Number(form.elements.destination.value),fechaSalida:`${date}T12:00:00`,lineas:[{articuloId:Number(form.elements.article.value),loteId:null,cantidad:Number(form.elements.quantity.value),unidadSerializadaIds:serials}]})});posted=await apiRequest(`${base}/transfers/${created.documentoId}/dispatch`,{method:'POST',body:JSON.stringify({periodoInventarioId:period,fechaContable:date,fechaRecepcion:null})});output.replaceChildren(document.createTextNode(`Traslado ${created.numero} despachado · ${posted.movimientos} movimientos. `));const receive=document.createElement('button');receive.type='button';receive.className='button secondary';receive.textContent='Recibir en destino';receive.addEventListener('click',async()=>{const result=await apiRequest(`${base}/transfers/${created.documentoId}/receive`,{method:'POST',body:JSON.stringify({periodoInventarioId:period,fechaContable:date,fechaRecepcion:`${date}T12:00:00`})});output.textContent=`Traslado recibido · ${result.movimientos} movimientos · estado ${result.estado}.`;});output.append(receive);}else{const source=JSON.parse(form.elements.source.selectedOptions[0].dataset.row);const supplier=form.elements.type.value==='supplier';const path=supplier?'supplier-returns':'sales-returns';const line=supplier?{recepcionMercanciaLineaId:source.recepcionMercanciaLineaId,articuloId:source.articuloId,cantidadBase:Number(form.elements.quantity.value),ubicacionId:null,loteId:source.loteId,unidadSerializadaIds:serials}:{movimientoSalidaOriginalId:source.movimientoSalidaOriginalId,articuloId:source.articuloId,cantidadBase:Number(form.elements.quantity.value),ubicacionId:null,loteId:source.loteId,unidadSerializadaIds:serials};created=await apiRequest(`${base}/${path}`,{method:'POST',body:JSON.stringify({numero:number,terceroId:source.terceroId,bodegaId:source.bodegaId,periodoInventarioId:period,fechaMovimiento:`${date}T12:00:00`,fechaContable:date,motivo:form.elements.reason.value,lineas:[line]})});posted=await apiRequest(`${base}/${path}/${created.documentoId}/post`,{method:'POST',body:'{}'});output.textContent=`${supplier?'Devolución a proveedor':'Devolución de cliente'} contabilizada · ${posted.movimientos} movimiento(s) · estado ${posted.estado}.`;}}catch(error){output.textContent=error.message;}});void configure();
 }
 
+function calculateNitVerificationDigit(nit) {
+  const digits=String(nit??'').trim();
+  if(!/^[0-9]{1,15}$/.test(digits))return '';
+  const weights=[3,7,13,17,19,23,29,37,41,43,47,53,59,67,71];
+  let sum=0;
+  for(let i=0;i<digits.length;i++)sum+=Number(digits[digits.length-1-i])*weights[i];
+  const remainder=sum%11;
+  return String(remainder<2?remainder:11-remainder);
+}
+
 function addMasterField(labelText,name,type='text',options=null,wide=false,required=true) {
   const label=document.createElement('label'); if(wide) label.className='wide'; const span=document.createElement('span'); span.textContent=labelText;
   let input;
@@ -867,7 +877,7 @@ function openMasterForm(record=null) {
     if(editingClient)person.value=editingClient.personType;
     addMasterField('Tipo de identificación','identificationType','text',[['NIT','NIT'],['CC','Cédula'],['CE','Cédula de extranjería']]);
     addMasterField('Número de identificación *','identification');
-    addMasterField('Dígito de verificación','verificationDigit','text',null,false,false);
+    addMasterField('Dígito de verificación (automático para NIT)','verificationDigit','text',null,false,false);
     addMasterField('Razón social / nombre completo *','name','text',null,true);
     addMasterField('Nombre comercial','commercialName','text',null,false,false);
     if(state.masterView==='clients'){
@@ -939,6 +949,20 @@ function openMasterForm(record=null) {
     const values={identificationType:editingClient.identificationType,identification:editingClient.identification,verificationDigit:editingClient.verificationDigit,name:editingClient.name,commercialName:editingClient.commercialName,taxResponsibility:editingClient.taxResponsibility,taxSchemeCode:editingClient.taxSchemeCode,taxSchemeName:editingClient.taxSchemeName,address:editingClient.address,cityCode:editingClient.cityCode,city:editingClient.city,departmentCode:editingClient.departmentCode,department:editingClient.department,postalCode:editingClient.postalCode,countryCode:editingClient.countryCode,country:editingClient.country,contactName:editingClient.contactName,phone:editingClient.phone,email:editingClient.email,website:editingClient.website,firstName:editingClient.firstName,lastName:editingClient.lastName};
     Object.entries(values).forEach(([name,value])=>{if(elements.masterRecordForm.elements[name])elements.masterRecordForm.elements[name].value=String(value??'');});
     elements.masterRecordForm.elements.divisionPoliticaZeus.value=editingClient.division||supplierPoliticalDivision(editingClient);
+  }
+  if(state.masterView==='suppliers'||state.masterView==='clients'){
+    const form=elements.masterRecordForm.elements;
+    const updateDigit=()=>{
+      const isNit=form.identificationType.value==='NIT';
+      form.verificationDigit.value=isNit?calculateNitVerificationDigit(form.identification.value):'';
+      form.verificationDigit.disabled=!isNit;
+      form.verificationDigit.readOnly=true;
+      form.identification.inputMode=isNit?'numeric':'text';
+      form.identification.maxLength=isNit?10:30;
+    };
+    form.identificationType.addEventListener('change',updateDigit);
+    form.identification.addEventListener('input',updateDigit);
+    updateDigit();
   }
   if(state.masterView==='clients')setupCustomerCityLookup(editingClient);
   openErpDialog(elements.masterRecordDialog);
