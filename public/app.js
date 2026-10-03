@@ -907,7 +907,7 @@ function openMasterForm(record=null) {
       const company=state.erpSession.company.id;
       void apiRequest(`/api/v1/companies/${company}/zeus/client-catalogs`).then(result=>{
         if(company!==state.erpSession?.company?.id||state.masterView!=='clients'||!elements.masterRecordDialog.open)return;
-        seller.replaceChildren(new Option('Selecciona vendedor…',''),...(result.vendedores||[]).map(x=>new Option(x.codigo,x.codigo)));
+        seller.replaceChildren(new Option('Selecciona vendedor…',''),...(result.vendedores||[]).map(x=>new Option(`${x.codigo} · ${x.nombre||'Sin nombre'}`,x.codigo)));
         kind.replaceChildren(new Option('Selecciona tipo…',''),...(result.tipos||[]).map(x=>new Option(x.codigo,x.codigo)));
         seller.value=editingClient?.seller||'';kind.value=editingClient?.clientType||'';
       }).catch(error=>{elements.masterFormError.textContent=`No se pudieron cargar vendedor y tipo de cliente de Zeus: ${error.message}`;elements.masterFormError.hidden=false;});

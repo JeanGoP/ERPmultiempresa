@@ -177,9 +177,9 @@ public sealed partial class ZeusTransport
     public async Task<object> CustomerCatalogsAsync(long company,ZeusSettings settings,CancellationToken ct)
     {
         await using var c=await OpenAsync(company,settings,ct);
-        await using var q=c.CreateCommand();q.CommandText="SELECT RTRIM(IDVENDE) FROM dbo.MAEVENDE ORDER BY IDVENDE; SELECT RTRIM(Codigo) FROM dbo.TIPOCLIENTES ORDER BY Codigo";
+        await using var q=c.CreateCommand();q.CommandText="SELECT RTRIM(IDVENDE),RTRIM(ISNULL(NOMBVENDE,'')) FROM dbo.MAEVENDE ORDER BY IDVENDE; SELECT RTRIM(Codigo) FROM dbo.TIPOCLIENTES ORDER BY Codigo";
         var sellers=new List<object>();var kinds=new List<object>();await using var r=await q.ExecuteReaderAsync(ct);
-        while(await r.ReadAsync(ct))sellers.Add(new{codigo=r.GetString(0)});
+        while(await r.ReadAsync(ct))sellers.Add(new{codigo=r.GetString(0),nombre=r.GetString(1)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))kinds.Add(new{codigo=r.GetString(0)});
         return new{vendedores=sellers,tipos=kinds};
     }

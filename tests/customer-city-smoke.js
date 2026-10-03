@@ -32,6 +32,8 @@ vm.runInContext(app.slice(app.indexOf('function setupCustomerCityLookup'),app.in
   assert.equal(fields.cityCode.value,'');
   assert.equal(search.dataset.selectedCode,'');
   assert.match(backend,/FROM dbo\.DIVPOLITICA d/);
+  assert.match(backend,/RTRIM\(ISNULL\(NOMBVENDE,''\)\)/);
+  assert.match(app,/new Option\(`\$\{x\.codigo\} · \$\{x\.nombre\|\|'Sin nombre'\}`,x\.codigo\)/);
   assert.match(salesModule,/zeus\.FindCityAsync/);
   assert.match(app,/Selecciona una ciudad de las opciones de Zeus antes de guardar/);
   console.log('Clientes: ciudad Zeus completa códigos y no conserva una selección editada manualmente.');
