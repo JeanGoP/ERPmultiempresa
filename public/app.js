@@ -824,7 +824,7 @@ function addMasterHeading(title,description='') {
   elements.masterFormFields.append(heading);
 }
 
-function setupCustomerCityLookup(record=null) {
+function setupMasterCityLookup(record=null) {
   const form=elements.masterRecordForm;
   const search=form.elements.cityLookup;
   const list=document.createElement('datalist');list.id='zeus-city-options';
@@ -885,7 +885,7 @@ function openMasterForm(record=null) {
       addMasterField('Apellidos (persona natural)','lastName','text',null,false,false);
     }
     addMasterHeading('2. Ubicación',state.masterView==='clients'?'Selecciona la ciudad de Zeus; los códigos se completan solos.':'Dirección y división política del proveedor.');
-    if(state.masterView==='clients')addMasterField('Buscar ciudad en Zeus *','cityLookup','search',null,true);
+    addMasterField('Buscar ciudad en Zeus *','cityLookup','search',null,true);
     addMasterField('Dirección','address','text',null,true,false);
     const cityCode=addMasterField('Código DANE ciudad','cityCode','text',null,false,false);
     const city=addMasterField('Ciudad','city','text',null,false,false);
@@ -895,12 +895,7 @@ function openMasterForm(record=null) {
     const country=addMasterField('País','country','text',null,false,false);
     const division=addMasterField('División política Zeus','divisionPoliticaZeus','text',null,false,false);
     division.readOnly=true;
-    if(state.masterView==='clients'){
-      [cityCode,city,departmentCode,department,countryCode,country].forEach(field=>field.readOnly=true);
-    }else{
-      const updateDivision=()=>{division.value=supplierPoliticalDivision({countryCode:countryCode.value,cityCode:cityCode.value});};
-      [countryCode,cityCode].forEach(field=>field.addEventListener('input',updateDivision));
-    }
+    [cityCode,city,departmentCode,department,countryCode,country].forEach(field=>field.readOnly=true);
     addMasterField('Código postal','postalCode','text',null,false,false);
     addMasterHeading('3. Contacto y datos fiscales');
     addMasterField('Persona de contacto','contactName','text',null,false,false);
@@ -964,7 +959,7 @@ function openMasterForm(record=null) {
     form.identification.addEventListener('input',updateDigit);
     updateDigit();
   }
-  if(state.masterView==='clients')setupCustomerCityLookup(editingClient);
+  if(state.masterView==='suppliers'||state.masterView==='clients')setupMasterCityLookup(editingSupplier||editingClient);
   openErpDialog(elements.masterRecordDialog);
 }
 
@@ -983,7 +978,11 @@ async function saveMasterRecord(event) {
       await apiRequest(`${base}/brands${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify({nombre:values.name.trim(),activa:checkbox('active')})});
       state.masterEditingBrandId=null;await loadApiCompanyContext();closeErpDialog(elements.masterRecordDialog);renderMasterView();showMasterNotice('Marca guardada correctamente.');return;
     }
-    if(state.masterView==='suppliers'){const current=findById(data.suppliers,state.masterEditingSupplierId);path='suppliers';payload=supplierApiPayload({identificationType:values.identificationType,identification:values.identification,name:values.name,verificationDigit:values.verificationDigit,commercialName:values.commercialName,taxResponsibility:values.taxResponsibility,taxSchemeCode:values.taxSchemeCode,taxSchemeName:values.taxSchemeName,address:values.address,cityCode:values.cityCode,city:values.city,departmentCode:values.departmentCode,department:values.department,postalCode:values.postalCode,countryCode:values.countryCode,country:values.country,contactName:values.contactName,phone:values.phone,email:values.email,website:values.website,xmlData:current?.xmlData||null});}
+    if(state.masterView==='suppliers'){
+      const lookup=elements.masterRecordForm.elements.cityLookup;
+      if(!values.cityCode||lookup.dataset.selectedCode!==values.cityCode)
+        throw new Error('Selecciona una ciudad de las opciones de Zeus antes de guardar el proveedor.');
+      const current=findById(data.suppliers,state.masterEditingSupplierId);path='suppliers';payload=supplierApiPayload({identificationType:values.identificationType,identification:values.identification,name:values.name,verificationDigit:values.verificationDigit,commercialName:values.commercialName,taxResponsibility:values.taxResponsibility,taxSchemeCode:values.taxSchemeCode,cityCode:values.cityCode,city:values.city,departmentCode:values.departmentCode,department:values.department,postalCode:values.postalCode,countryCode:values.countryCode,country:values.country,contactName:values.contactName,phone:values.phone,email:values.email,website:values.website,xmlData:current?.xmlData||null});}
     else if(state.masterView==='clients'){
       if(!['N','J'].includes(values.personType))throw new Error('Selecciona el tipo de persona del cliente.');
       if(!values.cityCode||elements.masterRecordForm.elements.cityLookup.dataset.selectedCode!==values.cityCode)
@@ -998,6 +997,7 @@ async function saveMasterRecord(event) {
     else{path='item-mappings';payload={terceroId:Number(values.supplierId),codigoExterno:values.externalCode.trim(),descripcionExterna:values.externalDescription.trim()||null,articuloId:Number(values.articleId),unidadMedidaId:values.unitId?Number(values.unitId):null,factorAUnidadBase:Number(values.factor)||1};}
     if(state.masterView==='suppliers'){
       if(!['J','N'].includes(values.personType))throw new Error('Confirma el tipo de persona del proveedor.');
+      payload.direccion=values.address||null;
       if(values.identificationType==='CC'&&values.personType!=='N')throw new Error('Una cédula de ciudadanía corresponde a persona natural.');
       const fields=JSON.parse(payload.datosXmlJson||'{}');
       fields.NexoPersonConfirmation={type:values.personType,identification:payload.numeroIdentificacion,identificationType:payload.tipoIdentificacion};

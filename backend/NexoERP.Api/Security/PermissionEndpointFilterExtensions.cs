@@ -11,7 +11,7 @@ public static class PermissionEndpointFilterExtensions
             return await next(context);
         });
 
-    public static RouteHandlerBuilder RequireErpPermission(this RouteHandlerBuilder builder,string permission)
+    public static RouteHandlerBuilder RequireErpPermission(this RouteHandlerBuilder builder,params string[] permissions)
         => builder.AddEndpointFilter(async (context,next) =>
         {
             var http=context.HttpContext;
@@ -20,8 +20,14 @@ public static class PermissionEndpointFilterExtensions
                || !http.Items.TryGetValue("UsuarioId",out var rawUser))
                 return Results.Forbid();
             var auth=http.RequestServices.GetRequiredService<AuthRepository>();
-            if(!await auth.HasPermissionAsync(Convert.ToInt64(rawUser),companyId,permission,http.RequestAborted))
-                return Results.Json(new { error="El usuario no tiene el permiso requerido para esta operacion.",permission },statusCode:StatusCodes.Status403Forbidden);
+            var allowed=false;
+            foreach(var permission in permissions)
+            {
+                if(!await auth.HasPermissionAsync(Convert.ToInt64(rawUser),companyId,permission,http.RequestAborted))continue;
+                allowed=true;break;
+            }
+            if(!allowed)
+                return Results.Json(new { error="El usuario no tiene el permiso requerido para esta operacion.",permission=string.Join(" o ",permissions) },statusCode:StatusCodes.Status403Forbidden);
             return await next(context);
         });
 }

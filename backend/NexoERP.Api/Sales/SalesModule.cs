@@ -55,6 +55,6 @@ public static class SalesModule
                 return Results.Ok(await zeus.SearchCitiesAsync(empresaId,config.Configuracion,q,ct));
             }
             catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
-        }).RequireErpPermission("MAESTROS.CLIENTE.ADMINISTRAR");
+        }).RequireErpPermission("MAESTROS.CLIENTE.ADMINISTRAR","MAESTROS.PROVEEDOR.ADMINISTRAR");
     }
 }
