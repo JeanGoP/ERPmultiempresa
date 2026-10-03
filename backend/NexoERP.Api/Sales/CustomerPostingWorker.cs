@@ -45,13 +45,45 @@ public sealed class CustomerPostingQueue(TenantConnectionFactory connections)
         q.Parameters.AddWithValue("@Error",(object?)result.Error??DBNull.Value);
         await q.ExecuteNonQueryAsync(ct);
     }
-    public async Task RetryAsync(long company,string type,long id,CancellationToken ct)
+    public async Task<string> RetryAsync(long company,string type,long id,CancellationToken ct)
     {
         var (table,key)=Table(type);
         await using var c=await connections.OpenAsync(company,false,ct);
-        await using var q=ZeusRepository.Command(c,$"UPDATE {table} SET ZeusEstado='PENDIENTE',ZeusError=NULL,ZeusActualizadoEnUtc=SYSUTCDATETIME() WHERE EmpresaId=@E AND {key}=@Id AND ZeusEstado='RECHAZADO'",company);
+        await using var tx=(SqlTransaction)await c.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
+        await using var q=ZeusRepository.Command(c,$"SELECT d.Snapshot,d.SucursalId,s.Nombre FROM {table} d WITH(UPDLOCK,HOLDLOCK) JOIN core.Sucursal s ON s.EmpresaId=d.EmpresaId AND s.SucursalId=d.SucursalId WHERE d.EmpresaId=@E AND d.{key}=@Id AND d.ZeusEstado='RECHAZADO'",company,tx);
         ZeusRepository.Add(q,"@Id",id);
-        if(await q.ExecuteNonQueryAsync(ct)!=1)throw new ArgumentException("Solo se reenvían rechazos confirmados. Los inciertos se concilian.");
+        ZeusSnapshot snapshot;long branch;string branchName;
+        await using(var r=await q.ExecuteReaderAsync(ct))
+        {
+            if(!await r.ReadAsync(ct)||r.IsDBNull(0))throw new ArgumentException("Solo se reenvían rechazos confirmados. Los inciertos se concilian.");
+            snapshot=JsonSerializer.Deserialize<ZeusSnapshot>(r.GetString(0))??throw new ArgumentException("El comprobante guardado no es válido.");
+            branch=r.GetInt64(1);branchName=r.GetString(2);
+        }
+        q.CommandText="SELECT Configuracion FROM core.ZeusConfiguracion WITH(HOLDLOCK) WHERE EmpresaId=@E";
+        var current=JsonSerializer.Deserialize<ZeusSettings>(await q.ExecuteScalarAsync(ct) as string??throw new ArgumentException("Configura Zeus para esta empresa."))!;
+        if(!current.Habilitado||current.ServidorEsperado!=snapshot.Configuracion.ServidorEsperado||current.BaseEsperada!=snapshot.Configuracion.BaseEsperada)
+            throw new ArgumentException("El destino Zeus cambió o está deshabilitado. No se puede reintentar el comprobante anterior.");
+        var movement=type=="RECIBO"?"RECIBO_CAJA":"FACTURACION";
+        if(!(current.FuentesAutomaticas??[]).Any(x=>x.Movimiento==movement&&x.SucursalId==branch))
+            throw new ArgumentException($"Configura la fuente {movement} de esta sucursal antes de reintentar.");
+        var route=ZeusRouting.Resolve(current,branch,movement,branchName);
+        // El comprobante y sus cuentas permanecen congelados. Solo se renueva la ruta
+        // del rechazo confirmado; nunca se cambia el destino ni se reenvía un incierto.
+        var previous=snapshot.Configuracion.Fuente;
+        var rebased=snapshot with{Configuracion=snapshot.Configuracion with
+        {
+            Fuente=route.Fuente,Serie=route.Serie,UnidadNegocio=route.UnidadNegocio,
+            TipoFactura=route.TipoFactura,SucursalOperacion=route.SucursalOperacion
+        }};
+        q.CommandText=$"UPDATE {table} SET Snapshot=@Snapshot,ZeusEstado='PENDIENTE',ZeusError=NULL,ZeusActualizadoEnUtc=SYSUTCDATETIME() WHERE EmpresaId=@E AND {key}=@Id AND ZeusEstado='RECHAZADO'";
+        ZeusRepository.Add(q,"@Snapshot",JsonSerializer.Serialize(rebased));
+        if(await q.ExecuteNonQueryAsync(ct)!=1)throw new ArgumentException("El estado cambió. Actualiza antes de reintentar.");
+        q.CommandText="INSERT audit.Evento(EmpresaId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@E,'ZEUS_REINTENTAR',@Table,CONVERT(varchar(30),@Id),@Audit,'ZEUS')";
+        ZeusRepository.Add(q,"@Table",table);
+        ZeusRepository.Add(q,"@Audit",JsonSerializer.Serialize(new{fuenteAnterior=previous,fuenteNueva=route.Fuente,movimiento=movement}));
+        await q.ExecuteNonQueryAsync(ct);
+        await tx.CommitAsync(ct);
+        return route.Fuente;
     }
     public async Task MarkCustomerCreatedAsync(long company,long customerId,CancellationToken ct)
     {

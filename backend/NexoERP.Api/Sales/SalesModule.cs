@@ -82,7 +82,10 @@ public static class SalesModule
             catch(SqlException e) when(e.Number is 2601 or 2627 or 52310){return Results.Conflict(new{error=e.Message});}
         }).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
         group.MapPost("/cash-receipts/{id:long}/retry",async(long empresaId,long id,CustomerPostingQueue queue,CancellationToken ct)=>
-        {await queue.RetryAsync(empresaId,"RECIBO",id,ct);return Results.NoContent();}).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
+        {
+            try {var fuente=await queue.RetryAsync(empresaId,"RECIBO",id,ct);return Results.Ok(new{estado="PENDIENTE",fuente});}
+            catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
+        }).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
         group.MapPost("/cash-receipts/{id:long}/reconcile",async(long empresaId,long id,CustomerPostingQueue queue,ZeusTransport zeus,CancellationToken ct)=>
             Results.Ok(await queue.ReconcileAsync(empresaId,"RECIBO",id,zeus,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
 
@@ -111,7 +114,10 @@ public static class SalesModule
             catch(SqlException e) when(e.Number is 2601 or 2627 or 52311 || e.Number is >=51200 and <=51299){return Results.Conflict(new{error=e.Message});}
         }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapPost("/sales-invoices/{id:long}/retry",async(long empresaId,long id,CustomerPostingQueue queue,CancellationToken ct)=>
-        {await queue.RetryAsync(empresaId,"FACTURA",id,ct);return Results.NoContent();}).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        {
+            try {var fuente=await queue.RetryAsync(empresaId,"FACTURA",id,ct);return Results.Ok(new{estado="PENDIENTE",fuente});}
+            catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapPost("/sales-invoices/{id:long}/reconcile",async(long empresaId,long id,CustomerPostingQueue queue,ZeusTransport zeus,CancellationToken ct)=>
             Results.Ok(await queue.ReconcileAsync(empresaId,"FACTURA",id,zeus,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
     }
