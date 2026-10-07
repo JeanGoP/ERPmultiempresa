@@ -20,7 +20,8 @@ public sealed record ZeusSource(long RecepcionId, long ProveedorId, string Factu
     DateTime FechaFactura, DateTime Vencimiento, decimal Total, decimal Impuestos, decimal Retenciones,
     ZeusSourceLine[] Lineas,string? DivisionPoliticaZeus=null,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? ProveedorNombre=null);
-public sealed record ZeusMovement(ZeusAccount Regla, decimal Valor, decimal Base = 0, decimal Tarifa = 0,long? BodegaId=null);
+public sealed record ZeusMovement(ZeusAccount Regla, decimal Valor, decimal Base = 0, decimal Tarifa = 0,long? BodegaId=null,
+    DateTime? VencimientoCartera=null,int? NumeroCuota=null);
 public sealed record ZeusSnapshot(ZeusSettings Configuracion, ZeusSource Origen, ZeusSupplier Proveedor,
     ZeusMovement[] Movimientos,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ZeusDisbursement? Egreso=null,

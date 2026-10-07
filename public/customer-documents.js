@@ -128,15 +128,16 @@
     $('[data-contra-wrap]').hidden=kind!=='NORMAL';f.elements.cuentaContrapartida.required=kind==='NORMAL';
     f.elements.total.readOnly=kind==='CARTERA';
     if(kind!=='CARTERA'){area.innerHTML=kind==='ANTICIPO'?'<p class="egreso-help">El saldo del anticipo quedará disponible para aplicarlo a una factura futura.</p>':'<p class="egreso-help">Selecciona la cuenta contable específica para este ingreso. No modifica cartera.</p>';summary();return;}
-    area.innerHTML=`<h3>Facturas pendientes del cliente</h3><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Factura</th><th>Vencimiento</th><th>Saldo</th><th>Valor a recaudar</th></tr></thead><tbody>${(options.facturas||[]).map(x=>`<tr><td><input type="checkbox" data-pick="${x.id}" ${applications.some(a=>a.facturaVentaId===x.id)?'checked':''} ${x.zeusEstado==='CONTABILIZADO'?'':'disabled'}></td><td>${esc(x.numero)}</td><td>${esc(x.vence)}</td><td>${money(x.saldo)}</td><td><input type="number" data-amount="${x.id}" min="0.01" max="${x.saldo}" step="0.01" value="${applications.find(a=>a.facturaVentaId===x.id)?.valor||x.saldo}" ${applications.some(a=>a.facturaVentaId===x.id)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="5">Selecciona un cliente con facturas pendientes.</td></tr>'}</tbody></table></div><small class="egreso-help">Solo se recaudan facturas confirmadas en Zeus.</small>`;
+    const selected=x=>applications.find(a=>a.facturaVentaId===x.id&&(a.facturaVentaCuotaId??null)===(x.cuotaId??null));
+    area.innerHTML=`<h3>Cuotas y facturas pendientes del cliente</h3><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Factura / cuota</th><th>Vencimiento</th><th>Saldo</th><th>Valor a recaudar</th></tr></thead><tbody>${(options.facturas||[]).map((x,i)=>`<tr><td><input type="checkbox" data-pick="${i}" ${selected(x)?'checked':''} ${x.zeusEstado==='CONTABILIZADO'?'':'disabled'}></td><td>${esc(x.numero)}${x.numeroCuota?' · cuota '+x.numeroCuota:''}</td><td>${esc(x.vence)}</td><td>${money(x.saldo)}</td><td><input type="number" data-amount="${i}" min="0.01" max="${x.saldo}" step="0.01" value="${selected(x)?.valor||x.saldo}" ${selected(x)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="5">Selecciona un cliente con facturas pendientes.</td></tr>'}</tbody></table></div><small class="egreso-help">Solo se recaudan cuotas de facturas confirmadas en Zeus.</small>`;
     area.querySelectorAll('[data-pick]').forEach(box=>box.onchange=()=>{
-      const id=Number(box.dataset.pick),invoice=options.facturas.find(x=>x.id===id);
-      applications=applications.filter(a=>a.facturaVentaId!==id);
-      if(box.checked)applications.push({facturaVentaId:id,valor:invoice.saldo});
+      const invoice=options.facturas[Number(box.dataset.pick)];
+      applications=applications.filter(a=>!(a.facturaVentaId===invoice.id&&(a.facturaVentaCuotaId??null)===(invoice.cuotaId??null)));
+      if(box.checked)applications.push({facturaVentaId:invoice.id,facturaVentaCuotaId:invoice.cuotaId??null,valor:invoice.saldo});
       renderAllocations();dirty=true;
     });
     area.querySelectorAll('[data-amount]').forEach(input=>input.oninput=()=>{
-      const item=applications.find(a=>a.facturaVentaId===Number(input.dataset.amount));if(item)item.valor=Number(input.value);
+      const invoice=options.facturas[Number(input.dataset.amount)],item=selected(invoice);if(item)item.valor=Number(input.value);
       summary();dirty=true;
     });summary();
   }
@@ -161,14 +162,16 @@
       <label>Sucursal<select name="sucursalId" required><option value="">Selecciona…</option>${options.sucursales.map(x=>`<option value="${x.id}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label>
       <label>Referencia ERP<input name="numero" maxlength="15" value="FV-${Date.now().toString(36).toUpperCase()}" required></label>
       <label>Fecha contable<input name="fechaContable" type="date" value="${today()}" required></label>
-      <label>Vencimiento<input name="vencimiento" type="date" value="${today()}" required></label>${clientField()}</div>
+      <label>Primer vencimiento<input name="vencimiento" type="date" value="${today()}" required></label>${clientField()}</div>
       <div class="egreso-grid"><label data-concept-warehouse hidden>Bodega para cuenta de clientes<select name="bodegaCarteraId"><option value="">Selecciona bodega…</option></select></label></div>
       <div class="egreso-toolbar"><h3>Artículos y conceptos</h3><button type="button" class="button secondary" data-add-line>Agregar artículo</button><button type="button" class="button secondary" data-add-concept>Agregar concepto</button></div>
       <div class="table-wrap"><table><thead><tr><th>Artículo / bodega</th><th>Cantidad</th><th>Precio unitario con IVA</th><th>IVA</th><th>Seriales</th><th></th></tr></thead><tbody data-lines></tbody></table></div>
       <div class="table-wrap"><table><thead><tr><th>Concepto de venta</th><th>Cuenta de ingreso Zeus</th><th>Valor</th><th>Centro de costo Zeus</th><th></th></tr></thead><tbody data-concept-lines></tbody></table></div>
-      <div data-allocations></div><div class="egreso-grid"><label>Centro de costo de la factura<select name="centroCostoIngreso"><option value="">Sin centro de costo</option>${(dimensions?.centrosCosto||[]).map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select><small data-general-center-hint>Se aplica a artículos y demás movimientos generales cuando Zeus lo exige.</small></label><label>Número de cuotas<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label></div>
+      <div data-allocations></div><div class="egreso-grid"><label>Centro de costo de la factura<select name="centroCostoIngreso"><option value="">Sin centro de costo</option>${(dimensions?.centrosCosto||[]).map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select><small data-general-center-hint>Se aplica a artículos y demás movimientos generales cuando Zeus lo exige.</small></label><label>Número de cuotas<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label><label>Vencimiento de las siguientes cuotas<select name="frecuenciaCuotas" required><option value="DIA_FIJO_MES">Mismo día de cada mes</option><option value="CADA_30_DIAS">Cada 30 días</option></select><small>Si el primer vencimiento es el día 3, la opción mensual conserva el día 3.</small></label></div>
+      <div data-installments></div>
       <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Emitir y contabilizar factura</button></div></fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
+    f.elements.frecuenciaCuotas.onchange=()=>{dirty=true;summary();};f.elements.vencimiento.onchange=()=>{dirty=true;summary();};
     f.elements.sucursalId.onchange=()=>{lines=[];f.elements.bodegaCarteraId.value='';addLine();};
     $('[data-add-line]').onclick=addLine;$('[data-add-concept]').onclick=addConcept;f.onsubmit=submitInvoice;addLine();renderConcepts();renderAllocations();
   }
@@ -237,9 +240,21 @@
     const goods=Math.round(lines.reduce((s,x)=>s+Math.round(x.cantidad*x.precioUnitarioConIva*100),0))/100;
     const concepts=Math.round(conceptLines.reduce((s,x)=>s+Math.round(x.valor*100),0))/100;
     const advance=Math.round(advances.reduce((s,x)=>s+Math.round(x.valor*100),0))/100;
-    const total=goods+concepts,balance=Math.round((total-advance)*100)/100,terms=Number(f.elements.cuotas.value)||1;
-    const cents=Math.max(0,Math.round(balance*100)),regular=Math.floor(cents/terms),last=cents-regular*(terms-1);
-    $('[data-summary]').textContent=`Artículos ${money(goods)} + conceptos ${money(concepts)} = total ${money(total)} · Cuota inicial ${money(advance)} · Saldo a financiar ${money(balance)} · ${terms} cuota(s): ${terms>1?`${terms-1} de ${money(regular/100)} y última de ${money(last/100)}`:money(last/100)}`;
+    const total=goods+concepts,balance=Math.round((total-advance)*100)/100,terms=Number(f.elements.cuotas.value);
+    const cents=Math.round(balance*100),calendar=$('[data-installments]');
+    $('[data-summary]').textContent=`Artículos ${money(goods)} + conceptos ${money(concepts)} = total ${money(total)} · Cuota inicial ${money(advance)} · Saldo a financiar ${money(balance)}`;
+    if(!Number.isInteger(terms)||terms<1||terms>120||!f.elements.vencimiento.value||cents<0){calendar.innerHTML='<p class="egreso-help">Completa el primer vencimiento y el número de cuotas para ver el calendario.</p>';return;}
+    if(cents===0){calendar.innerHTML='<p class="egreso-help">No queda saldo de cartera: la cuota inicial cubre toda la factura.</p>';return;}
+    if(cents<terms){calendar.innerHTML='<p class="egreso-help">El saldo no alcanza para asignar al menos $0,01 a cada cuota.</p>';return;}
+    const regular=Math.floor(cents/terms),frequency=f.elements.frecuenciaCuotas.value;
+    const dateAt=index=>{
+      const [year,month,day]=f.elements.vencimiento.value.split('-').map(Number);
+      let date;
+      if(frequency==='CADA_30_DIAS')date=new Date(Date.UTC(year,month-1,day+30*index));
+      else{const targetMonth=month-1+index,lastDay=new Date(Date.UTC(year,targetMonth+1,0)).getUTCDate();date=new Date(Date.UTC(year,targetMonth,Math.min(day,lastDay)));}
+      return date.toISOString().slice(0,10);
+    };
+    calendar.innerHTML=`<h3>Calendario de cartera · ${terms} cuota(s)</h3><div class="table-wrap"><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Valor en cuenta 13</th></tr></thead><tbody>${Array.from({length:terms},(_,i)=>`<tr><td>${i+1}</td><td>${dateAt(i)}</td><td>${money((i===terms-1?cents-regular*(terms-1):regular)/100)}</td></tr>`).join('')}</tbody></table></div>`;
   }
   async function submitInvoice(event){
     event.preventDefault();if(busy)return;const f=event.target;
@@ -252,8 +267,10 @@
     const required=dimensions?.cuentasRequierenCentroCosto||[];
     if(conceptLines.some(x=>required.includes(options.conceptos.find(c=>c.id===x.conceptoVentaId)?.cuentaIngresoZeus)&&!x.centroCosto)){notice('Selecciona el centro de costo de cada concepto cuya cuenta Zeus lo exija.',true);return;}
     const totalCents=lines.reduce((s,x)=>s+Math.round(x.cantidad*x.precioUnitarioConIva*100),0)+conceptLines.reduce((s,x)=>s+Math.round(x.valor*100),0);
-    if(advances.reduce((s,x)=>s+Math.round(x.valor*100),0)>totalCents){notice('La cuota inicial no puede superar el total de la factura.',true);return;}
-    const body={operacionGuid:operation,numero:f.elements.numero.value,clienteId:client.id,sucursalId:Number(f.elements.sucursalId.value),fechaContable:f.elements.fechaContable.value,vencimiento:f.elements.vencimiento.value,lineas:lines,conceptos:conceptLines,cuotas:Number(f.elements.cuotas.value),anticipos:advances,bodegaCarteraId:lines.length?null:Number(f.elements.bodegaCarteraId.value),centroCostoIngreso:f.elements.centroCostoIngreso.value||null};
+    const financedCents=totalCents-advances.reduce((s,x)=>s+Math.round(x.valor*100),0);
+    if(financedCents<0){notice('La cuota inicial no puede superar el total de la factura.',true);return;}
+    if(financedCents>0&&financedCents<Number(f.elements.cuotas.value)){notice('Cada cuota debe tener al menos $0,01.',true);return;}
+    const body={operacionGuid:operation,numero:f.elements.numero.value,clienteId:client.id,sucursalId:Number(f.elements.sucursalId.value),fechaContable:f.elements.fechaContable.value,vencimiento:f.elements.vencimiento.value,lineas:lines,conceptos:conceptLines,cuotas:Number(f.elements.cuotas.value),frecuenciaCuotas:f.elements.frecuenciaCuotas.value,anticipos:advances,bodegaCarteraId:lines.length?null:Number(f.elements.bodegaCarteraId.value),centroCostoIngreso:f.elements.centroCostoIngreso.value||null};
     await send(body,'Factura');
   }
   async function send(body,title){

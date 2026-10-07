@@ -48,9 +48,9 @@ public static class ZeusXml
             var a=movement.Regla;var line=Create("Transac",DetailText,DetailNumber);
             Set(line,"ANOTRA",period);Set(line,"IDFUENTE",config.Fuente);Set(line,"NUMDOCTRA",number);Set(line,"FECHATRA",date);
             Set(line,"CODICTA",a.Cuenta);Set(line,"NITTRA",s.Proveedor.CodigoTercero);Set(line,"CLIPRV",s.Proveedor.CodigoProveedor);
-            Set(line,"DESCRITRA",$"Factura {origin.Factura} - {a.Concepto}");Set(line,"OrigenError",$"Entrada {origin.RecepcionId} {a.Concepto}");
+            Set(line,"DESCRITRA",$"Factura {origin.Factura} - {a.Concepto}"+(movement.NumeroCuota is int installmentNumber?$" - CUOTA {installmentNumber}":""));Set(line,"OrigenError",$"Entrada {origin.RecepcionId} {a.Concepto}");
             Set(line,"BU",config.UnidadNegocio);Set(line,"IDUSUARIO",config.UsuarioZeus);Set(line,"TIPOFAC",config.TipoFactura);
-            Set(line,"NUMEFAC",origin.Factura);Set(line,"VENCEFAC",origin.Vencimiento.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));
+            Set(line,"NUMEFAC",origin.Factura);Set(line,"VENCEFAC",(movement.VencimientoCartera??origin.Vencimiento).ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));
             Set(line,"Fechafact",origin.FechaFactura.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));Set(line,"STATUSTRA","XA");
             Set(line,"INDCPITRA",a.Concepto=="PROVEEDOR"?"3":a.Concepto=="CLIENTE"?"2":"1");Set(line,"VALORTRA",movement.Valor);
             Set(line,"BASERETETRA",movement.Base);Set(line,"PORRETETRA",movement.Tarifa);Set(line,"TasaCambio",1);

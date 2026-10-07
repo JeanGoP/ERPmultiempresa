@@ -6,7 +6,7 @@ using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.Sales;
 
-public sealed record CashReceiptApplication(long FacturaVentaId,decimal Valor);
+public sealed record CashReceiptApplication(long FacturaVentaId,decimal Valor,long? FacturaVentaCuotaId=null);
 public sealed record CashReceiptInput(Guid OperacionGuid,long SucursalId,long ClienteId,DateOnly FechaContable,
     string Tipo,string MedioPago,string? Referencia,string Concepto,decimal Total,string? CuentaContrapartida,
     CashReceiptApplication[] Aplicaciones);
@@ -46,8 +46,13 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             JOIN ven.ClientePerfil p ON p.EmpresaId=t.EmpresaId AND p.TerceroId=t.TerceroId
             WHERE t.EmpresaId=@E AND t.Activo=1 AND (@Q='' OR t.RazonSocial LIKE '%'+@Q+'%' OR t.NumeroIdentificacion LIKE '%'+@Q+'%' OR t.TerceroId=@C)
             ORDER BY CASE WHEN t.TerceroId=@C THEN 0 ELSE 1 END,t.RazonSocial;
-            SELECT FacturaVentaId,Numero,FechaContable,Vencimiento,Total,SaldoPendiente,ZeusEstado
-            FROM ven.FacturaVenta WHERE EmpresaId=@E AND ClienteId=@C AND SaldoPendiente>0 ORDER BY Vencimiento,FacturaVentaId;
+            SELECT f.FacturaVentaId,f.Numero,f.FechaContable,COALESCE(c.FechaVencimiento,f.Vencimiento),
+                COALESCE(c.ValorOriginal,f.Total),COALESCE(c.SaldoPendiente,f.SaldoPendiente),f.ZeusEstado,
+                c.FacturaVentaCuotaId,c.NumeroCuota
+            FROM ven.FacturaVenta f LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId
+            WHERE f.EmpresaId=@E AND f.ClienteId=@C AND f.SaldoPendiente>0
+                AND (c.FacturaVentaCuotaId IS NULL OR c.SaldoPendiente>0)
+            ORDER BY COALESCE(c.FechaVencimiento,f.Vencimiento),f.FacturaVentaId,c.NumeroCuota;
             SELECT ReciboCajaId,Saldo FROM cxc.AnticipoCliente WHERE EmpresaId=@E AND ClienteId=@C AND Saldo>0 ORDER BY ReciboCajaId;
             SELECT SucursalId,MedioPago,Cuenta,Nombre FROM cxp.EgresoCuentaSucursal WHERE EmpresaId=@E;
             """,company);
@@ -57,7 +62,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct))branches.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))clients.Add(new{id=r.GetInt64(0),identificacion=r.GetString(1),nombre=r.GetString(2)});
-        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))invoices.Add(new{id=r.GetInt64(0),numero=r.GetString(1),fecha=r.GetDateTime(2).ToString("yyyy-MM-dd"),vence=r.GetDateTime(3).ToString("yyyy-MM-dd"),total=r.GetDecimal(4),saldo=r.GetDecimal(5),zeusEstado=r.GetString(6)});
+        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))invoices.Add(new{id=r.GetInt64(0),numero=r.GetString(1),fecha=r.GetDateTime(2).ToString("yyyy-MM-dd"),vence=r.GetDateTime(3).ToString("yyyy-MM-dd"),total=r.GetDecimal(4),saldo=r.GetDecimal(5),zeusEstado=r.GetString(6),cuotaId=r.IsDBNull(7)?(long?)null:r.GetInt64(7),numeroCuota=r.IsDBNull(8)?(int?)null:r.GetInt32(8)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))advances.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))accounts.Add(new{sucursalId=r.GetInt64(0),medioPago=r.GetString(1),cuenta=r.GetString(2),nombre=r.GetString(3)});
         return new{sucursales=branches,clientes=clients,facturas=invoices,anticipos=advances,cuentas=accounts};
@@ -76,8 +81,8 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         var applications=input.Aplicaciones??[];
         if(input.Tipo=="CARTERA")
         {
-            if(applications.Length is <1 or >100||applications.Any(a=>a.FacturaVentaId<=0||a.Valor<=0||decimal.Round(a.Valor,2)!=a.Valor)
-                ||applications.GroupBy(a=>a.FacturaVentaId).Any(g=>g.Count()>1)||applications.Sum(a=>a.Valor)!=input.Total)
+            if(applications.Length is <1 or >120||applications.Any(a=>a.FacturaVentaId<=0||a.FacturaVentaCuotaId is <=0||a.Valor<=0||decimal.Round(a.Valor,2)!=a.Valor)
+                ||applications.GroupBy(a=>(a.FacturaVentaId,a.FacturaVentaCuotaId)).Any(g=>g.Count()>1)||applications.Sum(a=>a.Valor)!=input.Total)
                 throw new ArgumentException("Los abonos deben ser únicos, positivos y sumar exactamente el valor del recibo.");
         }
         else if(applications.Length!=0)throw new ArgumentException("Solo un recaudo de cartera puede aplicar facturas.");
@@ -131,22 +136,35 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         if(input.Tipo=="NORMAL"&&(input.CuentaContrapartida!.Length>16||input.CuentaContrapartida==cashAccount))
             throw new ArgumentException("Selecciona una cuenta de ingreso válida, diferente de caja/banco.");
         var invoiceApplications=new List<ZeusCustomerInvoice>();
-        foreach(var line in applications.OrderBy(x=>x.FacturaVentaId))
+        foreach(var line in applications.OrderBy(x=>x.FacturaVentaId).ThenBy(x=>x.FacturaVentaCuotaId))
         {
             ZeusRepository.Add(q,"@Invoice",line.FacturaVentaId);ZeusRepository.Add(q,"@Value",line.Valor);
-            q.CommandText="SELECT SaldoPendiente,ZeusEstado,Numero,Vencimiento,Snapshot FROM ven.FacturaVenta WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND ClienteId=@C AND FechaContable<=@Date";
+            ZeusRepository.Add(q,"@Installment",(object?)line.FacturaVentaCuotaId??DBNull.Value);
+            q.CommandText="""
+                SELECT f.SaldoPendiente,f.ZeusEstado,f.Numero,f.Vencimiento,f.Snapshot,c.SaldoPendiente,c.FechaVencimiento,
+                    CASE WHEN EXISTS(SELECT 1 FROM ven.FacturaVentaCuota x WHERE x.EmpresaId=f.EmpresaId AND x.FacturaVentaId=f.FacturaVentaId) THEN 1 ELSE 0 END
+                FROM ven.FacturaVenta f WITH(UPDLOCK,HOLDLOCK)
+                LEFT JOIN ven.FacturaVentaCuota c WITH(UPDLOCK,HOLDLOCK)
+                    ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId AND c.FacturaVentaCuotaId=@Installment
+                WHERE f.EmpresaId=@E AND f.FacturaVentaId=@Invoice AND f.ClienteId=@C AND f.FechaContable<=@Date
+                """;
             await using(var reader=await q.ExecuteReaderAsync(ct))
             {
                 if(!await reader.ReadAsync(ct)||reader.GetDecimal(0)<line.Valor||reader.GetString(1)!="CONTABILIZADO")
                     throw new ArgumentException("Una factura no pertenece al cliente, no tiene saldo suficiente o aún no fue confirmada en Zeus.");
+                if(line.FacturaVentaCuotaId.HasValue&&(reader.IsDBNull(5)||reader.GetDecimal(5)<line.Valor))
+                    throw new ArgumentException("La cuota no pertenece a esta factura o su saldo cambió.");
+                if(!line.FacturaVentaCuotaId.HasValue&&reader.GetInt32(7)!=0)
+                    throw new ArgumentException("Selecciona una cuota concreta para aplicar el recaudo de esta factura.");
                 if(reader.IsDBNull(4))throw new ArgumentException("La factura no tiene comprobante Zeus verificable.");
                 var original=JsonSerializer.Deserialize<ZeusSnapshot>(reader.GetString(4))!;
                 if(original.Configuracion.ServidorEsperado!=settings.ServidorEsperado||original.Configuracion.BaseEsperada!=settings.BaseEsperada)
                     throw new ArgumentException("La factura pertenece a otro destino Zeus. Concíliala antes de recaudar.");
                 var account=original.ClienteDocumento?.CuentaCliente??throw new ArgumentException("La factura no tiene cuenta de cartera de cliente.");
-                invoiceApplications.Add(new(line.FacturaVentaId,account,original.Configuracion.TipoFactura,reader.GetString(2),original.Configuracion.UnidadNegocio,reader.GetDateTime(3),line.Valor));
+                invoiceApplications.Add(new(line.FacturaVentaId,account,original.Configuracion.TipoFactura,reader.GetString(2),original.Configuracion.UnidadNegocio,
+                    line.FacturaVentaCuotaId.HasValue?reader.GetDateTime(6):reader.GetDateTime(3),line.Valor));
             }
-            q.Parameters.RemoveAt("@Invoice");q.Parameters.RemoveAt("@Value");
+            q.Parameters.RemoveAt("@Invoice");q.Parameters.RemoveAt("@Value");q.Parameters.RemoveAt("@Installment");
         }
         ZeusRepository.Add(q,"@Type",input.Tipo);ZeusRepository.Add(q,"@Concept",input.Concepto.Trim());
         ZeusRepository.Add(q,"@Ref",input.Referencia?.Trim()??"");ZeusRepository.Add(q,"@Total",input.Total);
@@ -162,12 +180,20 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         {
             q.Parameters.Add("@Invoice",SqlDbType.BigInt).Value=line.FacturaVentaId;
             q.Parameters.Add("@Value",SqlDbType.Decimal).Value=line.Valor;
+            q.Parameters.Add("@Installment",SqlDbType.BigInt).Value=(object?)line.FacturaVentaCuotaId??DBNull.Value;
             q.CommandText="""
                 UPDATE ven.FacturaVenta SET SaldoPendiente=SaldoPendiente-@Value WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND ClienteId=@C AND SaldoPendiente>=@Value;
                 IF @@ROWCOUNT<>1 THROW 52310,'El saldo de la factura cambió. Actualiza antes de cobrar.',1;
-                INSERT cxc.ReciboCajaAplicacion(EmpresaId,ReciboCajaId,FacturaVentaId,Valor) VALUES(@E,@Id,@Invoice,@Value);
+                IF @Installment IS NOT NULL
+                BEGIN
+                    UPDATE ven.FacturaVentaCuota SET SaldoPendiente=SaldoPendiente-@Value
+                    WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND FacturaVentaCuotaId=@Installment AND SaldoPendiente>=@Value;
+                    IF @@ROWCOUNT<>1 THROW 52310,'El saldo de la cuota cambió. Actualiza antes de cobrar.',1;
+                END;
+                INSERT cxc.ReciboCajaAplicacion(EmpresaId,ReciboCajaId,FacturaVentaId,FacturaVentaCuotaId,Valor)
+                VALUES(@E,@Id,@Invoice,@Installment,@Value);
                 """;
-            await q.ExecuteNonQueryAsync(ct);q.Parameters.RemoveAt("@Invoice");q.Parameters.RemoveAt("@Value");
+            await q.ExecuteNonQueryAsync(ct);q.Parameters.RemoveAt("@Invoice");q.Parameters.RemoveAt("@Value");q.Parameters.RemoveAt("@Installment");
         }
         var contra=input.Tipo switch
         {
