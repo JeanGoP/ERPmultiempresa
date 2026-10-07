@@ -63,13 +63,29 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                 if(!expected.Remove((r.GetString(0),r.GetInt32(1)),out var amount) || amount!=Convert.ToDecimal(r.GetValue(2)))
                     throw new InvalidOperationException("Los movimientos encontrados no coinciden con las cuentas e importes aprobados.");
         if(expected.Count!=0) throw new InvalidOperationException("Faltan movimientos contables en Zeus.");
+        if(s.ClienteDocumento is { Tipo:"FACTURA",FacturaUsaConsecutivoZeus:true })
+        {
+            if(number.Length!=10||!number.StartsWith(s.Configuracion.Serie,StringComparison.Ordinal))
+                throw new InvalidOperationException("El comprobante Zeus no coincide con la serie reservada de la factura.");
+            foreach(var installment in s.Movimientos.Where(m=>m.Regla.Concepto=="CLIENTE"))
+            {
+                await using var line=c.CreateCommand();line.Transaction=tx;
+                line.CommandText="SELECT SUM(VALORTRA) FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND CODICTA=@A AND CLIPRV=@C AND NITTRA=@T AND TIPOFAC=@Type AND NUMEFAC=@Invoice AND CONVERT(date,VENCEFAC)=@Due AND BU=@Bu AND INDCPITRA='2' AND STATUSTRA IN('AC','XA')";
+                foreach(var p in new (string,object)[]{("@F",s.Configuracion.Fuente),("@N",number),("@A",installment.Regla.Cuenta),("@C",s.Proveedor.CodigoProveedor),("@T",s.Proveedor.CodigoTercero),("@Type",s.Configuracion.TipoFactura),("@Invoice",number[2..]),("@Bu",s.Configuracion.UnidadNegocio)})line.Parameters.AddWithValue(p.Item1,p.Item2);
+                line.Parameters.Add("@Due",SqlDbType.Date).Value=(installment.VencimientoCartera??s.Origen.Vencimiento).Date;
+                var value=await line.ExecuteScalarAsync(ct);
+                if(value is null or DBNull||Convert.ToDecimal(value)!=installment.Valor)
+                    throw new InvalidOperationException("Zeus no confirmó una cuota de cartera con el número y vencimiento del comprobante.");
+            }
+        }
         if(s.Egreso is not null)await VerifyPaymentLines(c,tx,s,number,ct);
         if(s.ClienteDocumento is { Tipo:"RECIBO" } receipt)
             foreach(var invoice in receipt.Facturas??[])
             {
                 await using var line=c.CreateCommand();line.Transaction=tx;
-                line.CommandText="SELECT SUM(VALORTRA) FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND CODICTA=@A AND CLIPRV=@C AND NITTRA=@T AND TIPOFAC=@Type AND NUMEFAC=@Invoice AND BU=@Bu AND INDCPITRA='2' AND STATUSTRA IN('AC','XA')";
+                line.CommandText="SELECT SUM(VALORTRA) FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND CODICTA=@A AND CLIPRV=@C AND NITTRA=@T AND TIPOFAC=@Type AND NUMEFAC=@Invoice AND CONVERT(date,VENCEFAC)=@Due AND BU=@Bu AND INDCPITRA='2' AND STATUSTRA IN('AC','XA')";
                 foreach(var p in new (string,object)[]{("@F",s.Configuracion.Fuente),("@N",number),("@A",invoice.Cuenta),("@C",s.Proveedor.CodigoProveedor),("@T",s.Proveedor.CodigoTercero),("@Type",invoice.Tipo),("@Invoice",invoice.Numero),("@Bu",invoice.UnidadNegocio)})line.Parameters.AddWithValue(p.Item1,p.Item2);
+                line.Parameters.Add("@Due",SqlDbType.Date).Value=invoice.Vencimiento.Date;
                 var value=await line.ExecuteScalarAsync(ct);
                 if(value is null or DBNull||Convert.ToDecimal(value)!=-invoice.Valor)
                     throw new InvalidOperationException($"Zeus no confirmó el recaudo de la factura {invoice.Numero}.");
@@ -165,9 +181,28 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             q.Parameters.AddWithValue("@Payment",s.Egreso is null&&s.ClienteDocumento?.Tipo!="RECIBO"?0:1);
             await q.ExecuteNonQueryAsync(ct);q.Parameters.Clear();
             stage="dbo.spWSG_Contabilidad";
+            string? invoiceDocument=null;
+            if(s.ClienteDocumento is { Tipo:"FACTURA",FacturaUsaConsecutivoZeus:true })
+            {
+                stage="reserva del consecutivo de la factura en Zeus";
+                q.Parameters.Clear();q.CommandText="dbo.spConsecutivo";q.CommandType=CommandType.StoredProcedure;
+                q.Parameters.Add("@XANOTRA",SqlDbType.VarChar,6).Value="*";
+                q.Parameters.Add("@XIDFUENTE",SqlDbType.Char,2).Value=s.Configuracion.Fuente;
+                q.Parameters.Add("@XNUMDOC",SqlDbType.VarChar,2).Value=s.Configuracion.Serie;
+                q.Parameters.Add("@XOPER",SqlDbType.Char,1).Value="I";
+                var consecutive=q.Parameters.Add("@XNUMCONSE",SqlDbType.Decimal);consecutive.Precision=18;consecutive.Scale=0;consecutive.Direction=ParameterDirection.InputOutput;consecutive.Value=0m;
+                var code=q.Parameters.Add("@RETURN_VALUE",SqlDbType.Int);code.Direction=ParameterDirection.ReturnValue;
+                await q.ExecuteNonQueryAsync(ct);
+                var sequence=Convert.ToDecimal(consecutive.Value);
+                if(Convert.ToInt32(code.Value)!=0||sequence<1||sequence>99999999||sequence!=decimal.Truncate(sequence))
+                    throw new InvalidOperationException("Zeus no reservó un consecutivo válido para la factura.");
+                invoiceDocument=s.Configuracion.Serie+sequence.ToString("00000000",System.Globalization.CultureInfo.InvariantCulture);
+                q.Parameters.Clear();q.CommandType=CommandType.Text;
+                stage="dbo.spWSG_Contabilidad";
+            }
             q.CommandText="dbo.spWSG_Contabilidad";q.CommandType=CommandType.StoredProcedure;
             q.Parameters.Add("@Iden",SqlDbType.Int).Value=16;
-            q.Parameters.Add("@XML",SqlDbType.VarChar,-1).Value=ZeusXml.Build(s,key);
+            q.Parameters.Add("@XML",SqlDbType.VarChar,-1).Value=ZeusXml.Build(s,key,invoiceDocument);
             var returned=q.Parameters.Add("@RETURN_VALUE",SqlDbType.Int);returned.Direction=ParameterDirection.ReturnValue;
             // Consumir todos los resultados: el adaptador original devuelve un SELECT antes de terminar.
             await using(var r=await q.ExecuteReaderAsync(ct))

@@ -142,6 +142,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             ZeusRepository.Add(q,"@Installment",(object?)line.FacturaVentaCuotaId??DBNull.Value);
             q.CommandText="""
                 SELECT f.SaldoPendiente,f.ZeusEstado,f.Numero,f.Vencimiento,f.Snapshot,c.SaldoPendiente,c.FechaVencimiento,
+                    f.ZeusDocumento,
                     CASE WHEN EXISTS(SELECT 1 FROM ven.FacturaVentaCuota x WHERE x.EmpresaId=f.EmpresaId AND x.FacturaVentaId=f.FacturaVentaId) THEN 1 ELSE 0 END
                 FROM ven.FacturaVenta f WITH(UPDLOCK,HOLDLOCK)
                 LEFT JOIN ven.FacturaVentaCuota c WITH(UPDLOCK,HOLDLOCK)
@@ -154,14 +155,23 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                     throw new ArgumentException("Una factura no pertenece al cliente, no tiene saldo suficiente o aún no fue confirmada en Zeus.");
                 if(line.FacturaVentaCuotaId.HasValue&&(reader.IsDBNull(5)||reader.GetDecimal(5)<line.Valor))
                     throw new ArgumentException("La cuota no pertenece a esta factura o su saldo cambió.");
-                if(!line.FacturaVentaCuotaId.HasValue&&reader.GetInt32(7)!=0)
+                if(!line.FacturaVentaCuotaId.HasValue&&reader.GetInt32(8)!=0)
                     throw new ArgumentException("Selecciona una cuota concreta para aplicar el recaudo de esta factura.");
                 if(reader.IsDBNull(4))throw new ArgumentException("La factura no tiene comprobante Zeus verificable.");
                 var original=JsonSerializer.Deserialize<ZeusSnapshot>(reader.GetString(4))!;
                 if(original.Configuracion.ServidorEsperado!=settings.ServidorEsperado||original.Configuracion.BaseEsperada!=settings.BaseEsperada)
                     throw new ArgumentException("La factura pertenece a otro destino Zeus. Concíliala antes de recaudar.");
                 var account=original.ClienteDocumento?.CuentaCliente??throw new ArgumentException("La factura no tiene cuenta de cartera de cliente.");
-                invoiceApplications.Add(new(line.FacturaVentaId,account,original.Configuracion.TipoFactura,reader.GetString(2),original.Configuracion.UnidadNegocio,
+                var invoiceNumber=reader.GetString(2);
+                if(original.ClienteDocumento?.FacturaUsaConsecutivoZeus==true)
+                {
+                    if(reader.IsDBNull(7))throw new ArgumentException("La factura aún no tiene consecutivo confirmado en Zeus.");
+                    var document=reader.GetString(7).Trim();
+                    if(document.Length!=10||!document.StartsWith(original.Configuracion.Serie,StringComparison.Ordinal)||!document[2..].All(char.IsDigit))
+                        throw new ArgumentException("El consecutivo de Zeus de la factura no coincide con su serie. Concíliala antes de recaudar.");
+                    invoiceNumber=document[2..];
+                }
+                invoiceApplications.Add(new(line.FacturaVentaId,account,original.Configuracion.TipoFactura,invoiceNumber,original.Configuracion.UnidadNegocio,
                     line.FacturaVentaCuotaId.HasValue?reader.GetDateTime(6):reader.GetDateTime(3),line.Valor));
             }
             q.Parameters.RemoveAt("@Invoice");q.Parameters.RemoveAt("@Value");q.Parameters.RemoveAt("@Installment");

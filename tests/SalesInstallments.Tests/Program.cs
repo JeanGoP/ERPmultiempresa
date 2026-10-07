@@ -20,14 +20,21 @@ var movements=monthly.Select(x=>new ZeusMovement(new ZeusAccount("CLIENTE","1305
     VencimientoCartera:x.Vencimiento.ToDateTime(TimeOnly.MinValue),NumeroCuota:x.Numero))
     .Append(new ZeusMovement(new ZeusAccount("INGRESO","413502001"),-1200m)).ToArray();
 var snapshot=new ZeusSnapshot(settings,source,new ZeusSupplier(1,"123","123"),movements,
-    ClienteDocumento:new ZeusCustomerDocument("FACTURA","Venta","130505"));
-var xml=XElement.Parse(ZeusXml.Build(snapshot,Guid.NewGuid()));
+    ClienteDocumento:new ZeusCustomerDocument("FACTURA","Venta","130505",FacturaUsaConsecutivoZeus:true));
+var xml=XElement.Parse(ZeusXml.Build(snapshot,Guid.NewGuid(),"0000000060"));
 var receivables=xml.Descendants("Transac").Where(x=>(string?)x.Element("CODICTA")=="130505").ToArray();
 Check(receivables.Length==12&&receivables.Select(x=>(string?)x.Element("VENCEFAC")).Distinct().Count()==12,
     "Zeus recibe doce movimientos de cuenta 13 con vencimientos separados");
 Check((string?)receivables[0].Element("VENCEFAC")=="2026/10/03"
     &&(string?)receivables[1].Element("VENCEFAC")=="2026/11/03", "Zeus conserva el día mensual y el número de factura");
-Check(receivables.All(x=>(string?)x.Element("NUMEFAC")=="FV-1"),"Zeus usa el número original en cada cuota");
+Check(receivables.All(x=>(string?)x.Element("NUMEFAC")=="00000060")
+    &&(string?)xml.Descendants("Document").Single().Element("NUMEDCTO")=="0000000060",
+    "las doce cuotas usan el consecutivo del comprobante Zeus");
+Check((string?)xml.Descendants("Transac").Single(x=>(string?)x.Element("CODICTA")=="413502001").Element("NUMEFAC")=="FV-1",
+    "la referencia interna del ERP no sustituye el número de cartera");
+var legacy=XElement.Parse(ZeusXml.Build(snapshot with{ClienteDocumento=snapshot.ClienteDocumento! with{FacturaUsaConsecutivoZeus=false}},Guid.NewGuid()));
+Check(legacy.Descendants("Transac").Where(x=>(string?)x.Element("CODICTA")=="130505")
+    .All(x=>(string?)x.Element("NUMEFAC")=="FV-1"),"los snapshots históricos conservan su numeración");
 
 var days=SalesInstallments.Build(new DateOnly(2026,10,3),3,SalesInstallments.EveryThirtyDays,100.01m);
 Check(days[1].Vencimiento==new DateOnly(2026,11,2)&&days[2].Vencimiento==new DateOnly(2026,12,2),"intervalos reales de treinta días");

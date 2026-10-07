@@ -22,12 +22,16 @@ public static class ZeusXml
         if(name.Length>available)name=name[..available];
         return prefix+name+suffix;
     }
-    public static string Build(ZeusSnapshot s,Guid key)
+    public static string Build(ZeusSnapshot s,Guid key,string? invoiceDocument=null)
     {
         var config=s.Configuracion;var origin=s.Origen;
         var date=origin.FechaContable.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture);
         var period=origin.FechaContable.ToString("yyyyMM",CultureInfo.InvariantCulture);
-        var number=config.Serie+"NUEVO";
+        if(invoiceDocument is not null && (s.ClienteDocumento is not { Tipo:"FACTURA",FacturaUsaConsecutivoZeus:true }
+            ||invoiceDocument.Length!=10||!invoiceDocument.StartsWith(config.Serie,StringComparison.Ordinal)
+            ||!invoiceDocument.AsSpan(2).ToString().All(char.IsDigit)))
+            throw new ArgumentException("El consecutivo reservado de la factura no coincide con la serie de Zeus.");
+        var number=invoiceDocument??config.Serie+"NUEVO";
         XElement Create(string name,string texts,string numbers)=>new(name,texts.Split(' ').Select(n=>new XElement(n,"")),numbers.Split(' ').Select(n=>new XElement(n,"0")));
         void Set(XElement e,string name,object value)=>e.SetElementValue(name,value is decimal d?ZeusJournal.Number(d):value);
         var header=Create("Document",HeaderText,HeaderNumber);
@@ -50,7 +54,8 @@ public static class ZeusXml
             Set(line,"CODICTA",a.Cuenta);Set(line,"NITTRA",s.Proveedor.CodigoTercero);Set(line,"CLIPRV",s.Proveedor.CodigoProveedor);
             Set(line,"DESCRITRA",$"Factura {origin.Factura} - {a.Concepto}"+(movement.NumeroCuota is int installmentNumber?$" - CUOTA {installmentNumber}":""));Set(line,"OrigenError",$"Entrada {origin.RecepcionId} {a.Concepto}");
             Set(line,"BU",config.UnidadNegocio);Set(line,"IDUSUARIO",config.UsuarioZeus);Set(line,"TIPOFAC",config.TipoFactura);
-            Set(line,"NUMEFAC",origin.Factura);Set(line,"VENCEFAC",(movement.VencimientoCartera??origin.Vencimiento).ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));
+            Set(line,"NUMEFAC",invoiceDocument is not null&&a.Concepto=="CLIENTE"?invoiceDocument[2..]:origin.Factura);
+            Set(line,"VENCEFAC",(movement.VencimientoCartera??origin.Vencimiento).ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));
             Set(line,"Fechafact",origin.FechaFactura.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));Set(line,"STATUSTRA","XA");
             Set(line,"INDCPITRA",a.Concepto=="PROVEEDOR"?"3":a.Concepto=="CLIENTE"?"2":"1");Set(line,"VALORTRA",movement.Valor);
             Set(line,"BASERETETRA",movement.Base);Set(line,"PORRETETRA",movement.Tarifa);Set(line,"TasaCambio",1);
