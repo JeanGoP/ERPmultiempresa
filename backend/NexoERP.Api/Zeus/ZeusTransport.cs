@@ -71,7 +71,8 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             {
                 await using var line=c.CreateCommand();line.Transaction=tx;
                 line.CommandText="SELECT SUM(VALORTRA) FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND CODICTA=@A AND CLIPRV=@C AND NITTRA=@T AND TIPOFAC=@Type AND NUMEFAC=@Invoice AND CONVERT(date,VENCEFAC)=@Due AND BU=@Bu AND INDCPITRA='2' AND STATUSTRA IN('AC','XA')";
-                foreach(var p in new (string,object)[]{("@F",s.Configuracion.Fuente),("@N",number),("@A",installment.Regla.Cuenta),("@C",s.Proveedor.CodigoProveedor),("@T",s.Proveedor.CodigoTercero),("@Type",s.Configuracion.TipoFactura),("@Invoice",number[2..]),("@Bu",s.Configuracion.UnidadNegocio)})line.Parameters.AddWithValue(p.Item1,p.Item2);
+                var invoiceNumber=s.ClienteDocumento.CarteraConsecutivoCompleto?number:number[2..];
+                foreach(var p in new (string,object)[]{("@F",s.Configuracion.Fuente),("@N",number),("@A",installment.Regla.Cuenta),("@C",s.Proveedor.CodigoProveedor),("@T",s.Proveedor.CodigoTercero),("@Type",s.Configuracion.TipoFactura),("@Invoice",invoiceNumber),("@Bu",s.Configuracion.UnidadNegocio)})line.Parameters.AddWithValue(p.Item1,p.Item2);
                 line.Parameters.Add("@Due",SqlDbType.Date).Value=(installment.VencimientoCartera??s.Origen.Vencimiento).Date;
                 var value=await line.ExecuteScalarAsync(ct);
                 if(value is null or DBNull||Convert.ToDecimal(value)!=installment.Valor)

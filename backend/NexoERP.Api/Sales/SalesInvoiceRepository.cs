@@ -364,7 +364,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         if(movements.Sum(x=>x.Valor)!=0)throw new InvalidOperationException("La factura no quedó balanceada. No se contabilizó.");
         var source=new ZeusSource(0,input.ClienteId,input.Numero.Trim(),input.FechaContable.ToDateTime(TimeOnly.MinValue),input.FechaContable.ToDateTime(TimeOnly.MinValue),input.Vencimiento.ToDateTime(TimeOnly.MinValue),total,validated.Sum(x=>x.Iva),0,[],ProveedorNombre:customerName);
         var snapshot=new ZeusSnapshot(settings,source,new(input.ClienteId,identification,identification),movements.ToArray(),
-            ClienteDocumento:new("FACTURA","FACTURA DE VENTA",receivableAccount,FacturaUsaConsecutivoZeus:true));
+            ClienteDocumento:new("FACTURA","FACTURA DE VENTA",receivableAccount,FacturaUsaConsecutivoZeus:true,CarteraConsecutivoCompleto:true));
         q.CommandText="UPDATE ven.FacturaVenta SET Snapshot=@Snapshot WHERE EmpresaId=@E AND FacturaVentaId=@Id";
         ZeusRepository.Add(q,"@Snapshot",JsonSerializer.Serialize(snapshot));await q.ExecuteNonQueryAsync(ct);
         q.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@E,@User,'CONTABILIZAR_FACTURA_VENTA','ven.FacturaVenta',CONVERT(varchar(30),@Id),@Json,'ERP')";

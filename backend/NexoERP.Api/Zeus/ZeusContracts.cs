@@ -31,7 +31,7 @@ public sealed record ZeusDisbursement(string Concepto,string Banco,string Cuenta
 public sealed record ZeusCustomerInvoice(long FacturaVentaId,string Cuenta,string Tipo,string Numero,string UnidadNegocio,DateTime Vencimiento,decimal Valor);
 public sealed record ZeusCustomerDocument(string Tipo,string Concepto,string CuentaCliente,string Banco="",string CuentaCaja="",
     string Referencia="",string MonedaZeus="",ZeusCustomerInvoice[]? Facturas=null,int IndicadorCaja=1,string CuentaBancaria="",
-    bool FacturaUsaConsecutivoZeus=false);
+    bool FacturaUsaConsecutivoZeus=false,bool CarteraConsecutivoCompleto=false);
 
 public static class ZeusJournal
 {

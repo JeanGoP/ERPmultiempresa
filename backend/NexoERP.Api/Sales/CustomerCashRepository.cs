@@ -169,7 +169,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                     var document=reader.GetString(7).Trim();
                     if(document.Length!=10||!document.StartsWith(original.Configuracion.Serie,StringComparison.Ordinal)||!document[2..].All(char.IsDigit))
                         throw new ArgumentException("El consecutivo de Zeus de la factura no coincide con su serie. Concíliala antes de recaudar.");
-                    invoiceNumber=document[2..];
+                    invoiceNumber=original.ClienteDocumento.CarteraConsecutivoCompleto?document:document[2..];
                 }
                 invoiceApplications.Add(new(line.FacturaVentaId,account,original.Configuracion.TipoFactura,invoiceNumber,original.Configuracion.UnidadNegocio,
                     line.FacturaVentaCuotaId.HasValue?reader.GetDateTime(6):reader.GetDateTime(3),line.Valor));

@@ -54,7 +54,9 @@ public static class ZeusXml
             Set(line,"CODICTA",a.Cuenta);Set(line,"NITTRA",s.Proveedor.CodigoTercero);Set(line,"CLIPRV",s.Proveedor.CodigoProveedor);
             Set(line,"DESCRITRA",$"Factura {origin.Factura} - {a.Concepto}"+(movement.NumeroCuota is int installmentNumber?$" - CUOTA {installmentNumber}":""));Set(line,"OrigenError",$"Entrada {origin.RecepcionId} {a.Concepto}");
             Set(line,"BU",config.UnidadNegocio);Set(line,"IDUSUARIO",config.UsuarioZeus);Set(line,"TIPOFAC",config.TipoFactura);
-            Set(line,"NUMEFAC",invoiceDocument is not null&&a.Concepto=="CLIENTE"?invoiceDocument[2..]:origin.Factura);
+            Set(line,"NUMEFAC",invoiceDocument is not null&&a.Concepto=="CLIENTE"
+                ?s.ClienteDocumento!.CarteraConsecutivoCompleto?invoiceDocument:invoiceDocument[2..]
+                :origin.Factura);
             Set(line,"VENCEFAC",(movement.VencimientoCartera??origin.Vencimiento).ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));
             Set(line,"Fechafact",origin.FechaFactura.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));Set(line,"STATUSTRA","XA");
             Set(line,"INDCPITRA",a.Concepto=="PROVEEDOR"?"3":a.Concepto=="CLIENTE"?"2":"1");Set(line,"VALORTRA",movement.Valor);
