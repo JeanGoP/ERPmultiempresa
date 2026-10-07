@@ -5,7 +5,7 @@
   const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'America/Bogota'});
   const dialog=document.createElement('dialog');dialog.className='erp-dialog egreso-dialog customer-documents-dialog';document.body.append(dialog);
   const $=selector=>dialog.querySelector(selector);
-  let mode='',company=0,token=0,busy=false,dirty=false,options=null,accounts=[],search='',next=null;
+  let mode='',company=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,search='',next=null;
   let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[];
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='invoice'?'sales-invoices':'cash-receipts'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
@@ -28,7 +28,7 @@
     try{
       const response=await apiRequest(endpoint()+`?q=${encodeURIComponent(search)}${before?`&antes=${before}`:''}`);
       if(!current(t))return;next=response.siguiente;
-      $('[data-content]').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Documento</th><th>Fecha</th><th>Cliente</th><th>Total</th><th>Saldo / tipo</th><th>Zeus</th></tr></thead><tbody>${response.items.map(row=>`<tr><td>${esc(row.numero||'RC-'+row.id)}</td><td>${esc(row.fecha)}</td><td>${esc(row.cliente)}</td><td>${money(row.total)}</td><td>${mode==='invoice'?money(row.saldo)+' · anticipo '+money(row.anticipo):esc(row.tipo)}</td><td>${esc(row.zeusEstado)} ${esc([row.fuente,row.documento].filter(Boolean).join(' · '))}<br><small>${esc(row.error||'')}</small>${row.zeusEstado==='RECHAZADO'?`<button type="button" class="button secondary" data-retry="${row.id}">Reintentar Zeus</button>`:''}${row.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button type="button" class="button secondary" data-reconcile="${row.id}">Conciliar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6">No se encontraron documentos.</td></tr>'}</tbody></table></div>
+      $('[data-content]').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Documento</th><th>Fecha</th><th>Cliente</th><th>Total</th><th>Saldo / tipo</th><th>Zeus</th></tr></thead><tbody>${response.items.map(row=>`<tr><td>${esc(row.numero||'RC-'+row.id)}</td><td>${esc(row.fecha)}</td><td>${esc(row.cliente)}</td><td>${money(row.total)}</td><td>${mode==='invoice'?money(row.saldo)+' · anticipo '+money(row.anticipo):esc(row.tipo)}</td><td>${esc(row.zeusEstado)} ${esc([row.fuente,row.documento].filter(Boolean).join(' · '))}<br><small>${esc(row.error||'')}</small>${row.zeusEstado==='RECHAZADO'?(mode==='invoice'?`<button type="button" class="button secondary" data-cost-center="${row.id}">Corregir centro de costo</button>`:'')+`<button type="button" class="button secondary" data-retry="${row.id}">Reintentar Zeus</button>`:''}${row.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button type="button" class="button secondary" data-reconcile="${row.id}">Conciliar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6">No se encontraron documentos.</td></tr>'}</tbody></table></div>
         <div class="egreso-toolbar"><button type="button" class="button secondary" data-first>Primera página</button><button type="button" class="button secondary" data-next ${next?'':'disabled'}>Siguientes</button></div>`;
       notice('');$('[data-first]').onclick=()=>listing();$('[data-next]').onclick=()=>listing(next);
       for(const action of ['retry','reconcile'])dialog.querySelectorAll(`[data-${action}]`).forEach(button=>button.onclick=async()=>{
@@ -36,6 +36,27 @@
         try{const result=await apiRequest(endpoint()+`/${button.dataset[action]}/${action}`,{method:'POST'});await listing(before);if(result?.error)notice(result.error,true);}
         catch(error){if(current(t))notice(error.message,true);}finally{busy=false;}
       });
+      dialog.querySelectorAll('[data-cost-center]').forEach(button=>button.onclick=()=>void correctCostCenter(Number(button.dataset.costCenter),before,t));
+    }catch(error){if(current(t))notice(error.message,true);}
+  }
+  async function correctCostCenter(id,before,t){
+    notice('Consultando los movimientos rechazados…');
+    try{
+      const result=await apiRequest(endpoint()+`/${id}/cost-centers`);if(!current(t))return;
+      if(!result.faltantes.length){notice('No hay centros de costo obligatorios sin completar en este comprobante. Revisa el detalle del rechazo.',true);return;}
+      $('[data-content]').innerHTML=`<form data-correction><fieldset><h3>Corregir centro de costo · Factura ${id}</h3><p>Se aplicará el centro elegido únicamente a estos movimientos que Zeus exige y quedaron vacíos. No cambia valores ni inventario del ERP.</p>
+        <div class="table-wrap"><table><thead><tr><th>Movimiento</th><th>Cuenta Zeus</th></tr></thead><tbody>${result.faltantes.map(x=>`<tr><td>${esc(x.concepto)}</td><td>${esc(x.cuenta)}</td></tr>`).join('')}</tbody></table></div>
+        <div class="egreso-grid"><label>Centro de costo Zeus<select name="centroCosto" required><option value="">Selecciona centro…</option>${result.centrosCosto.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label></div>
+        <div class="egreso-toolbar"><button type="submit" class="button primary">Guardar y reintentar Zeus</button><button type="button" class="button secondary" data-back>Volver</button></div></fieldset></form>`;
+      $('[data-back]').onclick=()=>listing(before);
+      $('[data-correction]').onsubmit=async event=>{
+        event.preventDefault();if(busy)return;busy=true;const button=event.target.querySelector('[type="submit"]');button.disabled=true;
+        try{
+          await apiRequest(endpoint()+`/${id}/cost-centers`,{method:'POST',body:JSON.stringify({centroCosto:event.target.elements.centroCosto.value})});
+          await apiRequest(endpoint()+`/${id}/retry`,{method:'POST'});await listing(before);
+          notice(`Factura ${id}: centro de costo guardado y envío a Zeus reactivado.`);
+        }catch(error){if(current(t))notice(error.message,true);}finally{busy=false;if(button.isConnected)button.disabled=false;}
+      };notice('');
     }catch(error){if(current(t))notice(error.message,true);}
   }
   async function open(selected){
@@ -48,8 +69,8 @@
   async function create(){
     const t=++token;operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];dirty=false;shell();notice('Cargando catálogos…');
     try{
-      const [opts,chart]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts')]);
-      if(!current(t))return;options=opts;accounts=chart;
+      const [opts,chart,dims]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions'):Promise.resolve(null)]);
+      if(!current(t))return;options=opts;accounts=chart;dimensions=dims;
       if(mode==='invoice')invoiceForm();else receiptForm();notice('');
     }catch(error){if(current(t))notice(error.message,true);}
   }
@@ -144,8 +165,8 @@
       <div class="egreso-grid"><label data-concept-warehouse hidden>Bodega para cuenta de clientes<select name="bodegaCarteraId"><option value="">Selecciona bodega…</option></select></label></div>
       <div class="egreso-toolbar"><h3>Artículos y conceptos</h3><button type="button" class="button secondary" data-add-line>Agregar artículo</button><button type="button" class="button secondary" data-add-concept>Agregar concepto</button></div>
       <div class="table-wrap"><table><thead><tr><th>Artículo / bodega</th><th>Cantidad</th><th>Precio unitario con IVA</th><th>IVA</th><th>Seriales</th><th></th></tr></thead><tbody data-lines></tbody></table></div>
-      <div class="table-wrap"><table><thead><tr><th>Concepto de venta</th><th>Cuenta de ingreso Zeus</th><th>Valor</th><th></th></tr></thead><tbody data-concept-lines></tbody></table></div>
-      <div data-allocations></div><div class="egreso-grid"><label>Número de cuotas<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label></div>
+      <div class="table-wrap"><table><thead><tr><th>Concepto de venta</th><th>Cuenta de ingreso Zeus</th><th>Valor</th><th>Centro de costo Zeus</th><th></th></tr></thead><tbody data-concept-lines></tbody></table></div>
+      <div data-allocations></div><div class="egreso-grid"><label>Centro de costo de la factura<select name="centroCostoIngreso"><option value="">Sin centro de costo</option>${(dimensions?.centrosCosto||[]).map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select><small data-general-center-hint>Se aplica a artículos y demás movimientos generales cuando Zeus lo exige.</small></label><label>Número de cuotas<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label></div>
       <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Emitir y contabilizar factura</button></div></fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
     f.elements.sucursalId.onchange=()=>{lines=[];f.elements.bodegaCarteraId.value='';addLine();};
@@ -181,17 +202,27 @@
       row.querySelector('[data-price]').oninput=event=>{line.precioUnitarioConIva=Number(event.target.value);summary();dirty=true;};
       row.querySelector('[data-serial]')?.addEventListener('change',event=>{line.unidadesSerializadas=Array.from(event.target.selectedOptions,x=>Number(x.value));dirty=true;});
       row.querySelector('[data-remove]').onclick=()=>{lines.splice(Number(row.dataset.line),1);renderLines();dirty=true;};
-    });summary();
+    });updateGeneralCenterHint();summary();
   }
-  function addConcept(){conceptLines.push({conceptoVentaId:0,valor:0});renderConcepts();dirty=true;}
+  function updateGeneralCenterHint(){
+    const hint=$('[data-general-center-hint]');if(!hint)return;
+    const required=(dimensions?.cuentasRequierenCentroCosto||[]);
+    const accounts=lines.map(x=>(options.bodegas||[]).find(b=>b.id===x.bodegaId)?.cuentaIngreso).filter(Boolean);
+    const matching=accounts.filter(x=>required.includes(x));
+    const control=$('[name="centroCostoIngreso"]');control.required=matching.length>0;
+    hint.textContent=matching.length?`Obligatorio: la cuenta de ingreso ${[...new Set(matching)].join(', ')} exige centro de costo.`:'Se aplica a artículos y demás movimientos generales cuando Zeus lo exige.';
+  }
+  function addConcept(){conceptLines.push({conceptoVentaId:0,valor:0,centroCosto:''});renderConcepts();dirty=true;}
   function renderConcepts(){
     const area=$('[data-concept-lines]');if(!area)return;
     area.innerHTML=conceptLines.map((line,index)=>{const selected=(options.conceptos||[]).find(x=>x.id===line.conceptoVentaId);
-      return `<tr data-concept-line="${index}"><td><select data-concept required><option value="">Selecciona concepto…</option>${(options.conceptos||[]).map(x=>`<option value="${x.id}" ${x.id===line.conceptoVentaId?'selected':''}>${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></td><td>${esc(selected?.cuentaIngresoZeus||'—')}</td><td><input data-concept-value type="number" min="0.01" step="0.01" value="${esc(line.valor||'')}" required></td><td><button type="button" class="button secondary" data-remove-concept>Quitar</button></td></tr>`;
+      const required=(dimensions?.cuentasRequierenCentroCosto||[]).includes(selected?.cuentaIngresoZeus);
+      return `<tr data-concept-line="${index}"><td><select data-concept required><option value="">Selecciona concepto…</option>${(options.conceptos||[]).map(x=>`<option value="${x.id}" ${x.id===line.conceptoVentaId?'selected':''}>${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></td><td>${esc(selected?.cuentaIngresoZeus||'—')}</td><td><input data-concept-value type="number" min="0.01" step="0.01" value="${esc(line.valor||'')}" required></td><td><select data-concept-center aria-label="Centro de costo de ${esc(selected?.nombre||'concepto')}" ${required?'required':''}><option value="">${required?'Centro de costo obligatorio':'Sin centro de costo'}</option>${(dimensions?.centrosCosto||[]).map(x=>`<option value="${esc(x.codigo)}" ${x.codigo===line.centroCosto?'selected':''}>${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></td><td><button type="button" class="button secondary" data-remove-concept>Quitar</button></td></tr>`;
     }).join('');
     area.querySelectorAll('[data-concept-line]').forEach(row=>{const line=conceptLines[Number(row.dataset.conceptLine)];
       row.querySelector('[data-concept]').onchange=event=>{line.conceptoVentaId=Number(event.target.value);renderConcepts();dirty=true;};
       row.querySelector('[data-concept-value]').oninput=event=>{line.valor=Number(event.target.value);summary();dirty=true;};
+      row.querySelector('[data-concept-center]').onchange=event=>{line.centroCosto=event.target.value;dirty=true;};
       row.querySelector('[data-remove-concept]').onclick=()=>{conceptLines.splice(Number(row.dataset.conceptLine),1);renderConcepts();dirty=true;};
     });summary();
   }
@@ -218,9 +249,11 @@
     for(const line of lines){const a=options.articulos.find(x=>x.id===line.articuloId&&x.bodegaId===line.bodegaId);
       if(a?.iva==null||a.inventario&&line.cantidad>a.existencia||a?.serial&&line.unidadesSerializadas.length!==line.cantidad){notice('Revisa el IVA, las existencias y los seriales seleccionados.',true);return;}}
     if(conceptLines.some(x=>!x.conceptoVentaId||!Number.isFinite(x.valor)||x.valor<=0)){notice('Completa los conceptos y sus valores.',true);return;}
+    const required=dimensions?.cuentasRequierenCentroCosto||[];
+    if(conceptLines.some(x=>required.includes(options.conceptos.find(c=>c.id===x.conceptoVentaId)?.cuentaIngresoZeus)&&!x.centroCosto)){notice('Selecciona el centro de costo de cada concepto cuya cuenta Zeus lo exija.',true);return;}
     const totalCents=lines.reduce((s,x)=>s+Math.round(x.cantidad*x.precioUnitarioConIva*100),0)+conceptLines.reduce((s,x)=>s+Math.round(x.valor*100),0);
     if(advances.reduce((s,x)=>s+Math.round(x.valor*100),0)>totalCents){notice('La cuota inicial no puede superar el total de la factura.',true);return;}
-    const body={operacionGuid:operation,numero:f.elements.numero.value,clienteId:client.id,sucursalId:Number(f.elements.sucursalId.value),fechaContable:f.elements.fechaContable.value,vencimiento:f.elements.vencimiento.value,lineas:lines,conceptos:conceptLines,cuotas:Number(f.elements.cuotas.value),anticipos:advances,bodegaCarteraId:lines.length?null:Number(f.elements.bodegaCarteraId.value)};
+    const body={operacionGuid:operation,numero:f.elements.numero.value,clienteId:client.id,sucursalId:Number(f.elements.sucursalId.value),fechaContable:f.elements.fechaContable.value,vencimiento:f.elements.vencimiento.value,lineas:lines,conceptos:conceptLines,cuotas:Number(f.elements.cuotas.value),anticipos:advances,bodegaCarteraId:lines.length?null:Number(f.elements.bodegaCarteraId.value),centroCostoIngreso:f.elements.centroCostoIngreso.value||null};
     await send(body,'Factura');
   }
   async function send(body,title){

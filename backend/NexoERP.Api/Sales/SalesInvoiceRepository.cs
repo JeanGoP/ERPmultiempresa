@@ -8,13 +8,72 @@ namespace NexoERP.Api.Sales;
 
 public sealed record SaleItem(long ArticuloId,long BodegaId,decimal Cantidad,decimal PrecioUnitarioConIva,long[]? UnidadesSerializadas);
 public sealed record SaleAdvance(long ReciboCajaId,decimal Valor);
-public sealed record SaleConceptLine(long ConceptoVentaId,decimal Valor);
+public sealed record SaleConceptLine(long ConceptoVentaId,decimal Valor,string? CentroCosto);
+public sealed record SalesCostCenterCorrection(string CentroCosto);
 public sealed record SalesInvoiceInput(Guid OperacionGuid,string Numero,long ClienteId,long SucursalId,
     DateOnly FechaContable,DateOnly Vencimiento,SaleItem[] Lineas,SaleConceptLine[] Conceptos,
-    int Cuotas,SaleAdvance[] Anticipos,long? BodegaCarteraId);
+    int Cuotas,SaleAdvance[] Anticipos,long? BodegaCarteraId,string? CentroCostoIngreso);
 
-public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
+public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,ZeusTransport zeus)
 {
+    public async Task<object> MissingCostCentersAsync(long company,long id,ZeusSettings settings,CancellationToken ct)
+    {
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=ZeusRepository.Command(c,"SELECT Snapshot,ZeusEstado FROM ven.FacturaVenta WHERE EmpresaId=@E AND FacturaVentaId=@Id",company);
+        ZeusRepository.Add(q,"@Id",id);
+        ZeusSnapshot snapshot;
+        await using(var r=await q.ExecuteReaderAsync(ct))
+        {
+            if(!await r.ReadAsync(ct)||r.GetString(1)!="RECHAZADO"||r.IsDBNull(0))throw new ArgumentException("La factura no está rechazada o no tiene comprobante Zeus pendiente de corrección.");
+            snapshot=JsonSerializer.Deserialize<ZeusSnapshot>(r.GetString(0))!;
+        }
+        if(snapshot.Configuracion.ServidorEsperado!=settings.ServidorEsperado||snapshot.Configuracion.BaseEsperada!=settings.BaseEsperada)
+            throw new ArgumentException("El destino Zeus de la factura cambió; revisa la configuración antes de corregirla.");
+        var dimensions=await zeus.AccountingDimensionsAsync(company,settings,ct);
+        var required=dimensions.CuentasRequierenCentroCosto.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var missing=snapshot.Movimientos.Where(x=>required.Contains(x.Regla.Cuenta)&&string.IsNullOrWhiteSpace(x.Regla.CentroCosto))
+            .Select(x=>new{concepto=x.Regla.Concepto,cuenta=x.Regla.Cuenta}).Distinct().ToArray();
+        return new{centrosCosto=dimensions.CentrosCosto,faltantes=missing};
+    }
+
+    public async Task<int> CorrectCostCentersAsync(long company,long id,string center,long user,ZeusSettings settings,CancellationToken ct)
+    {
+        center=(center??"").Trim();
+        if(center.Length is <1 or >16)throw new ArgumentException("Selecciona un centro de costo de Zeus.");
+        var dimensions=await zeus.AccountingDimensionsAsync(company,settings,ct);
+        if(!dimensions.CentrosCosto.Any(x=>x.Codigo.Equals(center,StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("El centro de costo no existe, está deshabilitado o no es de detalle en Zeus.");
+        var required=dimensions.CuentasRequierenCentroCosto.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
+        await using var q=ZeusRepository.Command(c,"SELECT Snapshot FROM ven.FacturaVenta WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND FacturaVentaId=@Id AND ZeusEstado='RECHAZADO'",company,tx);
+        ZeusRepository.Add(q,"@Id",id);
+        var raw=await q.ExecuteScalarAsync(ct) as string??throw new ArgumentException("La factura ya no está rechazada; actualiza el seguimiento.");
+        var snapshot=JsonSerializer.Deserialize<ZeusSnapshot>(raw)!;
+        if(snapshot.Configuracion.ServidorEsperado!=settings.ServidorEsperado||snapshot.Configuracion.BaseEsperada!=settings.BaseEsperada)
+            throw new ArgumentException("Cambió el destino Zeus; no se modificó la factura.");
+        var fixedMovements=snapshot.Movimientos.Select(x=>required.Contains(x.Regla.Cuenta)&&string.IsNullOrWhiteSpace(x.Regla.CentroCosto)
+            ?x with{Regla=x.Regla with{CentroCosto=center}}:x).ToArray();
+        var changed=fixedMovements.Where((x,i)=>x!=snapshot.Movimientos[i]).ToArray();
+        if(changed.Length==0)throw new ArgumentException("Esta factura no tiene centros de costo obligatorios sin completar.");
+        ZeusRepository.Add(q,"@Snapshot",JsonSerializer.Serialize(snapshot with{Movimientos=fixedMovements}));
+        ZeusRepository.Add(q,"@Center",center);
+        ZeusRepository.Add(q,"@GeneralCenter",changed.Any(x=>!x.Regla.Concepto.StartsWith("CONCEPTO_",StringComparison.Ordinal))?center:DBNull.Value);
+        ZeusRepository.Add(q,"@User",user);
+        q.CommandText="UPDATE ven.FacturaVenta SET Snapshot=@Snapshot,CentroCostoIngresoZeus=COALESCE(CentroCostoIngresoZeus,@GeneralCenter) WHERE EmpresaId=@E AND FacturaVentaId=@Id AND ZeusEstado='RECHAZADO'";
+        if(await q.ExecuteNonQueryAsync(ct)!=1)throw new ArgumentException("La factura cambió; actualiza el seguimiento.");
+        foreach(var account in changed.Where(x=>x.Regla.Concepto.StartsWith("CONCEPTO_",StringComparison.Ordinal)).Select(x=>x.Regla.Cuenta).Distinct())
+        {
+            q.Parameters.Add("@Account",SqlDbType.VarChar,16).Value=account;
+            q.CommandText="UPDATE ven.FacturaVentaConcepto SET CentroCostoZeus=@Center WHERE EmpresaId=@E AND FacturaVentaId=@Id AND CuentaIngresoZeus=@Account AND CentroCostoZeus IS NULL";
+            await q.ExecuteNonQueryAsync(ct);q.Parameters.RemoveAt("@Account");
+        }
+        q.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@E,@User,'CORREGIR_CENTRO_COSTO_VENTA','ven.FacturaVenta',CONVERT(varchar(30),@Id),@Snapshot,'ERP')";
+        await q.ExecuteNonQueryAsync(ct);
+        await tx.CommitAsync(ct);
+        return changed.Length;
+    }
+
     public async Task<object> ListAsync(long company,string? search,long? before,CancellationToken ct)
     {
         search=search?.Trim()??"";if(search.Length>100)throw new ArgumentException("Búsqueda demasiado larga.");
@@ -57,7 +116,9 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
             WHERE u.EmpresaId=@E AND u.Estado='DISPONIBLE' AND u.BodegaActualId IS NOT NULL;
             SELECT ReciboCajaId,Saldo FROM cxc.AnticipoCliente WHERE EmpresaId=@E AND ClienteId=@C AND Saldo>0 ORDER BY ReciboCajaId;
             SELECT ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus FROM ven.ConceptoVenta WHERE EmpresaId=@E AND Activo=1 ORDER BY Codigo;
-            SELECT BodegaId,Codigo,Nombre,SucursalId FROM inv.Bodega WHERE EmpresaId=@E AND Activa=1 AND SucursalId IS NOT NULL ORDER BY Codigo;
+            SELECT b.BodegaId,b.Codigo,b.Nombre,b.SucursalId,z.Configuracion
+            FROM inv.Bodega b LEFT JOIN core.ZeusBodegaCuenta z ON z.EmpresaId=b.EmpresaId AND z.BodegaId=b.BodegaId
+            WHERE b.EmpresaId=@E AND b.Activa=1 AND b.SucursalId IS NOT NULL ORDER BY b.Codigo;
             """,company);
         q.Parameters.Add("@C",SqlDbType.BigInt).Value=(object?)client??DBNull.Value;
         var branches=new List<object>();var customers=new List<object>();var articles=new List<object>();var serials=new List<object>();var advances=new List<object>();var concepts=new List<object>();var warehouses=new List<object>();
@@ -68,7 +129,11 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))serials.Add(new{id=r.GetInt64(0),articuloId=r.GetInt64(1),bodegaId=r.GetInt64(2),estado=r.GetString(3),tipo=r.IsDBNull(4)?null:r.GetString(4),valor=r.IsDBNull(5)?null:r.GetString(5)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))advances.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))concepts.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),cuentaIngresoZeus=r.GetString(3)});
-        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))warehouses.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),sucursalId=r.GetInt64(3)});
+        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))
+        {
+            var account=r.IsDBNull(4)?null:JsonSerializer.Deserialize<ZeusWarehouseAccounts>(r.GetString(4))?.Ingreso;
+            warehouses.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),sucursalId=r.GetInt64(3),cuentaIngreso=account});
+        }
         return new{sucursales=branches,clientes=customers,articulos=articles,seriales=serials,anticipos=advances,conceptos=concepts,bodegas=warehouses};
     }
 
@@ -81,8 +146,9 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
         if(input.Lineas is null||input.Lineas.Length>100||input.Cuotas is <1 or >120)
             throw new ArgumentException("La factura admite hasta 100 artículos y entre 1 y 120 cuotas.");
         var conceptLines=input.Conceptos??[];
-        if(conceptLines.Length>100||conceptLines.Any(x=>x.ConceptoVentaId<=0||x.Valor<=0||decimal.Round(x.Valor,2)!=x.Valor))
+        if(conceptLines.Length>100||conceptLines.Any(x=>x.ConceptoVentaId<=0||x.Valor<=0||decimal.Round(x.Valor,2)!=x.Valor||x.CentroCosto?.Trim().Length>16))
             throw new ArgumentException("Revisa los conceptos de venta y sus valores (máximo dos decimales).");
+        if(input.CentroCostoIngreso?.Trim().Length>16)throw new ArgumentException("El centro de costo debe tener máximo 16 caracteres.");
         if(input.Lineas.Length==0&&conceptLines.Length==0)throw new ArgumentException("Agrega al menos un artículo o un concepto de venta.");
         var advances=input.Anticipos??[];
         if(advances.Length>100||advances.Any(x=>x.ReciboCajaId<=0||x.Valor<=0||decimal.Round(x.Valor,2)!=x.Valor)
@@ -121,6 +187,12 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
         if(!settings.Habilitado||(settings.FuentesAutomaticas??[]).All(x=>x.Movimiento!="FACTURACION"||x.SucursalId!=input.SucursalId))
             throw new ArgumentException("Configura y habilita la fuente FACTURACION de esta sucursal en Zeus.");
         settings=ZeusRouting.Resolve(settings,input.SucursalId,"FACTURACION",branch);
+        var dimensions=await zeus.AccountingDimensionsAsync(company,settings,ct);
+        var activeCenters=dimensions.CentrosCosto.Select(x=>x.Codigo).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var requiredCenters=dimensions.CuentasRequierenCentroCosto.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var generalCenter=input.CentroCostoIngreso?.Trim()??"";
+        if(generalCenter.Length>0&&!activeCenters.Contains(generalCenter))
+            throw new ArgumentException("Selecciona un centro de costo activo y de detalle de Zeus para la factura.");
         var validatedConcepts=new List<(SaleConceptLine Input,string Codigo,string Nombre,string Cuenta)>();
         foreach(var concept in conceptLines)
         {
@@ -134,6 +206,9 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
                 var code=r.GetString(0);var account=r.GetString(2);
                 if(code=="FINANCIACION"&&!account.StartsWith("4135",StringComparison.Ordinal))
                     throw new ArgumentException("La financiación requiere una cuenta 4135.");
+                var center=concept.CentroCosto?.Trim()??"";
+                if(center.Length>0&&!activeCenters.Contains(center))throw new ArgumentException($"El centro de costo del concepto {code} no está activo o no es de detalle en Zeus.");
+                if(requiredCenters.Contains(account)&&center.Length==0)throw new ArgumentException($"Selecciona el centro de costo para el concepto {code}; la cuenta {account} lo exige.");
                 validatedConcepts.Add((concept,code,r.GetString(1),account));
             }
             q.Parameters.RemoveAt("@Concept");
@@ -210,8 +285,9 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
         ZeusRepository.Add(q,"@Base",validated.Sum(x=>x.Base));ZeusRepository.Add(q,"@Iva",validated.Sum(x=>x.Iva));
         ZeusRepository.Add(q,"@Finance",financeTotal);ZeusRepository.Add(q,"@ConceptsTotal",conceptsTotal);ZeusRepository.Add(q,"@Total",total);ZeusRepository.Add(q,"@Advance",advanceTotal);
         ZeusRepository.Add(q,"@Balance",total-advanceTotal);ZeusRepository.Add(q,"@Terms",input.Cuotas);
+        ZeusRepository.Add(q,"@GeneralCenter",string.IsNullOrEmpty(generalCenter)?DBNull.Value:generalCenter);
         ZeusRepository.Add(q,"@Json",JsonSerializer.Serialize(input));ZeusRepository.Add(q,"@User",user);
-        q.CommandText="INSERT ven.FacturaVenta(EmpresaId,OperacionGuid,Numero,SucursalId,ClienteId,FechaContable,Vencimiento,Base,Iva,Financiacion,ConceptosTotal,Total,AnticipoAplicado,SaldoPendiente,Cuotas,Contenido,CreadoPor) OUTPUT inserted.FacturaVentaId VALUES(@E,@Key,@N,@B,@C,@Date,@Due,@Base,@Iva,@Finance,@ConceptsTotal,@Total,@Advance,@Balance,@Terms,@Json,@User)";
+        q.CommandText="INSERT ven.FacturaVenta(EmpresaId,OperacionGuid,Numero,SucursalId,ClienteId,FechaContable,Vencimiento,Base,Iva,Financiacion,ConceptosTotal,Total,AnticipoAplicado,SaldoPendiente,Cuotas,CentroCostoIngresoZeus,Contenido,CreadoPor) OUTPUT inserted.FacturaVentaId VALUES(@E,@Key,@N,@B,@C,@Date,@Due,@Base,@Iva,@Finance,@ConceptsTotal,@Total,@Advance,@Balance,@Terms,@GeneralCenter,@Json,@User)";
         var id=Convert.ToInt64(await q.ExecuteScalarAsync(ct));ZeusRepository.Add(q,"@Id",id);
         foreach(var advance in advances)
         {
@@ -221,7 +297,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
             await q.ExecuteNonQueryAsync(ct);q.Parameters.RemoveAt("@Receipt");q.Parameters.RemoveAt("@Value");
         }
         var lineNumber=0;
-        var movements=new List<ZeusMovement>{new(new ZeusAccount("CLIENTE",receivableAccount),total)};
+        var movements=new List<ZeusMovement>{new(new ZeusAccount("CLIENTE",receivableAccount,CentroCosto:generalCenter),total)};
         foreach(var item in validated)
         {
             lineNumber++;
@@ -229,8 +305,8 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
             foreach(var p in new (string,object)[]{("@Invoice",id),("@Article",item.Input.ArticuloId),("@Warehouse",item.Input.BodegaId),("@Qty",item.Input.Cantidad),("@Price",item.Input.PrecioUnitarioConIva),("@Rate",item.Tarifa),("@Base",item.Base),("@Iva",item.Iva)})ZeusRepository.Add(line,p.Item1,p.Item2);
             line.Parameters.Add("@Serials",SqlDbType.NVarChar,-1).Value=item.Serial?JsonSerializer.Serialize(item.Input.UnidadesSerializadas):DBNull.Value;
             var lineId=Convert.ToInt64(await line.ExecuteScalarAsync(ct));
-            movements.Add(new(new ZeusAccount("INGRESO",item.Accounts.Ingreso),-item.Base));
-            if(item.Iva>0)movements.Add(new(new ZeusAccount("IVA_VENTA",item.Accounts.IvaVentas),-item.Iva,item.Base,item.Tarifa));
+            movements.Add(new(new ZeusAccount("INGRESO",item.Accounts.Ingreso,CentroCosto:generalCenter),-item.Base));
+            if(item.Iva>0)movements.Add(new(new ZeusAccount("IVA_VENTA",item.Accounts.IvaVentas,CentroCosto:generalCenter),-item.Iva,item.Base,item.Tarifa));
             if(!item.Inventory)continue;
             await using var move=c.CreateCommand();move.Transaction=tx;move.CommandType=CommandType.StoredProcedure;
             move.CommandText=item.Serial?"inv.usp_ContabilizarSalidaSerializada":"inv.usp_ContabilizarSalida";
@@ -251,26 +327,28 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
             ZeusRepository.Add(update,"@Cost",costValue);ZeusRepository.Add(update,"@Line",lineId);await update.ExecuteNonQueryAsync(ct);
             if(costValue>0)
             {
-                movements.Add(new(new ZeusAccount("COSTO_VENTA",item.Accounts.CostoVenta),costValue));
-                movements.Add(new(new ZeusAccount("INVENTARIO",item.Accounts.Inventario),-costValue));
+                movements.Add(new(new ZeusAccount("COSTO_VENTA",item.Accounts.CostoVenta,CentroCosto:generalCenter),costValue));
+                movements.Add(new(new ZeusAccount("INVENTARIO",item.Accounts.Inventario,CentroCosto:generalCenter),-costValue));
             }
         }
         foreach(var concept in validatedConcepts)
         {
-            await using var conceptInsert=ZeusRepository.Command(c,"INSERT ven.FacturaVentaConcepto(EmpresaId,FacturaVentaId,ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus,Valor) VALUES(@E,@Invoice,@Concept,@Code,@Name,@Account,@Value)",company,tx);
+            await using var conceptInsert=ZeusRepository.Command(c,"INSERT ven.FacturaVentaConcepto(EmpresaId,FacturaVentaId,ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus,CentroCostoZeus,Valor) VALUES(@E,@Invoice,@Concept,@Code,@Name,@Account,@Center,@Value)",company,tx);
             ZeusRepository.Add(conceptInsert,"@Invoice",id);ZeusRepository.Add(conceptInsert,"@Concept",concept.Input.ConceptoVentaId);
             ZeusRepository.Add(conceptInsert,"@Code",concept.Codigo);ZeusRepository.Add(conceptInsert,"@Name",concept.Nombre);
-            ZeusRepository.Add(conceptInsert,"@Account",concept.Cuenta);ZeusRepository.Add(conceptInsert,"@Value",concept.Input.Valor);
+            ZeusRepository.Add(conceptInsert,"@Account",concept.Cuenta);ZeusRepository.Add(conceptInsert,"@Center",string.IsNullOrWhiteSpace(concept.Input.CentroCosto)?DBNull.Value:concept.Input.CentroCosto.Trim());ZeusRepository.Add(conceptInsert,"@Value",concept.Input.Valor);
             await conceptInsert.ExecuteNonQueryAsync(ct);
-            movements.Add(new(new ZeusAccount("CONCEPTO_"+concept.Codigo,concept.Cuenta),-concept.Input.Valor));
+            movements.Add(new(new ZeusAccount("CONCEPTO_"+concept.Codigo,concept.Cuenta,CentroCosto:concept.Input.CentroCosto?.Trim()??""),-concept.Input.Valor));
         }
         if(advanceTotal>0)
         {
             var advanceAccount=ZeusJournal.GeneralAdvanceAccount(settings)?.Cuenta
                 ??throw new ArgumentException("Configura la cuenta general de anticipos antes de aplicarlos en factura.");
-            movements.Add(new(new ZeusAccount("ANTICIPO",advanceAccount),advanceTotal));
-            movements.Add(new(new ZeusAccount("CLIENTE",receivableAccount),-advanceTotal));
+            movements.Add(new(new ZeusAccount("ANTICIPO",advanceAccount,CentroCosto:generalCenter),advanceTotal));
+            movements.Add(new(new ZeusAccount("CLIENTE",receivableAccount,CentroCosto:generalCenter),-advanceTotal));
         }
+        var missingCenter=movements.FirstOrDefault(x=>requiredCenters.Contains(x.Regla.Cuenta)&&string.IsNullOrWhiteSpace(x.Regla.CentroCosto));
+        if(missingCenter is not null)throw new ArgumentException($"Selecciona el centro de costo para {missingCenter.Regla.Concepto}; la cuenta {missingCenter.Regla.Cuenta} lo exige.");
         if(movements.Sum(x=>x.Valor)!=0)throw new InvalidOperationException("La factura no quedó balanceada. No se contabilizó.");
         var source=new ZeusSource(0,input.ClienteId,input.Numero.Trim(),input.FechaContable.ToDateTime(TimeOnly.MinValue),input.FechaContable.ToDateTime(TimeOnly.MinValue),input.Vencimiento.ToDateTime(TimeOnly.MinValue),total,validated.Sum(x=>x.Iva),0,[],ProveedorNombre:customerName);
         var snapshot=new ZeusSnapshot(settings,source,new(input.ClienteId,identification,identification),movements.ToArray(),

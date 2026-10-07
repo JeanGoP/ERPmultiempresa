@@ -93,6 +93,11 @@ public static class SalesModule
             Results.Ok(await sales.ListAsync(empresaId,q,antes,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/sales-invoices/options",async(long empresaId,long? clienteId,SalesInvoiceRepository sales,CancellationToken ct)=>
             Results.Ok(await sales.OptionsAsync(empresaId,clienteId,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapGet("/sales-invoices/accounting-dimensions",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
+        {
+            var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus para esta empresa.")).Configuracion;
+            return Results.Ok(await zeus.AccountingDimensionsAsync(empresaId,config,ct));
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/master-data/sales-concepts",async(long empresaId,SalesConceptRepository concepts,CancellationToken ct)=>
             Results.Ok(await concepts.ListAsync(empresaId,ct))).RequireErpPermission("MAESTROS.CONCEPTO_VENTA.ADMINISTRAR","VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/master-data/sales-concepts/accounts",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
@@ -137,6 +142,24 @@ public static class SalesModule
         {
             try {var fuente=await queue.RetryAsync(empresaId,"FACTURA",id,ct);return Results.Ok(new{estado="PENDIENTE",fuente});}
             catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapGet("/sales-invoices/{id:long}/cost-centers",async(long empresaId,long id,SalesInvoiceRepository sales,ZeusRepository settings,CancellationToken ct)=>
+        {
+            try
+            {
+                var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus.")).Configuracion;
+                return Results.Ok(await sales.MissingCostCentersAsync(empresaId,id,config,ct));
+            }
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapPost("/sales-invoices/{id:long}/cost-centers",async(long empresaId,long id,SalesCostCenterCorrection input,HttpContext http,SalesInvoiceRepository sales,ZeusRepository settings,CancellationToken ct)=>
+        {
+            try
+            {
+                var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus.")).Configuracion;
+                return Results.Ok(new{movimientosCorregidos=await sales.CorrectCostCentersAsync(empresaId,id,input.CentroCosto,Convert.ToInt64(http.Items["UsuarioId"]),config,ct)});
+            }
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
         }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapPost("/sales-invoices/{id:long}/reconcile",async(long empresaId,long id,CustomerPostingQueue queue,ZeusTransport zeus,CancellationToken ct)=>
             Results.Ok(await queue.ReconcileAsync(empresaId,"FACTURA",id,zeus,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
