@@ -31,6 +31,7 @@ builder.Services.AddScoped<MasterDataRepository>();
 builder.Services.AddScoped<CustomerRepository>();
 builder.Services.AddScoped<CustomerCashRepository>();
 builder.Services.AddScoped<SalesInvoiceRepository>();
+builder.Services.AddScoped<SalesConceptRepository>();
 builder.Services.AddScoped<CustomerPostingQueue>();
 builder.Services.AddHostedService<CustomerPostingWorker>();
 builder.Services.AddHostedService<CustomerZeusWorker>();

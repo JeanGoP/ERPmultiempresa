@@ -8,9 +8,10 @@ namespace NexoERP.Api.Sales;
 
 public sealed record SaleItem(long ArticuloId,long BodegaId,decimal Cantidad,decimal PrecioUnitarioConIva,long[]? UnidadesSerializadas);
 public sealed record SaleAdvance(long ReciboCajaId,decimal Valor);
+public sealed record SaleConceptLine(long ConceptoVentaId,decimal Valor);
 public sealed record SalesInvoiceInput(Guid OperacionGuid,string Numero,long ClienteId,long SucursalId,
-    DateOnly FechaContable,DateOnly Vencimiento,SaleItem[] Lineas,decimal Financiacion,string? CuentaFinanciacion,
-    int Cuotas,SaleAdvance[] Anticipos);
+    DateOnly FechaContable,DateOnly Vencimiento,SaleItem[] Lineas,SaleConceptLine[] Conceptos,
+    int Cuotas,SaleAdvance[] Anticipos,long? BodegaCarteraId);
 
 public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
 {
@@ -55,16 +56,20 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
             FROM inv.UnidadSerializada u LEFT JOIN inv.UnidadIdentificador ui ON ui.EmpresaId=u.EmpresaId AND ui.UnidadSerializadaId=u.UnidadSerializadaId
             WHERE u.EmpresaId=@E AND u.Estado='DISPONIBLE' AND u.BodegaActualId IS NOT NULL;
             SELECT ReciboCajaId,Saldo FROM cxc.AnticipoCliente WHERE EmpresaId=@E AND ClienteId=@C AND Saldo>0 ORDER BY ReciboCajaId;
+            SELECT ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus FROM ven.ConceptoVenta WHERE EmpresaId=@E AND Activo=1 ORDER BY Codigo;
+            SELECT BodegaId,Codigo,Nombre,SucursalId FROM inv.Bodega WHERE EmpresaId=@E AND Activa=1 AND SucursalId IS NOT NULL ORDER BY Codigo;
             """,company);
         q.Parameters.Add("@C",SqlDbType.BigInt).Value=(object?)client??DBNull.Value;
-        var branches=new List<object>();var customers=new List<object>();var articles=new List<object>();var serials=new List<object>();var advances=new List<object>();
+        var branches=new List<object>();var customers=new List<object>();var articles=new List<object>();var serials=new List<object>();var advances=new List<object>();var concepts=new List<object>();var warehouses=new List<object>();
         await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct))branches.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))customers.Add(new{id=r.GetInt64(0),identificacion=r.GetString(1),nombre=r.GetString(2),zeusEstado=r.GetString(3)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))articles.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),descripcion=r.GetString(2),tipo=r.GetString(3),inventario=r.GetBoolean(4),serial=r.GetBoolean(5),iva=r.IsDBNull(6)?(decimal?)null:r.GetDecimal(6),bodegaId=r.GetInt64(7),bodegaCodigo=r.GetString(8),bodega=r.GetString(9),sucursalId=r.GetInt64(10),existencia=r.GetDecimal(11)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))serials.Add(new{id=r.GetInt64(0),articuloId=r.GetInt64(1),bodegaId=r.GetInt64(2),estado=r.GetString(3),tipo=r.IsDBNull(4)?null:r.GetString(4),valor=r.IsDBNull(5)?null:r.GetString(5)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))advances.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1)});
-        return new{sucursales=branches,clientes=customers,articulos=articles,seriales=serials,anticipos=advances};
+        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))concepts.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),cuentaIngresoZeus=r.GetString(3)});
+        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))warehouses.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),sucursalId=r.GetInt64(3)});
+        return new{sucursales=branches,clientes=customers,articulos=articles,seriales=serials,anticipos=advances,conceptos=concepts,bodegas=warehouses};
     }
 
     public async Task<object> PostAsync(long company,SalesInvoiceInput input,long user,CancellationToken ct)
@@ -73,12 +78,12 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
             throw new ArgumentException("Selecciona cliente, sucursal, fecha y vencimiento válidos.");
         if(string.IsNullOrWhiteSpace(input.Numero)||input.Numero.Length>15||input.Numero.Any(char.IsControl))
             throw new ArgumentException("Escribe el número de la factura (máximo 15 caracteres admitidos por Zeus).");
-        if(input.Lineas is null||input.Lineas.Length is <1 or >100||input.Cuotas is <1 or >120)
-            throw new ArgumentException("La factura requiere entre 1 y 100 líneas y entre 1 y 120 cuotas.");
-        if(input.Financiacion<0||decimal.Round(input.Financiacion,2)!=input.Financiacion)
-            throw new ArgumentException("El valor de financiación debe tener máximo dos decimales.");
-        if(input.Financiacion>0&&(string.IsNullOrWhiteSpace(input.CuentaFinanciacion)||!input.CuentaFinanciacion.StartsWith("4135",StringComparison.Ordinal)))
-            throw new ArgumentException("Selecciona la cuenta de ingreso 4135 de financiación en Zeus.");
+        if(input.Lineas is null||input.Lineas.Length>100||input.Cuotas is <1 or >120)
+            throw new ArgumentException("La factura admite hasta 100 artículos y entre 1 y 120 cuotas.");
+        var conceptLines=input.Conceptos??[];
+        if(conceptLines.Length>100||conceptLines.Any(x=>x.ConceptoVentaId<=0||x.Valor<=0||decimal.Round(x.Valor,2)!=x.Valor))
+            throw new ArgumentException("Revisa los conceptos de venta y sus valores (máximo dos decimales).");
+        if(input.Lineas.Length==0&&conceptLines.Length==0)throw new ArgumentException("Agrega al menos un artículo o un concepto de venta.");
         var advances=input.Anticipos??[];
         if(advances.Length>100||advances.Any(x=>x.ReciboCajaId<=0||x.Valor<=0||decimal.Round(x.Valor,2)!=x.Valor)
             ||advances.GroupBy(x=>x.ReciboCajaId).Any(g=>g.Count()>1))throw new ArgumentException("Revisa los anticipos seleccionados.");
@@ -116,6 +121,23 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
         if(!settings.Habilitado||(settings.FuentesAutomaticas??[]).All(x=>x.Movimiento!="FACTURACION"||x.SucursalId!=input.SucursalId))
             throw new ArgumentException("Configura y habilita la fuente FACTURACION de esta sucursal en Zeus.");
         settings=ZeusRouting.Resolve(settings,input.SucursalId,"FACTURACION",branch);
+        var validatedConcepts=new List<(SaleConceptLine Input,string Codigo,string Nombre,string Cuenta)>();
+        foreach(var concept in conceptLines)
+        {
+            q.Parameters.Add("@Concept",SqlDbType.BigInt).Value=concept.ConceptoVentaId;
+            q.CommandText="SELECT Codigo,Nombre,CuentaIngresoZeus,ServidorZeus,BaseDatosZeus FROM ven.ConceptoVenta WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND ConceptoVentaId=@Concept AND Activo=1";
+            await using(var r=await q.ExecuteReaderAsync(ct))
+            {
+                if(!await r.ReadAsync(ct))throw new ArgumentException("Un concepto de venta no existe o está inactivo.");
+                if(r.GetString(3)!=settings.ServidorEsperado||r.GetString(4)!=settings.BaseEsperada)
+                    throw new ArgumentException("Actualiza la cuenta del concepto de venta para la conexión Zeus actual.");
+                var code=r.GetString(0);var account=r.GetString(2);
+                if(code=="FINANCIACION"&&!account.StartsWith("4135",StringComparison.Ordinal))
+                    throw new ArgumentException("La financiación requiere una cuenta 4135.");
+                validatedConcepts.Add((concept,code,r.GetString(1),account));
+            }
+            q.Parameters.RemoveAt("@Concept");
+        }
         var validated=new List<(SaleItem Input,decimal Base,decimal Iva,decimal Tarifa,bool Inventory,bool Serial,ZeusWarehouseAccounts Accounts)>();
         foreach(var line in input.Lineas)
         {
@@ -150,7 +172,29 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
         }
         if(validated.Select(x=>x.Accounts.CarteraClientes).Distinct().Count()>1)
             throw new ArgumentException("Las bodegas de la factura deben usar la misma cuenta de cartera del cliente.");
-        var total=validated.Sum(x=>x.Base+x.Iva)+input.Financiacion;
+        string receivableAccount;
+        if(validated.Count>0)receivableAccount=validated[0].Accounts.CarteraClientes!;
+        else
+        {
+            if(input.BodegaCarteraId is not >0)throw new ArgumentException("Selecciona la bodega para tomar la cuenta 13 de clientes de esta venta de conceptos.");
+            ZeusRepository.Add(q,"@Warehouse",input.BodegaCarteraId.Value);
+            q.CommandText="SELECT z.Configuracion,z.Servidor,z.BaseDatos FROM inv.Bodega b JOIN core.ZeusBodegaCuenta z ON z.EmpresaId=b.EmpresaId AND z.BodegaId=b.BodegaId WHERE b.EmpresaId=@E AND b.BodegaId=@Warehouse AND b.SucursalId=@B AND b.Activa=1";
+            string? accountsJson,server,db;
+            await using(var r=await q.ExecuteReaderAsync(ct))
+            {
+                if(!await r.ReadAsync(ct))throw new ArgumentException("Configura las cuentas de venta de la bodega seleccionada.");
+                accountsJson=r.GetString(0);server=r.GetString(1);db=r.GetString(2);
+            }
+            q.Parameters.RemoveAt("@Warehouse");
+            if(server!=settings.ServidorEsperado||db!=settings.BaseEsperada)
+                throw new ArgumentException("La cuenta de la bodega corresponde a otro destino Zeus.");
+            receivableAccount=JsonSerializer.Deserialize<ZeusWarehouseAccounts>(accountsJson)!.CarteraClientes
+                ??throw new ArgumentException("Configura la cuenta 13 de clientes de esta bodega.");
+            if(!receivableAccount.StartsWith("13",StringComparison.Ordinal))throw new ArgumentException("La cuenta de cartera de esta bodega debe ser clase 13.");
+        }
+        var conceptsTotal=validatedConcepts.Sum(x=>x.Input.Valor);
+        var financeTotal=validatedConcepts.Where(x=>x.Codigo=="FINANCIACION").Sum(x=>x.Input.Valor);
+        var total=validated.Sum(x=>x.Base+x.Iva)+conceptsTotal;
         var advanceTotal=advances.Sum(x=>x.Valor);
         if(advanceTotal>total)throw new ArgumentException("El anticipo no puede superar el total de la factura.");
         foreach(var advance in advances.OrderBy(x=>x.ReciboCajaId))
@@ -164,10 +208,10 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
         }
         ZeusRepository.Add(q,"@N",input.Numero.Trim());ZeusRepository.Add(q,"@Due",input.Vencimiento.ToDateTime(TimeOnly.MinValue));
         ZeusRepository.Add(q,"@Base",validated.Sum(x=>x.Base));ZeusRepository.Add(q,"@Iva",validated.Sum(x=>x.Iva));
-        ZeusRepository.Add(q,"@Finance",input.Financiacion);ZeusRepository.Add(q,"@Total",total);ZeusRepository.Add(q,"@Advance",advanceTotal);
+        ZeusRepository.Add(q,"@Finance",financeTotal);ZeusRepository.Add(q,"@ConceptsTotal",conceptsTotal);ZeusRepository.Add(q,"@Total",total);ZeusRepository.Add(q,"@Advance",advanceTotal);
         ZeusRepository.Add(q,"@Balance",total-advanceTotal);ZeusRepository.Add(q,"@Terms",input.Cuotas);
         ZeusRepository.Add(q,"@Json",JsonSerializer.Serialize(input));ZeusRepository.Add(q,"@User",user);
-        q.CommandText="INSERT ven.FacturaVenta(EmpresaId,OperacionGuid,Numero,SucursalId,ClienteId,FechaContable,Vencimiento,Base,Iva,Financiacion,Total,AnticipoAplicado,SaldoPendiente,Cuotas,Contenido,CreadoPor) OUTPUT inserted.FacturaVentaId VALUES(@E,@Key,@N,@B,@C,@Date,@Due,@Base,@Iva,@Finance,@Total,@Advance,@Balance,@Terms,@Json,@User)";
+        q.CommandText="INSERT ven.FacturaVenta(EmpresaId,OperacionGuid,Numero,SucursalId,ClienteId,FechaContable,Vencimiento,Base,Iva,Financiacion,ConceptosTotal,Total,AnticipoAplicado,SaldoPendiente,Cuotas,Contenido,CreadoPor) OUTPUT inserted.FacturaVentaId VALUES(@E,@Key,@N,@B,@C,@Date,@Due,@Base,@Iva,@Finance,@ConceptsTotal,@Total,@Advance,@Balance,@Terms,@Json,@User)";
         var id=Convert.ToInt64(await q.ExecuteScalarAsync(ct));ZeusRepository.Add(q,"@Id",id);
         foreach(var advance in advances)
         {
@@ -177,7 +221,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
             await q.ExecuteNonQueryAsync(ct);q.Parameters.RemoveAt("@Receipt");q.Parameters.RemoveAt("@Value");
         }
         var lineNumber=0;
-        var movements=new List<ZeusMovement>{new(new ZeusAccount("CLIENTE",validated[0].Accounts.CarteraClientes!),total)};
+        var movements=new List<ZeusMovement>{new(new ZeusAccount("CLIENTE",receivableAccount),total)};
         foreach(var item in validated)
         {
             lineNumber++;
@@ -211,18 +255,26 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections)
                 movements.Add(new(new ZeusAccount("INVENTARIO",item.Accounts.Inventario),-costValue));
             }
         }
-        if(input.Financiacion>0)movements.Add(new(new ZeusAccount("FINANCIACION",input.CuentaFinanciacion!.Trim()),-input.Financiacion));
+        foreach(var concept in validatedConcepts)
+        {
+            await using var conceptInsert=ZeusRepository.Command(c,"INSERT ven.FacturaVentaConcepto(EmpresaId,FacturaVentaId,ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus,Valor) VALUES(@E,@Invoice,@Concept,@Code,@Name,@Account,@Value)",company,tx);
+            ZeusRepository.Add(conceptInsert,"@Invoice",id);ZeusRepository.Add(conceptInsert,"@Concept",concept.Input.ConceptoVentaId);
+            ZeusRepository.Add(conceptInsert,"@Code",concept.Codigo);ZeusRepository.Add(conceptInsert,"@Name",concept.Nombre);
+            ZeusRepository.Add(conceptInsert,"@Account",concept.Cuenta);ZeusRepository.Add(conceptInsert,"@Value",concept.Input.Valor);
+            await conceptInsert.ExecuteNonQueryAsync(ct);
+            movements.Add(new(new ZeusAccount("CONCEPTO_"+concept.Codigo,concept.Cuenta),-concept.Input.Valor));
+        }
         if(advanceTotal>0)
         {
             var advanceAccount=ZeusJournal.GeneralAdvanceAccount(settings)?.Cuenta
                 ??throw new ArgumentException("Configura la cuenta general de anticipos antes de aplicarlos en factura.");
             movements.Add(new(new ZeusAccount("ANTICIPO",advanceAccount),advanceTotal));
-            movements.Add(new(new ZeusAccount("CLIENTE",validated[0].Accounts.CarteraClientes!),-advanceTotal));
+            movements.Add(new(new ZeusAccount("CLIENTE",receivableAccount),-advanceTotal));
         }
         if(movements.Sum(x=>x.Valor)!=0)throw new InvalidOperationException("La factura no quedó balanceada. No se contabilizó.");
         var source=new ZeusSource(0,input.ClienteId,input.Numero.Trim(),input.FechaContable.ToDateTime(TimeOnly.MinValue),input.FechaContable.ToDateTime(TimeOnly.MinValue),input.Vencimiento.ToDateTime(TimeOnly.MinValue),total,validated.Sum(x=>x.Iva),0,[],ProveedorNombre:customerName);
         var snapshot=new ZeusSnapshot(settings,source,new(input.ClienteId,identification,identification),movements.ToArray(),
-            ClienteDocumento:new("FACTURA","FACTURA DE VENTA",validated[0].Accounts.CarteraClientes!));
+            ClienteDocumento:new("FACTURA","FACTURA DE VENTA",receivableAccount));
         q.CommandText="UPDATE ven.FacturaVenta SET Snapshot=@Snapshot WHERE EmpresaId=@E AND FacturaVentaId=@Id";
         ZeusRepository.Add(q,"@Snapshot",JsonSerializer.Serialize(snapshot));await q.ExecuteNonQueryAsync(ct);
         q.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@E,@User,'CONTABILIZAR_FACTURA_VENTA','ven.FacturaVenta',CONVERT(varchar(30),@Id),@Json,'ERP')";

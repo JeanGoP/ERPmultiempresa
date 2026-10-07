@@ -93,21 +93,41 @@ public static class SalesModule
             Results.Ok(await sales.ListAsync(empresaId,q,antes,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/sales-invoices/options",async(long empresaId,long? clienteId,SalesInvoiceRepository sales,CancellationToken ct)=>
             Results.Ok(await sales.OptionsAsync(empresaId,clienteId,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
-        group.MapGet("/sales-invoices/financing-accounts",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
+        group.MapGet("/master-data/sales-concepts",async(long empresaId,SalesConceptRepository concepts,CancellationToken ct)=>
+            Results.Ok(await concepts.ListAsync(empresaId,ct))).RequireErpPermission("MAESTROS.CONCEPTO_VENTA.ADMINISTRAR","VENTAS.FACTURA.CONTABILIZAR");
+        group.MapGet("/master-data/sales-concepts/accounts",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
         {
             var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus para esta empresa.")).Configuracion;
-            return Results.Ok((await zeus.AdvanceAccountsAsync(empresaId,config,ct)).Where(a=>a.Codigo.StartsWith("4135",StringComparison.Ordinal)).ToArray());
-        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
-        group.MapPost("/sales-invoices",async(long empresaId,SalesInvoiceInput input,HttpContext http,SalesInvoiceRepository sales,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
+            return Results.Ok((await zeus.ChartAsync(empresaId,config,ct)).Where(a=>a.Codigo.StartsWith("4",StringComparison.Ordinal)).ToArray());
+        }).RequireErpPermission("MAESTROS.CONCEPTO_VENTA.ADMINISTRAR");
+        group.MapPost("/master-data/sales-concepts",async(long empresaId,SalesConceptInput input,HttpContext http,SalesConceptRepository concepts,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
         {
             try
             {
-                if(input.Financiacion>0)
-                {
-                    var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus.")).Configuracion;
-                    if(!(await zeus.AdvanceAccountsAsync(empresaId,config,ct)).Any(a=>a.Codigo==input.CuentaFinanciacion&&a.Codigo.StartsWith("4135",StringComparison.Ordinal)))
-                        throw new ArgumentException("Selecciona una cuenta de ingreso 4135 de detalle habilitada en Zeus.");
-                }
+                var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus.")).Configuracion;
+                if(!(await zeus.ChartAsync(empresaId,config,ct)).Any(a=>a.Codigo==input.CuentaIngresoZeus&&a.Codigo.StartsWith("4",StringComparison.Ordinal)))
+                    throw new ArgumentException("Selecciona una cuenta de ingreso clase 4, de detalle y habilitada en Zeus.");
+                return Results.Ok(await concepts.SaveAsync(empresaId,null,input,Convert.ToInt64(http.Items["UsuarioId"]),config,ct));
+            }
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+            catch(SqlException e) when(e.Number is 2601 or 2627){return Results.Conflict(new{error="Ya existe un concepto con ese código."});}
+        }).RequireErpPermission("MAESTROS.CONCEPTO_VENTA.ADMINISTRAR");
+        group.MapPut("/master-data/sales-concepts/{id:long}",async(long empresaId,long id,SalesConceptInput input,HttpContext http,SalesConceptRepository concepts,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
+        {
+            try
+            {
+                var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus.")).Configuracion;
+                if(!(await zeus.ChartAsync(empresaId,config,ct)).Any(a=>a.Codigo==input.CuentaIngresoZeus&&a.Codigo.StartsWith("4",StringComparison.Ordinal)))
+                    throw new ArgumentException("Selecciona una cuenta de ingreso clase 4, de detalle y habilitada en Zeus.");
+                return Results.Ok(await concepts.SaveAsync(empresaId,id,input,Convert.ToInt64(http.Items["UsuarioId"]),config,ct));
+            }
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+            catch(SqlException e) when(e.Number is 2601 or 2627){return Results.Conflict(new{error="Ya existe un concepto con ese código."});}
+        }).RequireErpPermission("MAESTROS.CONCEPTO_VENTA.ADMINISTRAR");
+        group.MapPost("/sales-invoices",async(long empresaId,SalesInvoiceInput input,HttpContext http,SalesInvoiceRepository sales,CancellationToken ct)=>
+        {
+            try
+            {
                 return Results.Ok(await sales.PostAsync(empresaId,input,Convert.ToInt64(http.Items["UsuarioId"]),ct));
             }
             catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}

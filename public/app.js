@@ -230,7 +230,7 @@ function applyAccessControls() {
   const canReceiving = canUseReceiving();
   const canInventory = canReceiving || canUseWarehouseHistory() || canUseInventoryReports() || canUseInventoryOperations();
   const canCosts = hasAnyPermission(ACCESS.costs);
-  const canMasters = hasAnyPermission(ACCESS.masters);
+  const canMasters = hasAnyPermission(ACCESS.masters) || hasPermission('MAESTROS.CONCEPTO_VENTA.ADMINISTRAR');
   const canSecurity = hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR');
   const setVisible = (selectorOrElement, visible) => {
     const element = typeof selectorOrElement === 'string' ? document.querySelector(selectorOrElement) : selectorOrElement;
@@ -249,6 +249,7 @@ function applyAccessControls() {
   setVisible('#zeusNavGroup',canSecurity||hasPermission('COMPRAS.RECEPCION.CONTABILIZAR')||hasPermission('TESORERIA.EGRESO.CONTABILIZAR')||hasPermission('VENTAS.FACTURA.CONTABILIZAR')||hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
   setVisible('#salesInvoicesNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
   setVisible('#cashReceiptsNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
+  setVisible('#salesConceptsNav',hasPermission('MAESTROS.CONCEPTO_VENTA.ADMINISTRAR'));
   setVisible(elements.savedPurchasesNav, canUseSavedPurchases());
   setVisible(elements.accountsPayableNav, canUseAccountsPayable());
   setVisible($('#supplierPaymentReportNav'), canUseAccountsPayable());

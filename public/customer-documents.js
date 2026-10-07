@@ -6,7 +6,7 @@
   const dialog=document.createElement('dialog');dialog.className='erp-dialog egreso-dialog customer-documents-dialog';document.body.append(dialog);
   const $=selector=>dialog.querySelector(selector);
   let mode='',company=0,token=0,busy=false,dirty=false,options=null,accounts=[],search='',next=null;
-  let operation='',client=null,lines=[],applications=[],advances=[];
+  let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[];
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='invoice'?'sales-invoices':'cash-receipts'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
@@ -46,9 +46,9 @@
   document.querySelector('#cashReceiptsNav').addEventListener('click',()=>void open('receipt'));
   document.querySelector('#salesInvoicesNav').addEventListener('click',()=>void open('invoice'));
   async function create(){
-    const t=++token;operation=crypto.randomUUID();client=null;lines=[];applications=[];advances=[];dirty=false;shell();notice('Cargando catálogos…');
+    const t=++token;operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];dirty=false;shell();notice('Cargando catálogos…');
     try{
-      const [opts,chart]=await Promise.all([apiRequest(endpoint()+'/options'),apiRequest(endpoint()+(mode==='invoice'?'/financing-accounts':'/accounts'))]);
+      const [opts,chart]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts')]);
       if(!current(t))return;options=opts;accounts=chart;
       if(mode==='invoice')invoiceForm();else receiptForm();notice('');
     }catch(error){if(current(t))notice(error.message,true);}
@@ -140,16 +140,16 @@
       <label>Sucursal<select name="sucursalId" required><option value="">Selecciona…</option>${options.sucursales.map(x=>`<option value="${x.id}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label>
       <label>Referencia ERP<input name="numero" maxlength="15" value="FV-${Date.now().toString(36).toUpperCase()}" required></label>
       <label>Fecha contable<input name="fechaContable" type="date" value="${today()}" required></label>
-      <label>Vencimiento<input name="vencimiento" type="date" value="${today()}" required></label>${clientField()}
-      <label>Financiación<input name="financiacion" type="number" step="0.01" min="0" value="0"></label>
-      <label>Cuenta de financiación 4135<select name="cuentaFinanciacion"><option value="">Sin financiación</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label>
-      <label>Número de cuotas<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label></div>
-      <div class="egreso-toolbar"><h3>Artículos y conceptos</h3><button type="button" class="button secondary" data-add-line>Agregar línea</button></div>
+      <label>Vencimiento<input name="vencimiento" type="date" value="${today()}" required></label>${clientField()}</div>
+      <div class="egreso-grid"><label data-concept-warehouse hidden>Bodega para cuenta de clientes<select name="bodegaCarteraId"><option value="">Selecciona bodega…</option></select></label></div>
+      <div class="egreso-toolbar"><h3>Artículos y conceptos</h3><button type="button" class="button secondary" data-add-line>Agregar artículo</button><button type="button" class="button secondary" data-add-concept>Agregar concepto</button></div>
       <div class="table-wrap"><table><thead><tr><th>Artículo / bodega</th><th>Cantidad</th><th>Precio unitario con IVA</th><th>IVA</th><th>Seriales</th><th></th></tr></thead><tbody data-lines></tbody></table></div>
-      <div data-allocations></div><div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Emitir y contabilizar factura</button></div></fieldset></form>`;
+      <div class="table-wrap"><table><thead><tr><th>Concepto de venta</th><th>Cuenta de ingreso Zeus</th><th>Valor</th><th></th></tr></thead><tbody data-concept-lines></tbody></table></div>
+      <div data-allocations></div><div class="egreso-grid"><label>Número de cuotas<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label></div>
+      <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Emitir y contabilizar factura</button></div></fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
-    f.elements.sucursalId.onchange=()=>{lines=[];addLine();};
-    $('[data-add-line]').onclick=addLine;f.onsubmit=submitInvoice;addLine();renderAllocations();
+    f.elements.sucursalId.onchange=()=>{lines=[];f.elements.bodegaCarteraId.value='';addLine();};
+    $('[data-add-line]').onclick=addLine;$('[data-add-concept]').onclick=addConcept;f.onsubmit=submitInvoice;addLine();renderConcepts();renderAllocations();
   }
   function articleChoices(){
     const branch=$('[data-document]')?.elements.sucursalId.value;
@@ -158,6 +158,11 @@
   function addLine(){lines.push({articuloId:0,bodegaId:0,cantidad:1,precioUnitarioConIva:0,unidadesSerializadas:[]});renderLines();dirty=true;}
   function renderLines(){
     const area=$('[data-lines]');if(!area)return;const choices=articleChoices();
+    const f=$('[data-document]'),warehouseWrap=$('[data-concept-warehouse]');warehouseWrap.hidden=lines.length>0;
+    const warehouses=(options.bodegas||[]).filter(x=>String(x.sucursalId)===f.elements.sucursalId.value);
+    const selectedWarehouse=f.elements.bodegaCarteraId.value;
+    f.elements.bodegaCarteraId.innerHTML='<option value="">Selecciona bodega…</option>'+warehouses.map(x=>`<option value="${x.id}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('');
+    f.elements.bodegaCarteraId.value=selectedWarehouse;f.elements.bodegaCarteraId.required=lines.length===0;
     area.innerHTML=lines.map((line,index)=>{
       const item=choices.find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);
       const serials=(options.seriales||[]).filter(x=>x.articuloId===line.articuloId&&x.bodegaId===line.bodegaId);
@@ -178,29 +183,44 @@
       row.querySelector('[data-remove]').onclick=()=>{lines.splice(Number(row.dataset.line),1);renderLines();dirty=true;};
     });summary();
   }
+  function addConcept(){conceptLines.push({conceptoVentaId:0,valor:0});renderConcepts();dirty=true;}
+  function renderConcepts(){
+    const area=$('[data-concept-lines]');if(!area)return;
+    area.innerHTML=conceptLines.map((line,index)=>{const selected=(options.conceptos||[]).find(x=>x.id===line.conceptoVentaId);
+      return `<tr data-concept-line="${index}"><td><select data-concept required><option value="">Selecciona concepto…</option>${(options.conceptos||[]).map(x=>`<option value="${x.id}" ${x.id===line.conceptoVentaId?'selected':''}>${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></td><td>${esc(selected?.cuentaIngresoZeus||'—')}</td><td><input data-concept-value type="number" min="0.01" step="0.01" value="${esc(line.valor||'')}" required></td><td><button type="button" class="button secondary" data-remove-concept>Quitar</button></td></tr>`;
+    }).join('');
+    area.querySelectorAll('[data-concept-line]').forEach(row=>{const line=conceptLines[Number(row.dataset.conceptLine)];
+      row.querySelector('[data-concept]').onchange=event=>{line.conceptoVentaId=Number(event.target.value);renderConcepts();dirty=true;};
+      row.querySelector('[data-concept-value]').oninput=event=>{line.valor=Number(event.target.value);summary();dirty=true;};
+      row.querySelector('[data-remove-concept]').onclick=()=>{conceptLines.splice(Number(row.dataset.conceptLine),1);renderConcepts();dirty=true;};
+    });summary();
+  }
   function renderAdvances(){
     const area=$('[data-allocations]');if(!area)return;
-    area.innerHTML=`<h3>Anticipos disponibles del cliente</h3><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Recibo</th><th>Saldo disponible</th><th>Valor a descontar</th></tr></thead><tbody>${(options.anticipos||[]).map(x=>`<tr><td><input type="checkbox" data-pick-advance="${x.id}" ${advances.some(a=>a.reciboCajaId===x.id)?'checked':''}></td><td>RC-${x.id}</td><td>${money(x.saldo)}</td><td><input data-advance-value="${x.id}" type="number" min="0.01" max="${x.saldo}" step="0.01" value="${advances.find(a=>a.reciboCajaId===x.id)?.valor||x.saldo}" ${advances.some(a=>a.reciboCajaId===x.id)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="4">No hay anticipos disponibles.</td></tr>'}</tbody></table></div>`;
+    area.innerHTML=`<h3>Cuota inicial / anticipos disponibles</h3><p class="egreso-help">Aplica aquí los anticipos contabilizados mediante recibos de caja. Se descuentan antes de calcular las cuotas.</p><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Recibo</th><th>Saldo disponible</th><th>Valor a descontar</th></tr></thead><tbody>${(options.anticipos||[]).map(x=>`<tr><td><input type="checkbox" data-pick-advance="${x.id}" ${advances.some(a=>a.reciboCajaId===x.id)?'checked':''}></td><td>RC-${x.id}</td><td>${money(x.saldo)}</td><td><input data-advance-value="${x.id}" type="number" min="0.01" max="${x.saldo}" step="0.01" value="${advances.find(a=>a.reciboCajaId===x.id)?.valor||x.saldo}" ${advances.some(a=>a.reciboCajaId===x.id)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="4">No hay anticipos disponibles. Registra primero un recibo de caja si el cliente pagó cuota inicial.</td></tr>'}</tbody></table></div>`;
     area.querySelectorAll('[data-pick-advance]').forEach(box=>box.onchange=()=>{const id=Number(box.dataset.pickAdvance),advance=options.anticipos.find(x=>x.id===id);advances=advances.filter(x=>x.reciboCajaId!==id);if(box.checked)advances.push({reciboCajaId:id,valor:advance.saldo});renderAdvances();dirty=true;});
     area.querySelectorAll('[data-advance-value]').forEach(input=>input.oninput=()=>{const x=advances.find(a=>a.reciboCajaId===Number(input.dataset.advanceValue));if(x)x.valor=Number(input.value);summary();dirty=true;});summary();
   }
   function invoiceSummary(){
     const f=$('[data-document]');if(!f)return;
     const goods=Math.round(lines.reduce((s,x)=>s+Math.round(x.cantidad*x.precioUnitarioConIva*100),0))/100;
-    const financing=Number(f.elements.financiacion.value)||0;
+    const concepts=Math.round(conceptLines.reduce((s,x)=>s+Math.round(x.valor*100),0))/100;
     const advance=Math.round(advances.reduce((s,x)=>s+Math.round(x.valor*100),0))/100;
-    const total=goods+financing,balance=total-advance,terms=Number(f.elements.cuotas.value)||1;
-    $('[data-summary]').textContent=`Total ${money(total)} · Anticipos ${money(advance)} · Saldo ${money(balance)} · ${terms} cuota(s) de aprox. ${money(balance/terms)}`;
+    const total=goods+concepts,balance=Math.round((total-advance)*100)/100,terms=Number(f.elements.cuotas.value)||1;
+    const cents=Math.max(0,Math.round(balance*100)),regular=Math.floor(cents/terms),last=cents-regular*(terms-1);
+    $('[data-summary]').textContent=`Artículos ${money(goods)} + conceptos ${money(concepts)} = total ${money(total)} · Cuota inicial ${money(advance)} · Saldo a financiar ${money(balance)} · ${terms} cuota(s): ${terms>1?`${terms-1} de ${money(regular/100)} y última de ${money(last/100)}`:money(last/100)}`;
   }
   async function submitInvoice(event){
     event.preventDefault();if(busy)return;const f=event.target;
     if(!client){notice('Selecciona un cliente de los resultados.',true);return;}
-    if(!lines.length||lines.some(x=>!x.articuloId||!x.bodegaId||x.cantidad<=0||x.precioUnitarioConIva<=0)){notice('Completa artículos, cantidades y precios.',true);return;}
+    if(lines.some(x=>!x.articuloId||!x.bodegaId||x.cantidad<=0||x.precioUnitarioConIva<=0)){notice('Completa artículos, cantidades y precios.',true);return;}
+    if(!lines.length&&!conceptLines.length){notice('Agrega al menos un artículo o un concepto.',true);return;}
     for(const line of lines){const a=options.articulos.find(x=>x.id===line.articuloId&&x.bodegaId===line.bodegaId);
       if(a?.iva==null||a.inventario&&line.cantidad>a.existencia||a?.serial&&line.unidadesSerializadas.length!==line.cantidad){notice('Revisa el IVA, las existencias y los seriales seleccionados.',true);return;}}
-    const financing=Number(f.elements.financiacion.value)||0;
-    if(financing>0&&!f.elements.cuentaFinanciacion.value){notice('Selecciona una cuenta 4135 para la financiación.',true);return;}
-    const body={operacionGuid:operation,numero:f.elements.numero.value,clienteId:client.id,sucursalId:Number(f.elements.sucursalId.value),fechaContable:f.elements.fechaContable.value,vencimiento:f.elements.vencimiento.value,lineas:lines,financiacion:financing,cuentaFinanciacion:f.elements.cuentaFinanciacion.value||null,cuotas:Number(f.elements.cuotas.value),anticipos:advances};
+    if(conceptLines.some(x=>!x.conceptoVentaId||!Number.isFinite(x.valor)||x.valor<=0)){notice('Completa los conceptos y sus valores.',true);return;}
+    const totalCents=lines.reduce((s,x)=>s+Math.round(x.cantidad*x.precioUnitarioConIva*100),0)+conceptLines.reduce((s,x)=>s+Math.round(x.valor*100),0);
+    if(advances.reduce((s,x)=>s+Math.round(x.valor*100),0)>totalCents){notice('La cuota inicial no puede superar el total de la factura.',true);return;}
+    const body={operacionGuid:operation,numero:f.elements.numero.value,clienteId:client.id,sucursalId:Number(f.elements.sucursalId.value),fechaContable:f.elements.fechaContable.value,vencimiento:f.elements.vencimiento.value,lineas:lines,conceptos:conceptLines,cuotas:Number(f.elements.cuotas.value),anticipos:advances,bodegaCarteraId:lines.length?null:Number(f.elements.bodegaCarteraId.value)};
     await send(body,'Factura');
   }
   async function send(body,title){
