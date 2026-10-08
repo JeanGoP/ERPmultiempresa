@@ -49,6 +49,15 @@ Check(monthEnd[1].Vencimiento==new DateOnly(2027,2,28)
     &&monthEnd[2].Vencimiento==new DateOnly(2027,3,31),"fin de mes anclado al día inicial");
 Check(SalesInstallments.Build(new DateOnly(2026,10,3),1,SalesInstallments.SameDayMonthly,0m).Length==0,
     "sin saldo no se crean partidas de cartera");
+var mixed=SalesInstallments.BuildWithExtras(new DateOnly(2026,10,3),2,SalesInstallments.SameDayMonthly,1300m,
+    new DateOnly(2026,9,30),[new SalesExtraInstallment(new DateOnly(2026,10,15),300m)]);
+Check(mixed.Length==3&&mixed.Sum(x=>x.Valor)==1300m&&mixed[0].Valor==500m&&mixed[1].Tipo=="EXTRA"
+    &&mixed[1].Vencimiento==new DateOnly(2026,10,15)&&mixed[2].Numero==3,
+    "cuota extraordinaria con vencimiento propio y reparto exacto del saldo ordinario");
+try{SalesInstallments.BuildWithExtras(new DateOnly(2026,10,3),2,SalesInstallments.SameDayMonthly,300m,
+    new DateOnly(2026,9,30),[new SalesExtraInstallment(new DateOnly(2026,10,15),300m)]);
+    throw new Exception("Permitió cuotas extras sin saldo para las ordinarias.");}
+catch(ArgumentException){Console.WriteLine("OK: extras no consumen el saldo de cuotas ordinarias");}
 try{SalesInstallments.Build(new DateOnly(2026,10,3),12,SalesInstallments.SameDayMonthly,0.10m);throw new Exception("No rechazó cuotas inferiores a un centavo.");}
 catch(ArgumentException){Console.WriteLine("OK: saldo insuficiente rechazado");}
 CustomerPaymentPolicy.ValidateDueDate(new DateTime(2026,10,3),new DateOnly(2026,10,3));

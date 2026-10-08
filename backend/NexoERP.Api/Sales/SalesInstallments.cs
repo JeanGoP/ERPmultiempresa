@@ -1,6 +1,7 @@
 namespace NexoERP.Api.Sales;
 
-public sealed record SalesInstallment(int Numero,DateOnly Vencimiento,decimal Valor);
+public sealed record SalesInstallment(int Numero,DateOnly Vencimiento,decimal Valor,string Tipo="ORDINARIA");
+public sealed record SalesExtraInstallment(DateOnly Vencimiento,decimal Valor);
 
 public static class SalesInstallments
 {
@@ -26,5 +27,23 @@ public static class SalesInstallments
             result[i]=new(i+1,due,(i==count-1?cents-regular*(count-1):regular)/100);
         }
         return result;
+    }
+
+    public static SalesInstallment[] BuildWithExtras(DateOnly first,int count,string? frequency,decimal balance,
+        DateOnly invoiceDate,IReadOnlyList<SalesExtraInstallment>? extras)
+    {
+        extras??=[];
+        if(extras.Count>30||count+extras.Count>120)
+            throw new ArgumentException("La factura admite máximo 30 cuotas extras y 120 vencimientos en total.");
+        if(extras.Any(x=>x.Valor<=0||decimal.Round(x.Valor,2)!=x.Valor||x.Vencimiento<invoiceDate)
+            ||extras.Select(x=>x.Vencimiento).Distinct().Count()!=extras.Count)
+            throw new ArgumentException("Cada cuota extra requiere una fecha distinta, posterior a la factura, y un valor positivo con dos decimales.");
+        var ordinaryBalance=balance-extras.Sum(x=>x.Valor);
+        if(ordinaryBalance<=0&&balance>0)
+            throw new ArgumentException("Las cuotas extras deben dejar saldo para las cuotas ordinarias.");
+        var ordinary=Build(first,count,frequency,ordinaryBalance);
+        return ordinary.Concat(extras.Select(x=>new SalesInstallment(0,x.Vencimiento,x.Valor,"EXTRA")))
+            .OrderBy(x=>x.Vencimiento).ThenBy(x=>x.Tipo=="ORDINARIA"?0:1)
+            .Select((x,i)=>x with{Numero=i+1}).ToArray();
     }
 }

@@ -7,11 +7,12 @@
   const serialDialog=document.createElement('dialog');serialDialog.className='erp-dialog customer-serial-dialog';document.body.append(serialDialog);
   const $=selector=>dialog.querySelector(selector);
   let mode='',view='create',company=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,search='',receiptFilter='',next=null;
-  let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[];
+  let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[],extraInstallments=[];
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='invoice'?'sales-invoices':'cash-receipts'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
   const clientLabel=c=>c?`${c.identificacion} · ${c.nombre}`:'';
+  const portfolioLabel=value=>({MOTO:'Motos',OTROS:'Otros artículos',MIXTA:'Mixta',SIN_CLASIFICAR:'Sin clasificar'})[value]||'Sin clasificar';
   function close(force=false){if(!force&&mode==='invoice'&&view!=='create'){void create();return;}if(!force&&(busy||dirty&&!confirm('¿Salir sin contabilizar el documento?')))return;token++;dirty=false;if(serialDialog.open)serialDialog.close();dialog.close();mode='';company=0;}
   window.resetCustomerDocuments=()=>close(true);
   dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
@@ -33,7 +34,7 @@
     try{
       const response=await apiRequest(endpoint()+`?q=${encodeURIComponent(search)}${before?`&antes=${before}`:''}${mode==='receipt'&&receiptFilter?`&tipo=${encodeURIComponent(receiptFilter)}`:''}`);
       if(!current(t))return;next=response.siguiente;
-      $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Documentos guardados</strong><button type="button" class="button secondary" data-return-create>← Volver a ${mode==='invoice'?'facturación':'recibos'}</button></div><div class="table-wrap"><table><thead><tr><th>Documento</th><th>Fecha</th><th>Cliente</th><th>Total</th><th>Saldo / tipo</th><th>Zeus</th></tr></thead><tbody>${response.items.map(row=>`<tr><td>${mode==='invoice'?`<button type="button" class="customer-document-link" data-view-invoice="${row.id}" aria-label="Ver factura ${esc(row.numero)}">${esc(row.numero)}</button>`:esc(row.numero||'RC-'+row.id)}</td><td>${esc(row.fecha)}</td><td>${esc(row.cliente)}</td><td>${money(row.total)}</td><td>${mode==='invoice'?money(row.saldo)+' · anticipo '+money(row.anticipo):esc(row.tipo)+(row.concepto?`<br><small>${esc(row.concepto)}</small>`:'')}</td><td>${esc(row.zeusEstado)} ${esc([row.fuente,row.documento].filter(Boolean).join(' · '))}<br><small>${esc(row.error||'')}</small>${row.zeusEstado==='RECHAZADO'?(mode==='invoice'?`<button type="button" class="button secondary" data-cost-center="${row.id}">Corregir centro de costo</button>`:'')+`<button type="button" class="button secondary" data-retry="${row.id}">Reintentar Zeus</button>`:''}${row.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button type="button" class="button secondary" data-reconcile="${row.id}">Conciliar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6">No se encontraron documentos.</td></tr>'}</tbody></table></div>
+      $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Documentos guardados</strong><button type="button" class="button secondary" data-return-create>← Volver a ${mode==='invoice'?'facturación':'recibos'}</button></div><div class="table-wrap"><table><thead><tr><th>Documento</th><th>Fecha</th><th>Cliente</th><th>Total</th><th>Saldo / tipo</th><th>Zeus</th></tr></thead><tbody>${response.items.map(row=>`<tr><td>${mode==='invoice'?`<button type="button" class="customer-document-link" data-view-invoice="${row.id}" aria-label="Ver factura ${esc(row.numero)}">${esc(row.numero)}</button>`:esc(row.numero||'RC-'+row.id)}</td><td>${esc(row.fecha)}</td><td>${esc(row.cliente)}</td><td>${money(row.total)}</td><td>${mode==='invoice'?money(row.saldo)+' · anticipo '+money(row.anticipo)+'<br><small>'+esc(portfolioLabel(row.claseCartera))+'</small>':esc(row.tipo)+(row.concepto?`<br><small>${esc(row.concepto)}</small>`:'')}</td><td>${esc(row.zeusEstado)} ${esc([row.fuente,row.documento].filter(Boolean).join(' · '))}<br><small>${esc(row.error||'')}</small>${row.zeusEstado==='RECHAZADO'?(mode==='invoice'?`<button type="button" class="button secondary" data-cost-center="${row.id}">Corregir centro de costo</button>`:'')+`<button type="button" class="button secondary" data-retry="${row.id}">Reintentar Zeus</button>`:''}${row.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button type="button" class="button secondary" data-reconcile="${row.id}">Conciliar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6">No se encontraron documentos.</td></tr>'}</tbody></table></div>
         <div class="egreso-toolbar"><button type="button" class="button secondary" data-first>Primera página</button><button type="button" class="button secondary" data-next ${next?'':'disabled'}>Siguientes</button></div>`;
       notice('');$('[data-return-create]').onclick=()=>void create();$('[data-first]').onclick=()=>listing();$('[data-next]').onclick=()=>listing(next);
       dialog.querySelectorAll('[data-view-invoice]').forEach(button=>button.onclick=()=>void viewInvoice(Number(button.dataset.viewInvoice),before));
@@ -52,13 +53,14 @@
       const h=data.header;
       const table=(headers,rows,empty)=>`<div class="table-wrap"><table><thead><tr>${headers.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows||`<tr><td colspan="${headers.length}">${empty}</td></tr>`}</tbody></table></div>`;
       $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Factura ${esc(h.numero)}</strong><button type="button" class="button secondary" data-back-results>← Volver a resultados</button></div>
-        <div class="customer-invoice-detail-grid"><div><small>Cliente</small><strong>${esc(h.cliente)}</strong><span>${esc(h.identificacion)}</span></div><div><small>Sucursal</small><strong>${esc(h.sucursalCodigo+' · '+h.sucursal)}</strong></div><div><small>Fecha contable</small><strong>${esc(h.fecha)}</strong></div><div><small>Zeus</small><strong>${esc(h.zeusEstado)}</strong><span>${esc([h.fuente,h.documento].filter(Boolean).join(' · '))}</span></div></div>
+        <div class="customer-invoice-detail-grid"><div><small>Cliente</small><strong>${esc(h.cliente)}</strong><span>${esc(h.identificacion)}</span></div><div><small>Sucursal</small><strong>${esc(h.sucursalCodigo+' · '+h.sucursal)}</strong></div><div><small>Cartera / fecha</small><strong>${esc(portfolioLabel(h.claseCartera))}</strong><span>${esc(h.fecha)}</span></div><div><small>Zeus</small><strong>${esc(h.zeusEstado)}</strong><span>${esc([h.fuente,h.documento].filter(Boolean).join(' · '))}</span></div></div>
+        ${h.observacion?`<p class="customer-invoice-observation"><strong>Observación:</strong> ${esc(h.observacion)}</p>`:''}
         ${h.error?`<p class="error">${esc(h.error)}</p>`:''}
         <h3>Artículos</h3>${table(['Artículo','Bodega','Cantidad','Precio con IVA','IVA','Total'],data.articulos.map(x=>`<tr><td>${esc(x.codigo+' · '+x.descripcion)}</td><td>${esc(x.bodegaCodigo+' · '+x.bodega)}</td><td>${esc(x.cantidad)}</td><td>${money(x.precio)}</td><td>${esc(x.ivaTarifa)} %</td><td>${money(x.base+x.iva)}</td></tr>`).join(''),'Sin artículos.')}
         <h3>Conceptos</h3>${table(['Concepto','Cuenta Zeus','Centro de costo','Valor'],data.conceptos.map(x=>`<tr><td>${esc(x.codigo+' · '+x.nombre)}</td><td>${esc(x.cuenta)}</td><td>${esc(x.centroCosto||'—')}</td><td>${money(x.valor)}</td></tr>`).join(''),'Sin conceptos.')}
         <h3>Anticipos aplicados</h3>${table(['Recibo','Fecha','Concepto','Valor aplicado'],data.anticipos.map(x=>`<tr><td>RC-${esc(x.reciboId)}</td><td>${esc(x.fecha)}</td><td>${esc(x.concepto)}</td><td>${money(x.valor)}</td></tr>`).join(''),'Sin anticipos aplicados.')}
         <h3>Plan de cuotas</h3><p class="egreso-help">Primer vencimiento: ${esc(h.primerVencimiento)} · ${esc(h.cuotas)} cuota(s) · ${h.frecuencia==='CADA_30_DIAS'?'Cada 30 días':'Mismo día de cada mes'}</p>
-        ${table(['Cuota','Vencimiento','Valor','Saldo'],data.cuotas.map(x=>`<tr><td>${esc(x.numero)}</td><td>${esc(x.vence)}</td><td>${money(x.valor)}</td><td>${money(x.saldo)}</td></tr>`).join(''),'La cuota inicial cubrió toda la factura.')}
+        ${table(['Cuota','Tipo','Vencimiento','Valor','Saldo'],data.cuotas.map(x=>`<tr><td>${esc(x.numero)}</td><td>${x.tipo==='EXTRA'?'Extra':'Ordinaria'}</td><td>${esc(x.vence)}</td><td>${money(x.valor)}</td><td>${money(x.saldo)}</td></tr>`).join(''),'La cuota inicial cubrió toda la factura.')}
         <div class="customer-invoice-totals"><span>Total ${money(h.total)}</span><span>Anticipos ${money(h.anticipo)}</span><strong>Saldo ${money(h.saldo)}</strong></div>`;
       $('[data-back-results]').onclick=()=>void listing(before);notice('');
     }catch(error){if(current(t))notice(error.message,true);}
@@ -91,7 +93,7 @@
   document.querySelector('#cashReceiptsNav').addEventListener('click',()=>void open('receipt'));
   document.querySelector('#salesInvoicesNav').addEventListener('click',()=>void open('invoice'));
   async function create(){
-    const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
+    const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];extraInstallments=[];dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
     try{
       const [opts,chart,dims]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions'):Promise.resolve(null)]);
       if(!current(t))return;options=opts;accounts=chart;dimensions=dims;
@@ -134,9 +136,11 @@
       <p class="egreso-help" data-account-hint></p><label class="egreso-wide">Concepto<input name="concepto" maxlength="300" required></label>
       <label data-contra-wrap class="egreso-wide" hidden>Cuenta de contrapartida en Zeus<select name="cuentaContrapartida"><option value="">Selecciona cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label>
       <label>Valor recibido<input name="total" type="number" min="0.01" step="0.01" required></label></div>
+      <label class="customer-portfolio-filter" data-portfolio-filter-wrap hidden>Mostrar cartera de<select name="claseCarteraFiltro"><option value="">Todas las facturas</option><option value="MOTO">Motos</option><option value="OTROS">Otros artículos</option><option value="MIXTA">Mixta</option><option value="SIN_CLASIFICAR">Sin clasificar</option></select></label>
       <div data-allocations></div><div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Contabilizar recibo</button></div></fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
     f.elements.tipo.onchange=()=>{applications=[];renderAllocations();};
+    f.elements.claseCarteraFiltro.onchange=()=>renderAllocations();
     f.elements.sucursalId.onchange=accountHint;f.elements.medioPago.onchange=accountHint;
     f.elements.fechaContable.onchange=()=>{applications=[];renderAllocations();dirty=true;};
     f.onsubmit=submitReceipt;renderAllocations();accountHint();
@@ -150,19 +154,21 @@
     const area=$('[data-allocations]');if(!area)return;
     if(mode==='invoice'){renderAdvances();return;}
     const f=$('[data-document]'),kind=f.elements.tipo.value;
+    $('[data-portfolio-filter-wrap]').hidden=kind!=='CARTERA';
     $('[data-contra-wrap]').hidden=kind!=='NORMAL';f.elements.cuentaContrapartida.required=kind==='NORMAL';
     f.elements.total.readOnly=kind==='CARTERA';
     if(kind!=='CARTERA'){area.innerHTML=kind==='ANTICIPO'?'<p class="egreso-help">El saldo del anticipo quedará disponible para aplicarlo a una factura futura.</p>':'<p class="egreso-help">Selecciona la cuenta contable específica para este ingreso. No modifica cartera.</p>';summary();return;}
     const selected=x=>applications.find(a=>a.facturaVentaId===x.id&&(a.facturaVentaCuotaId??null)===(x.cuotaId??null));
-    area.innerHTML=`<h3>Cuotas y facturas pendientes del cliente</h3><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Factura / cuota</th><th>Vencimiento</th><th>Saldo</th><th>Valor a recaudar</th></tr></thead><tbody>${(options.facturas||[]).map((x,i)=>{const future=x.vence>f.elements.fechaContable.value;return `<tr><td><input type="checkbox" data-pick="${i}" ${selected(x)?'checked':''} ${x.zeusEstado==='CONTABILIZADO'&&!future?'':'disabled'}></td><td>${esc(x.numero)}${x.numeroCuota?' · cuota '+x.numeroCuota:''}</td><td>${esc(x.vence)}${future?' · aún no vence':''}</td><td>${money(x.saldo)}</td><td><input type="number" data-amount="${i}" min="0.01" max="${x.saldo}" step="0.01" value="${selected(x)?.valor||x.saldo}" ${selected(x)?'':'disabled'}></td></tr>`;}).join('')||'<tr><td colspan="5">Selecciona un cliente con facturas pendientes.</td></tr>'}</tbody></table></div><small class="egreso-help">Solo se recaudan cuotas vencidas y confirmadas en Zeus. Los anticipos se registran por separado.</small>`;
+    const shown=(options.facturas||[]).filter(x=>!f.elements.claseCarteraFiltro.value||x.claseCartera===f.elements.claseCarteraFiltro.value);
+    area.innerHTML=`<h3>Cuotas y facturas pendientes del cliente</h3><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Factura / cuota</th><th>Cartera</th><th>Vencimiento</th><th>Saldo</th><th>Valor a recaudar</th></tr></thead><tbody>${shown.map((x,i)=>{const future=x.vence>f.elements.fechaContable.value;return `<tr><td><input type="checkbox" data-pick="${i}" ${selected(x)?'checked':''} ${x.zeusEstado==='CONTABILIZADO'&&!future?'':'disabled'}></td><td>${esc(x.numero)}${x.numeroCuota?' · cuota '+x.numeroCuota:''}</td><td>${esc(portfolioLabel(x.claseCartera))}</td><td>${esc(x.vence)}${future?' · aún no vence':''}</td><td>${money(x.saldo)}</td><td><input type="number" data-amount="${i}" min="0.01" max="${x.saldo}" step="0.01" value="${selected(x)?.valor||x.saldo}" ${selected(x)?'':'disabled'}></td></tr>`;}).join('')||'<tr><td colspan="6">No hay cuotas pendientes en esta categoría.</td></tr>'}</tbody></table></div><small class="egreso-help">Solo se recaudan cuotas vencidas y confirmadas en Zeus. Los anticipos se registran por separado.</small>`;
     area.querySelectorAll('[data-pick]').forEach(box=>box.onchange=()=>{
-      const invoice=options.facturas[Number(box.dataset.pick)];
+      const invoice=shown[Number(box.dataset.pick)];
       applications=applications.filter(a=>!(a.facturaVentaId===invoice.id&&(a.facturaVentaCuotaId??null)===(invoice.cuotaId??null)));
       if(box.checked)applications.push({facturaVentaId:invoice.id,facturaVentaCuotaId:invoice.cuotaId??null,valor:invoice.saldo});
       renderAllocations();dirty=true;
     });
     area.querySelectorAll('[data-amount]').forEach(input=>input.oninput=()=>{
-      const invoice=options.facturas[Number(input.dataset.amount)],item=selected(invoice);if(item)item.valor=Number(input.value);
+      const invoice=shown[Number(input.dataset.amount)],item=selected(invoice);if(item)item.valor=Number(input.value);
       summary();dirty=true;
     });summary();
   }
@@ -188,18 +194,31 @@
       <label>Referencia ERP<input name="numero" maxlength="15" value="FV-${Date.now().toString(36).toUpperCase()}" required></label>
       <label>Fecha contable<input name="fechaContable" type="date" value="${today()}" required></label>
       ${clientField()}</div>
+      <div class="customer-invoice-meta"><label>Tipo de cartera<select name="claseCartera" required><option value="">Selecciona…</option><option value="MOTO">Motos</option><option value="OTROS">Otros artículos</option><option value="MIXTA">Mixta</option></select></label><label>Observación de la venta o garantía<textarea name="observacion" maxlength="1000" rows="2" placeholder="Información que conviene conservar con la factura"></textarea></label></div>
       <div class="egreso-grid"><label data-concept-warehouse hidden>Bodega para cuenta de clientes<select name="bodegaCarteraId"><option value="">Selecciona bodega…</option></select></label></div>
       <div class="egreso-toolbar"><h3>Artículos y conceptos</h3><button type="button" class="button secondary" data-add-line>Agregar artículo</button><button type="button" class="button secondary" data-add-concept>Agregar concepto</button></div>
       <div class="table-wrap"><table><thead><tr><th>Artículo / bodega</th><th>Cantidad</th><th>Precio unitario con IVA</th><th>IVA</th><th>Seriales</th><th></th></tr></thead><tbody data-lines></tbody></table></div>
       <div class="table-wrap"><table><thead><tr><th>Concepto de venta</th><th>Cuenta de ingreso Zeus</th><th>Valor</th><th>Centro de costo Zeus</th><th></th></tr></thead><tbody data-concept-lines></tbody></table></div>
+      <div class="customer-profit-preview" data-profit-preview></div>
       <div data-allocations></div><div class="customer-invoice-settings"><label class="customer-center-field">Centro de costo de la factura<select name="centroCostoIngreso"><option value="">Sin centro de costo</option>${(dimensions?.centrosCosto||[]).map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select><small data-general-center-hint>Se aplica a los artículos cuando Zeus lo exige.</small></label>
-      <section class="customer-installment-settings"><h3>Plan de cuotas</h3><div class="customer-installment-fields"><label>Primer vencimiento<input name="vencimiento" type="date" value="${today()}" required></label><label>Número de cuotas<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label><label>Vencimiento de las siguientes cuotas<select name="frecuenciaCuotas" required><option value="DIA_FIJO_MES">Mismo día de cada mes</option><option value="CADA_30_DIAS">Cada 30 días</option></select></label></div><small>Mensual: conserva el día del primer vencimiento. También puedes elegir cada 30 días.</small></section></div>
+      <section class="customer-installment-settings"><h3>Plan de cuotas</h3><div class="customer-installment-fields"><label>Primer vencimiento<input name="vencimiento" type="date" value="${today()}" required></label><label>Número de cuotas ordinarias<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label><label>Vencimiento de las siguientes cuotas<select name="frecuenciaCuotas" required><option value="DIA_FIJO_MES">Mismo día de cada mes</option><option value="CADA_30_DIAS">Cada 30 días</option></select></label></div><small>Mensual: conserva el día del primer vencimiento. También puedes elegir cada 30 días.</small><div class="customer-extra-heading"><strong>Cuotas extraordinarias</strong><button type="button" class="button secondary" data-add-extra>+ Agregar cuota extra</button></div><div data-extra-rows></div></section></div>
       <div data-installments></div>
       <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Emitir y contabilizar factura</button></div></fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
     f.elements.frecuenciaCuotas.onchange=()=>{dirty=true;summary();};f.elements.vencimiento.onchange=()=>{dirty=true;summary();};
     f.elements.sucursalId.onchange=()=>{lines=[];f.elements.bodegaCarteraId.value='';addLine();};
-    $('[data-add-line]').onclick=()=>addLine();$('[data-add-concept]').onclick=addConcept;f.onsubmit=submitInvoice;addLine(false);renderConcepts();renderAllocations();
+    $('[data-add-line]').onclick=()=>addLine();$('[data-add-concept]').onclick=addConcept;
+    $('[data-add-extra]').onclick=()=>{extraInstallments.push({vencimiento:'',valor:0});renderExtraInstallments();dirty=true;};
+    f.onsubmit=submitInvoice;addLine(false);renderConcepts();renderAllocations();renderExtraInstallments();
+  }
+  function renderExtraInstallments(){
+    const area=$('[data-extra-rows]');if(!area)return;
+    area.innerHTML=extraInstallments.map((x,i)=>`<div class="customer-extra-row" data-extra="${i}"><label>Vencimiento<input data-extra-date type="date" value="${esc(x.vencimiento)}" required></label><label>Valor<input data-extra-amount type="number" min="0.01" step="0.01" value="${x.valor||''}" required></label><button type="button" class="button secondary" data-remove-extra>Quitar</button></div>`).join('');
+    area.querySelectorAll('[data-extra]').forEach(row=>{const x=extraInstallments[Number(row.dataset.extra)];
+      row.querySelector('[data-extra-date]').onchange=event=>{x.vencimiento=event.target.value;dirty=true;summary();};
+      row.querySelector('[data-extra-amount]').oninput=event=>{x.valor=Number(event.target.value);dirty=true;summary();};
+      row.querySelector('[data-remove-extra]').onclick=()=>{extraInstallments.splice(Number(row.dataset.extra),1);renderExtraInstallments();dirty=true;};
+    });summary();
   }
   function articleChoices(){
     const branch=$('[data-document]')?.elements.sucursalId.value;
@@ -217,7 +236,7 @@
       const item=choices.find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);
       return `<tr data-line="${index}"><td><select data-article required><option value="">Selecciona artículo y bodega…</option>${choices.map(a=>`<option value="${a.id}|${a.bodegaId}" ${a.id===line.articuloId&&a.bodegaId===line.bodegaId?'selected':''}>${esc(a.codigo+' · '+a.descripcion+' · '+a.bodegaCodigo+' · Disponible '+a.existencia)}</option>`).join('')}</select></td>
         <td><input data-qty type="number" min="0.000001" step="0.000001" value="${esc(line.cantidad)}" required></td>
-        <td><input data-price type="number" min="0.01" step="0.01" value="${esc(line.precioUnitarioConIva||'')}" required></td>
+        <td><input data-price type="number" min="0.01" step="0.01" value="${esc(line.precioUnitarioConIva||'')}" required>${item?.inventario&&item.costoPromedio>0&&item.iva!=null?`<button type="button" class="customer-cost-price" data-cost-price>Usar costo + IVA</button>`:''}</td>
         <td>${item?.iva==null?'IVA sin clasificar':esc(item.iva+' %')}</td>
         <td>${item?.serial?`<button type="button" class="button secondary customer-serial-trigger" data-choose-serial>Buscar seriales</button><small class="customer-serial-count">${line.unidadesSerializadas.length} de ${esc(line.cantidad)} seleccionada(s)</small>`:'—'}</td>
         <td><button type="button" class="button secondary" data-remove>Quitar</button></td></tr>`;
@@ -227,6 +246,7 @@
       row.querySelector('[data-article]').onchange=event=>{const [id,warehouse]=event.target.value.split('|').map(Number);line.articuloId=id||0;line.bodegaId=warehouse||0;line.unidadesSerializadas=[];renderLines();dirty=true;};
       row.querySelector('[data-qty]').oninput=event=>{line.cantidad=Number(event.target.value);summary();dirty=true;};
       row.querySelector('[data-price]').oninput=event=>{line.precioUnitarioConIva=Number(event.target.value);summary();dirty=true;};
+      row.querySelector('[data-cost-price]')?.addEventListener('click',()=>{const item=articleChoices().find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);if(!item||item.costoPromedio==null||item.iva==null)return;line.precioUnitarioConIva=Math.round(item.costoPromedio*(1+item.iva/100)*100)/100;renderLines();dirty=true;});
       row.querySelector('[data-choose-serial]')?.addEventListener('click',()=>openSerialPicker(Number(row.dataset.line)));
       row.querySelector('[data-remove]').onclick=()=>{lines.splice(Number(row.dataset.line),1);renderLines();dirty=true;};
     });updateGeneralCenterHint();summary();
@@ -317,16 +337,24 @@
   function invoiceSummary(){
     const f=$('[data-document]');if(!f)return;
     const goods=Math.round(lines.reduce((s,x)=>s+Math.round(x.cantidad*x.precioUnitarioConIva*100),0))/100;
+    const priced=lines.filter(x=>x.articuloId&&x.bodegaId&&x.cantidad>0&&x.precioUnitarioConIva>0);
+    const inventoryLines=priced.map(x=>({line:x,item:(options.articulos||[]).find(a=>a.id===x.articuloId&&a.bodegaId===x.bodegaId)})).filter(x=>x.item?.inventario);
+    const unknownCost=inventoryLines.some(x=>x.item.costoPromedio==null||x.item.iva==null);
+    const netRevenue=inventoryLines.reduce((sum,x)=>sum+(x.item.iva==null?0:Math.round(x.line.cantidad*x.line.precioUnitarioConIva/(1+x.item.iva/100)*100)/100),0);
+    const estimatedCost=inventoryLines.reduce((sum,x)=>sum+x.line.cantidad*(x.item.costoPromedio||0),0);
+    const margin=netRevenue-estimatedCost;
+    const preview=$('[data-profit-preview]');
+    if(preview)preview.innerHTML=inventoryLines.length?`<strong>Rentabilidad estimada de artículos inventariables</strong><span>Venta sin IVA: ${unknownCost?'pendiente':money(netRevenue)} · Costo promedio actual: ${unknownCost?'no disponible':money(estimatedCost)} · Margen: ${unknownCost?'no calculable':money(margin)}</span><small>Es una estimación: el costo definitivo se registra al emitir la factura y puede diferir para unidades serializadas.</small>`:'';
     const concepts=Math.round(conceptLines.reduce((s,x)=>s+Math.round(x.valor*100),0))/100;
     const advance=Math.round(advances.reduce((s,x)=>s+Math.round(x.valor*100),0))/100;
     const total=goods+concepts,balance=Math.round((total-advance)*100)/100,terms=Number(f.elements.cuotas.value);
-    const cents=Math.round(balance*100),calendar=$('[data-installments]');
+    const cents=Math.round(balance*100),extraCents=extraInstallments.reduce((sum,x)=>sum+Math.round(x.valor*100),0),regularCents=cents-extraCents,calendar=$('[data-installments]');
     $('[data-summary]').textContent=`Artículos ${money(goods)} + conceptos ${money(concepts)} = total ${money(total)} · Cuota inicial ${money(advance)} · Saldo a financiar ${money(balance)}`;
     const advanceSummary=$('[data-advance-summary]');if(advanceSummary)advanceSummary.textContent=`${advances.length} anticipo(s) seleccionado(s) · Total a aplicar: ${money(advance)}`;
-    if(!Number.isInteger(terms)||terms<1||terms>120||!f.elements.vencimiento.value||cents<0){calendar.innerHTML='<p class="egreso-help">Completa el primer vencimiento y el número de cuotas para ver el calendario.</p>';return;}
+    if(!Number.isInteger(terms)||terms<1||terms>120||terms+extraInstallments.length>120||!f.elements.vencimiento.value||cents<0){calendar.innerHTML='<p class="egreso-help">Completa el primer vencimiento y el número de cuotas para ver el calendario.</p>';return;}
     if(cents===0){calendar.innerHTML='<p class="egreso-help">No queda saldo de cartera: la cuota inicial cubre toda la factura.</p>';return;}
-    if(cents<terms){calendar.innerHTML='<p class="egreso-help">El saldo no alcanza para asignar al menos $0,01 a cada cuota.</p>';return;}
-    const regular=Math.floor(cents/terms),frequency=f.elements.frecuenciaCuotas.value;
+    if(regularCents<terms||extraInstallments.some(x=>!x.vencimiento||x.valor<=0||x.vencimiento<f.elements.fechaContable.value)||new Set(extraInstallments.map(x=>x.vencimiento)).size!==extraInstallments.length){calendar.innerHTML='<p class="egreso-help">Revisa las cuotas extras: fecha válida y distinta, valor positivo y saldo suficiente para las cuotas ordinarias.</p>';return;}
+    const regular=Math.floor(regularCents/terms),frequency=f.elements.frecuenciaCuotas.value;
     const dateAt=index=>{
       const [year,month,day]=f.elements.vencimiento.value.split('-').map(Number);
       let date;
@@ -334,7 +362,10 @@
       else{const targetMonth=month-1+index,lastDay=new Date(Date.UTC(year,targetMonth+1,0)).getUTCDate();date=new Date(Date.UTC(year,targetMonth,Math.min(day,lastDay)));}
       return date.toISOString().slice(0,10);
     };
-    calendar.innerHTML=`<h3>Calendario de cartera · ${terms} cuota(s)</h3><div class="table-wrap"><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Valor en cuenta 13</th></tr></thead><tbody>${Array.from({length:terms},(_,i)=>`<tr><td>${i+1}</td><td>${dateAt(i)}</td><td>${money((i===terms-1?cents-regular*(terms-1):regular)/100)}</td></tr>`).join('')}</tbody></table></div>`;
+    const schedule=Array.from({length:terms},(_,i)=>({tipo:'Ordinaria',vence:dateAt(i),valor:(i===terms-1?regularCents-regular*(terms-1):regular)/100}))
+      .concat(extraInstallments.map(x=>({tipo:'Extra',vence:x.vencimiento,valor:x.valor})))
+      .sort((a,b)=>a.vence.localeCompare(b.vence)||(a.tipo==='Ordinaria'?-1:1));
+    calendar.innerHTML=`<h3>Calendario de cartera · ${schedule.length} cuota(s)</h3><div class="table-wrap"><table><thead><tr><th>Cuota</th><th>Tipo</th><th>Vencimiento</th><th>Valor en cuenta 13</th></tr></thead><tbody>${schedule.map((x,i)=>`<tr><td>${i+1}</td><td>${x.tipo}</td><td>${x.vence}</td><td>${money(x.valor)}</td></tr>`).join('')}</tbody></table></div>`;
   }
   async function submitInvoice(event){
     event.preventDefault();if(busy)return;const f=event.target;
@@ -349,8 +380,9 @@
     const totalCents=lines.reduce((s,x)=>s+Math.round(x.cantidad*x.precioUnitarioConIva*100),0)+conceptLines.reduce((s,x)=>s+Math.round(x.valor*100),0);
     const financedCents=totalCents-advances.reduce((s,x)=>s+Math.round(x.valor*100),0);
     if(financedCents<0){notice('La cuota inicial no puede superar el total de la factura.',true);return;}
-    if(financedCents>0&&financedCents<Number(f.elements.cuotas.value)){notice('Cada cuota debe tener al menos $0,01.',true);return;}
-    const body={operacionGuid:operation,numero:f.elements.numero.value,clienteId:client.id,sucursalId:Number(f.elements.sucursalId.value),fechaContable:f.elements.fechaContable.value,vencimiento:f.elements.vencimiento.value,lineas:lines,conceptos:conceptLines,cuotas:Number(f.elements.cuotas.value),frecuenciaCuotas:f.elements.frecuenciaCuotas.value,anticipos:advances,bodegaCarteraId:lines.length?null:Number(f.elements.bodegaCarteraId.value),centroCostoIngreso:f.elements.centroCostoIngreso.value||null};
+    const extraCents=extraInstallments.reduce((s,x)=>s+Math.round(x.valor*100),0);
+    if(financedCents>0&&financedCents-extraCents<Number(f.elements.cuotas.value)){notice('Las cuotas extras deben dejar al menos $0,01 para cada cuota ordinaria.',true);return;}
+    const body={operacionGuid:operation,numero:f.elements.numero.value,clienteId:client.id,sucursalId:Number(f.elements.sucursalId.value),fechaContable:f.elements.fechaContable.value,vencimiento:f.elements.vencimiento.value,lineas:lines,conceptos:conceptLines,cuotas:Number(f.elements.cuotas.value),frecuenciaCuotas:f.elements.frecuenciaCuotas.value,anticipos:advances,bodegaCarteraId:lines.length?null:Number(f.elements.bodegaCarteraId.value),centroCostoIngreso:f.elements.centroCostoIngreso.value||null,claseCartera:f.elements.claseCartera.value,observacion:f.elements.observacion.value.trim()||null,cuotasExtras:extraInstallments};
     await send(body,'Factura');
   }
   async function send(body,title){

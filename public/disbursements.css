@@ -70,6 +70,9 @@
 .customer-documents-dialog .customer-installment-settings h3{margin:0 0 11px;font-size:14px}
 .customer-documents-dialog .customer-installment-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}
 .customer-documents-dialog .customer-installment-settings>small{margin-top:8px}
+.customer-documents-dialog .customer-extra-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:15px 0 8px;padding-top:12px;border-top:1px solid #dce7e1;font-size:12px}
+.customer-documents-dialog .customer-extra-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:9px;align-items:end;margin-top:8px}
+.customer-documents-dialog .customer-extra-row .button{height:35px}
 .customer-documents-dialog [data-document]>.egreso-toolbar:last-child{justify-content:space-between;border-top:1px solid #dce7e1;padding-top:15px;gap:12px}
 .customer-documents-dialog [data-document]>.egreso-toolbar:last-child [data-summary]{flex:1;min-width:240px;line-height:1.5}
 .customer-documents-dialog .customer-list-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 15px}
@@ -80,6 +83,15 @@
 .customer-documents-dialog .customer-invoice-detail-grid small,.customer-documents-dialog .customer-invoice-detail-grid span{color:#63766d;font-size:11px;overflow-wrap:anywhere}
 .customer-documents-dialog .customer-invoice-detail-grid strong{font-size:12px;overflow-wrap:anywhere}
 .customer-documents-dialog .customer-invoice-totals{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:12px 22px;margin:18px 0;padding-top:14px;border-top:1px solid #dce7e1;font-size:13px}
+.customer-documents-dialog .customer-invoice-meta{display:grid;grid-template-columns:minmax(190px,1fr) minmax(0,3fr);gap:12px;align-items:start;margin:12px 0 18px}
+.customer-documents-dialog .customer-invoice-meta label,.customer-documents-dialog .customer-portfolio-filter{display:grid;gap:5px;font-size:12px;font-weight:600}
+.customer-documents-dialog .customer-invoice-meta textarea{width:100%;min-height:58px;box-sizing:border-box;padding:7px 9px;border:1px solid #cbdad4;border-radius:5px;font:inherit;resize:vertical}
+.customer-documents-dialog .customer-portfolio-filter{width:min(280px,100%);margin:14px 0 8px}
+.customer-documents-dialog .customer-portfolio-filter[hidden]{display:none}
+.customer-documents-dialog .customer-profit-preview:not(:empty){display:grid;gap:4px;margin:15px 0;padding:11px 14px;background:#f1f6f2;border:1px solid #d9e7dc;border-radius:8px;font-size:12px}
+.customer-documents-dialog .customer-profit-preview small{color:#64756b}
+.customer-documents-dialog .customer-cost-price{border:0;background:none;color:#13634d;text-decoration:underline;cursor:pointer;font-size:11px;padding:4px 0 0;text-align:left}
+.customer-documents-dialog .customer-invoice-observation{padding:10px 12px;background:#f6f8f6;border-radius:6px;font-size:12px;white-space:pre-wrap}
 
 .customer-serial-dialog{width:min(620px,calc(100vw - 20px));max-height:calc(100dvh - 20px);padding:22px;box-sizing:border-box;border:1px solid #d6e3db;border-radius:12px;overflow:auto;background:#fff;color:#16392e;box-shadow:0 24px 70px #102b2440}
 .customer-serial-dialog::backdrop{background:#10282099}
@@ -103,7 +115,10 @@
   .customer-documents-dialog .customer-invoice-settings{grid-template-columns:1fr;gap:14px}
   .customer-documents-dialog .customer-center-field{padding-top:0}
   .customer-documents-dialog .customer-installment-fields{grid-template-columns:1fr}
+  .customer-documents-dialog .customer-extra-row{grid-template-columns:1fr 1fr}
+  .customer-documents-dialog .customer-extra-row .button{grid-column:1/-1}
   .customer-documents-dialog .customer-invoice-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .customer-documents-dialog .customer-invoice-meta{grid-template-columns:1fr}
   .customer-documents-dialog .customer-list-heading{align-items:stretch;flex-direction:column}
   .customer-documents-dialog .customer-document-search{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .customer-documents-dialog .customer-search-query,.customer-documents-dialog .customer-search-filter{grid-column:1/-1;width:auto;min-width:0}

@@ -12,7 +12,8 @@ public sealed record SaleConceptLine(long ConceptoVentaId,decimal Valor,string? 
 public sealed record SalesCostCenterCorrection(string CentroCosto);
 public sealed record SalesInvoiceInput(Guid OperacionGuid,string Numero,long ClienteId,long SucursalId,
     DateOnly FechaContable,DateOnly Vencimiento,SaleItem[] Lineas,SaleConceptLine[] Conceptos,
-    int Cuotas,string FrecuenciaCuotas,SaleAdvance[] Anticipos,long? BodegaCarteraId,string? CentroCostoIngreso);
+    int Cuotas,string FrecuenciaCuotas,SaleAdvance[] Anticipos,long? BodegaCarteraId,string? CentroCostoIngreso,
+    string ClaseCartera,string? Observacion,SalesExtraInstallment[]? CuotasExtras);
 
 public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,ZeusTransport zeus)
 {
@@ -80,7 +81,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=ZeusRepository.Command(c,"""
             SELECT TOP(51) f.FacturaVentaId,f.Numero,f.FechaContable,t.RazonSocial,f.Total,f.AnticipoAplicado,f.SaldoPendiente,
-                f.ZeusEstado,f.ZeusFuente,f.ZeusDocumento,f.ZeusError
+                f.ZeusEstado,f.ZeusFuente,f.ZeusDocumento,f.ZeusError,f.ClaseCartera
             FROM ven.FacturaVenta f JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
             WHERE f.EmpresaId=@E AND (@Before IS NULL OR f.FacturaVentaId<@Before)
               AND (@Q='' OR f.Numero LIKE '%'+@Q+'%' OR t.RazonSocial LIKE '%'+@Q+'%'
@@ -93,7 +94,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         while(await r.ReadAsync(ct))
         {
             if(list.Count==50)return new{items=list,siguiente=next};
-            next=r.GetInt64(0);list.Add(new{id=next,numero=r.GetString(1),fecha=r.GetDateTime(2).ToString("yyyy-MM-dd"),cliente=r.GetString(3),total=r.GetDecimal(4),anticipo=r.GetDecimal(5),saldo=r.GetDecimal(6),zeusEstado=r.GetString(7),fuente=r.IsDBNull(8)?null:r.GetString(8),documento=r.IsDBNull(9)?null:r.GetString(9),error=r.IsDBNull(10)?null:r.GetString(10)});
+            next=r.GetInt64(0);list.Add(new{id=next,numero=r.GetString(1),fecha=r.GetDateTime(2).ToString("yyyy-MM-dd"),cliente=r.GetString(3),total=r.GetDecimal(4),anticipo=r.GetDecimal(5),saldo=r.GetDecimal(6),zeusEstado=r.GetString(7),fuente=r.IsDBNull(8)?null:r.GetString(8),documento=r.IsDBNull(9)?null:r.GetString(9),error=r.IsDBNull(10)?null:r.GetString(10),claseCartera=r.GetString(11)});
         }
         return new{items=list,siguiente=(long?)null};
     }
@@ -103,7 +104,8 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         await using var q=ZeusRepository.Command(c,"""
             SELECT f.Numero,f.FechaContable,f.Vencimiento,f.Cuotas,f.FrecuenciaCuotas,f.Total,
                 f.AnticipoAplicado,f.SaldoPendiente,f.ZeusEstado,f.ZeusFuente,f.ZeusDocumento,f.ZeusError,
-                t.NumeroIdentificacion,t.RazonSocial,s.Codigo,s.Nombre,f.CentroCostoIngresoZeus
+                t.NumeroIdentificacion,t.RazonSocial,s.Codigo,s.Nombre,f.CentroCostoIngresoZeus,
+                f.ClaseCartera,f.Observacion
             FROM ven.FacturaVenta f
             JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
             JOIN core.Sucursal s ON s.EmpresaId=f.EmpresaId AND s.SucursalId=f.SucursalId
@@ -118,7 +120,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             SELECT r.ReciboCajaId,r.FechaContable,r.Concepto,a.Valor
             FROM ven.FacturaAnticipo a JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
             WHERE a.EmpresaId=@E AND a.FacturaVentaId=@Id ORDER BY r.FechaContable,r.ReciboCajaId;
-            SELECT NumeroCuota,FechaVencimiento,ValorOriginal,SaldoPendiente
+            SELECT NumeroCuota,FechaVencimiento,ValorOriginal,SaldoPendiente,TipoCuota
             FROM ven.FacturaVentaCuota WHERE EmpresaId=@E AND FacturaVentaId=@Id ORDER BY NumeroCuota;
             """,company);
         ZeusRepository.Add(q,"@Id",id);
@@ -129,7 +131,8 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             cuotas=r.GetInt32(3),frecuencia=r.IsDBNull(4)?null:r.GetString(4),total=r.GetDecimal(5),anticipo=r.GetDecimal(6),saldo=r.GetDecimal(7),
             zeusEstado=r.GetString(8),fuente=r.IsDBNull(9)?null:r.GetString(9),documento=r.IsDBNull(10)?null:r.GetString(10),
             error=r.IsDBNull(11)?null:r.GetString(11),identificacion=r.GetString(12),cliente=r.GetString(13),
-            sucursalCodigo=r.GetString(14),sucursal=r.GetString(15),centroCosto=r.IsDBNull(16)?null:r.GetString(16)
+            sucursalCodigo=r.GetString(14),sucursal=r.GetString(15),centroCosto=r.IsDBNull(16)?null:r.GetString(16),
+            claseCartera=r.GetString(17),observacion=r.IsDBNull(18)?null:r.GetString(18)
         };
         var items=new List<object>();
         await r.NextResultAsync(ct);
@@ -142,7 +145,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         while(await r.ReadAsync(ct))receipts.Add(new{reciboId=r.GetInt64(0),fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),concepto=r.GetString(2),valor=r.GetDecimal(3)});
         var installments=new List<object>();
         await r.NextResultAsync(ct);
-        while(await r.ReadAsync(ct))installments.Add(new{numero=r.GetInt32(0),vence=r.GetDateTime(1).ToString("yyyy-MM-dd"),valor=r.GetDecimal(2),saldo=r.GetDecimal(3)});
+        while(await r.ReadAsync(ct))installments.Add(new{numero=r.GetInt32(0),vence=r.GetDateTime(1).ToString("yyyy-MM-dd"),valor=r.GetDecimal(2),saldo=r.GetDecimal(3),tipo=r.GetString(4)});
         return new{header,articulos=items,conceptos=concepts,anticipos=receipts,cuotas=installments};
     }
     public async Task<object> OptionsAsync(long company,long? client,CancellationToken ct)
@@ -154,7 +157,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             JOIN ven.ClientePerfil p ON p.EmpresaId=t.EmpresaId AND p.TerceroId=t.TerceroId
             WHERE t.EmpresaId=@E AND t.Activo=1 ORDER BY t.RazonSocial;
             SELECT a.ArticuloId,a.Codigo,a.Descripcion,a.Tipo,a.ManejaInventario,a.ManejaSerial,a.PorcentajeIvaVenta,
-                b.BodegaId,b.Codigo,b.Nombre,b.SucursalId,ISNULL(s.Existencia,0)
+                b.BodegaId,b.Codigo,b.Nombre,b.SucursalId,ISNULL(s.Existencia,0),s.CostoPromedio
             FROM inv.Articulo a CROSS JOIN inv.Bodega b
             LEFT JOIN inv.SaldoArticuloBodega s ON s.EmpresaId=a.EmpresaId AND s.ArticuloId=a.ArticuloId AND s.BodegaId=b.BodegaId
             WHERE a.EmpresaId=@E AND b.EmpresaId=@E AND a.Activo=1 AND b.Activa=1 AND b.SucursalId IS NOT NULL
@@ -175,7 +178,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct))branches.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))customers.Add(new{id=r.GetInt64(0),identificacion=r.GetString(1),nombre=r.GetString(2),zeusEstado=r.GetString(3)});
-        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))articles.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),descripcion=r.GetString(2),tipo=r.GetString(3),inventario=r.GetBoolean(4),serial=r.GetBoolean(5),iva=r.IsDBNull(6)?(decimal?)null:r.GetDecimal(6),bodegaId=r.GetInt64(7),bodegaCodigo=r.GetString(8),bodega=r.GetString(9),sucursalId=r.GetInt64(10),existencia=r.GetDecimal(11)});
+        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))articles.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),descripcion=r.GetString(2),tipo=r.GetString(3),inventario=r.GetBoolean(4),serial=r.GetBoolean(5),iva=r.IsDBNull(6)?(decimal?)null:r.GetDecimal(6),bodegaId=r.GetInt64(7),bodegaCodigo=r.GetString(8),bodega=r.GetString(9),sucursalId=r.GetInt64(10),existencia=r.GetDecimal(11),costoPromedio=r.IsDBNull(12)?(decimal?)null:r.GetDecimal(12)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))serials.Add(new{id=r.GetInt64(0),articuloId=r.GetInt64(1),bodegaId=r.GetInt64(2),estado=r.GetString(3),tipo=r.IsDBNull(4)?null:r.GetString(4),valor=r.IsDBNull(5)?null:r.GetString(5)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))advances.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1),concepto=r.GetString(2),fecha=r.GetDateTime(3).ToString("yyyy-MM-dd"),zeusEstado=r.GetString(4)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))concepts.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),cuentaIngresoZeus=r.GetString(3)});
@@ -197,6 +200,10 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             throw new ArgumentException("La factura admite hasta 100 artículos y entre 1 y 120 cuotas.");
         if(input.FrecuenciaCuotas is not(SalesInstallments.EveryThirtyDays or SalesInstallments.SameDayMonthly))
             throw new ArgumentException("Selecciona la periodicidad de las cuotas.");
+        if(input.ClaseCartera is not("MOTO" or "OTROS" or "MIXTA"))
+            throw new ArgumentException("Clasifica la cartera como motos, otros artículos o mixta.");
+        if(input.Observacion?.Trim().Length>1000)
+            throw new ArgumentException("La observación admite máximo 1000 caracteres.");
         var conceptLines=input.Conceptos??[];
         if(conceptLines.Length>100||conceptLines.Any(x=>x.ConceptoVentaId<=0||x.Valor<=0||decimal.Round(x.Valor,2)!=x.Valor||x.CentroCosto?.Trim().Length>16))
             throw new ArgumentException("Revisa los conceptos de venta y sus valores (máximo dos decimales).");
@@ -325,7 +332,8 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         var advanceTotal=advances.Sum(x=>x.Valor);
         if(advanceTotal>total)throw new ArgumentException("El anticipo no puede superar el total de la factura.");
         var balance=total-advanceTotal;
-        var schedule=SalesInstallments.Build(input.Vencimiento,input.Cuotas,input.FrecuenciaCuotas,balance);
+        var schedule=SalesInstallments.BuildWithExtras(input.Vencimiento,input.Cuotas,input.FrecuenciaCuotas,balance,
+            input.FechaContable,input.CuotasExtras);
         foreach(var advance in advances.OrderBy(x=>x.ReciboCajaId))
         {
             q.Parameters.Add("@Receipt",SqlDbType.BigInt).Value=advance.ReciboCajaId;
@@ -340,15 +348,18 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         ZeusRepository.Add(q,"@Finance",financeTotal);ZeusRepository.Add(q,"@ConceptsTotal",conceptsTotal);ZeusRepository.Add(q,"@Total",total);ZeusRepository.Add(q,"@Advance",advanceTotal);
         ZeusRepository.Add(q,"@Balance",balance);ZeusRepository.Add(q,"@Terms",input.Cuotas);
         ZeusRepository.Add(q,"@Frequency",input.FrecuenciaCuotas);
+        ZeusRepository.Add(q,"@ClaseCartera",input.ClaseCartera);
+        ZeusRepository.Add(q,"@Observacion",string.IsNullOrWhiteSpace(input.Observacion)?DBNull.Value:input.Observacion.Trim());
         ZeusRepository.Add(q,"@GeneralCenter",string.IsNullOrEmpty(generalCenter)?DBNull.Value:generalCenter);
         ZeusRepository.Add(q,"@Json",JsonSerializer.Serialize(input));ZeusRepository.Add(q,"@User",user);
-        q.CommandText="INSERT ven.FacturaVenta(EmpresaId,OperacionGuid,Numero,SucursalId,ClienteId,FechaContable,Vencimiento,Base,Iva,Financiacion,ConceptosTotal,Total,AnticipoAplicado,SaldoPendiente,Cuotas,FrecuenciaCuotas,CentroCostoIngresoZeus,Contenido,CreadoPor) OUTPUT inserted.FacturaVentaId VALUES(@E,@Key,@N,@B,@C,@Date,@Due,@Base,@Iva,@Finance,@ConceptsTotal,@Total,@Advance,@Balance,@Terms,@Frequency,@GeneralCenter,@Json,@User)";
+        q.CommandText="INSERT ven.FacturaVenta(EmpresaId,OperacionGuid,Numero,SucursalId,ClienteId,FechaContable,Vencimiento,Base,Iva,Financiacion,ConceptosTotal,Total,AnticipoAplicado,SaldoPendiente,Cuotas,FrecuenciaCuotas,CentroCostoIngresoZeus,ClaseCartera,Observacion,Contenido,CreadoPor) OUTPUT inserted.FacturaVentaId VALUES(@E,@Key,@N,@B,@C,@Date,@Due,@Base,@Iva,@Finance,@ConceptsTotal,@Total,@Advance,@Balance,@Terms,@Frequency,@GeneralCenter,@ClaseCartera,@Observacion,@Json,@User)";
         var id=Convert.ToInt64(await q.ExecuteScalarAsync(ct));ZeusRepository.Add(q,"@Id",id);
         foreach(var installment in schedule)
         {
-            await using var due=ZeusRepository.Command(c,"INSERT ven.FacturaVentaCuota(EmpresaId,FacturaVentaId,NumeroCuota,FechaVencimiento,ValorOriginal,SaldoPendiente) VALUES(@E,@Invoice,@Number,@Due,@Value,@Value)",company,tx);
+            await using var due=ZeusRepository.Command(c,"INSERT ven.FacturaVentaCuota(EmpresaId,FacturaVentaId,NumeroCuota,FechaVencimiento,ValorOriginal,SaldoPendiente,TipoCuota) VALUES(@E,@Invoice,@Number,@Due,@Value,@Value,@Type)",company,tx);
             ZeusRepository.Add(due,"@Invoice",id);ZeusRepository.Add(due,"@Number",installment.Numero);
             ZeusRepository.Add(due,"@Due",installment.Vencimiento.ToDateTime(TimeOnly.MinValue));ZeusRepository.Add(due,"@Value",installment.Valor);
+            ZeusRepository.Add(due,"@Type",installment.Tipo);
             await due.ExecuteNonQueryAsync(ct);
         }
         foreach(var advance in advances)
