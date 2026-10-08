@@ -1,0 +1,7 @@
+# Autorizaciones de precio en ventas
+
+Al emitir una factura, el ERP compara cada precio unitario con el precio de lista y el porcentaje libre de descuento de la empresa. Para artículos inventariables también comprueba el costo promedio más IVA. Si algún precio supera el descuento libre o queda por debajo del costo, **no se crea la factura ni se mueve inventario**: el vendedor debe escribir el motivo y enviar una solicitud desde la misma pantalla.
+
+La bandeja **Ventas y clientes → Autorizaciones de ventas** muestra el precio solicitado, el mínimo según la política, el cliente, las cuotas y el primer vencimiento. Un usuario distinto, con permiso `SEGURIDAD.PERMISOS.ADMINISTRAR`, puede aprobar o rechazar. Solo quien solicitó puede emitir la factura aprobada. Al emitir se vuelven a validar existencias, costo, IVA, precio de lista y descuento; la aprobación deja de servir si cambió la factura o alguna condición de precio. La aprobación se consume dentro de la misma transacción que crea la factura y queda auditada.
+
+La autorización cubre **excepciones de precio y descuento**, no valida todavía pactos externos del CRM. La comparación con CRM se integrará cuando se conozcan su API, los identificadores comunes de cliente/negocio y la fuente de las condiciones pactadas. No se cambian facturas ya emitidas mediante esta bandeja; la refinanciación continúa con su nota y aprobación separadas.

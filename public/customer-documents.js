@@ -13,19 +13,41 @@
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
   const clientLabel=c=>c?`${c.identificacion} · ${c.nombre}`:'';
   const portfolioLabel=value=>({MOTO:'Motos',OTROS:'Otros artículos',MIXTA:'Mixta',SIN_CLASIFICAR:'Sin clasificar'})[value]||'Sin clasificar';
-  function close(force=false){if(!force&&mode==='invoice'&&view!=='create'){void create();return;}if(!force&&(busy||dirty&&!confirm('¿Salir sin contabilizar el documento?')))return;token++;dirty=false;if(serialDialog.open)serialDialog.close();dialog.close();mode='';company=0;}
+  function close(force=false){if(!force&&mode==='invoice'&&view!=='create'&&view!=='approvals'&&hasPermission('VENTAS.FACTURA.CONTABILIZAR')){void create();return;}if(!force&&(busy||dirty&&!confirm('¿Salir sin contabilizar el documento?')))return;token++;dirty=false;if(serialDialog.open)serialDialog.close();dialog.close();mode='';company=0;}
   window.resetCustomerDocuments=()=>close(true);
   dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
   function shell(){
     const title=mode==='invoice'?'Facturas de venta':'Recibos de caja';
     dialog.innerHTML=`<div class="dialog-heading"><div><span class="dialog-kicker">${mode==='invoice'?'VENTAS':'TESORERÍA'} · ${esc(state.erpSession?.company?.name||'Empresa')}</span><h2>${title}</h2></div><button class="dialog-close" type="button" data-close aria-label="Cerrar">×</button></div>
-      <form class="customer-document-search" data-search-form><label class="customer-search-query">Buscar documentos guardados<input name="buscar" maxlength="100" placeholder="Número, cliente, identificación o comprobante Zeus" value="${esc(search)}"></label>${mode==='receipt'?`<label class="customer-search-filter">Tipo<select name="tipo"><option value="" ${receiptFilter===''?'selected':''}>Todos</option><option value="ANTICIPO" ${receiptFilter==='ANTICIPO'?'selected':''}>Anticipos</option><option value="CARTERA" ${receiptFilter==='CARTERA'?'selected':''}>Recaudos de cartera</option><option value="NORMAL" ${receiptFilter==='NORMAL'?'selected':''}>Otros recibos</option></select></label>`:''}<button class="button secondary" type="submit">Buscar</button><button type="button" class="button primary" data-new>Nuevo</button></form>
-      <div class="customer-create-nav" data-create-nav hidden><button type="button" class="button secondary" data-view-list>← Ver documentos guardados</button></div>
+      <form class="customer-document-search" data-search-form><label class="customer-search-query">Buscar documentos guardados<input name="buscar" maxlength="100" placeholder="Número, cliente, identificación o comprobante Zeus" value="${esc(search)}"></label>${mode==='receipt'?`<label class="customer-search-filter">Tipo<select name="tipo"><option value="" ${receiptFilter===''?'selected':''}>Todos</option><option value="ANTICIPO" ${receiptFilter==='ANTICIPO'?'selected':''}>Anticipos</option><option value="CARTERA" ${receiptFilter==='CARTERA'?'selected':''}>Recaudos de cartera</option><option value="NORMAL" ${receiptFilter==='NORMAL'?'selected':''}>Otros recibos</option></select></label>`:''}<button class="button secondary" type="submit">Buscar</button>${mode==='invoice'?'<button type="button" class="button secondary" data-approvals>Autorizaciones</button>':''}<button type="button" class="button primary" data-new>Nuevo</button></form>
+      <div class="customer-create-nav" data-create-nav hidden><button type="button" class="button secondary" data-view-list>← Ver documentos guardados</button>${mode==='invoice'?'<button type="button" class="button secondary" data-approvals>Autorizaciones</button>':''}</div>
       <p data-message role="status" aria-live="polite"></p><div data-content></div>`;
     $('[data-close]').onclick=()=>close();
     $('[data-new]').onclick=()=>{if(!busy&&(!dirty||confirm('¿Descartar los datos sin contabilizar?')))void create();};
     $('[data-view-list]').onclick=()=>{if(!busy&&(!dirty||confirm('¿Salir sin contabilizar el documento?')))void listing();};
+    dialog.querySelectorAll('[data-approvals]').forEach(button=>button.onclick=()=>{if(!busy&&(!dirty||confirm('¿Salir sin guardar los datos de esta factura?')))void approvalListing();});
     $('[data-search-form]').onsubmit=event=>{event.preventDefault();if(busy||dirty&&!confirm('¿Descartar el documento sin contabilizar?'))return;search=event.target.elements.buscar.value.trim();if(mode==='receipt')receiptFilter=event.target.elements.tipo.value;void listing();};
+  }
+  async function approvalListing(){
+    const t=++token;view='approvals';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=true;notice('Consultando autorizaciones…');
+    $('[data-content]').innerHTML='<p>Consultando solicitudes…</p>';
+    try{
+      const result=await apiRequest(`/api/v1/companies/${company}/sales-price-approvals`);if(!current(t))return;
+      $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Autorizaciones de precio y descuento</strong>${hasPermission('VENTAS.FACTURA.CONTABILIZAR')?'<button type="button" class="button secondary" data-back-create>← Volver a facturación</button>':''}</div><p class="egreso-help">La aprobación corresponde a los valores exactos solicitados. Solo quien la solicitó puede emitir la factura; si cambia el costo o la política, debe hacer otra solicitud.</p><div class="table-wrap"><table><thead><tr><th>Solicitud / factura</th><th>Excepción</th><th>Motivo</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${result.items.map(x=>`<tr><td>#${x.id} · ${esc(x.numero)}<small>${esc(x.cliente)} · ${money(x.totalEstimado)}<br>${esc(x.cuotas)} cuota(s), primer vencimiento ${esc(x.primerVencimiento)} · solicitó usuario ${esc(x.solicitadoPor)}</small></td><td>${(x.excepciones||[]).map(e=>`<div>${e.tipo==='BAJO_COSTO'?'Bajo costo':'Descuento fuera de política'} · ${esc(e.articulo||e.articuloId)}<br><small>Precio ${money(e.precio)} · mínimo ${money(e.umbral)}</small></div>`).join('')}</td><td>${esc(x.motivo)}</td><td>${esc(x.estado)}${x.respuesta?`<small>${esc(x.respuesta)}</small>`:''}</td><td>${x.estado==='PENDIENTE'&&x.puedeResolver?`<button type="button" class="button secondary" data-approve="${x.id}">Aprobar</button> <button type="button" class="button secondary" data-reject="${x.id}">Rechazar</button>`:''}${x.estado==='APROBADA'&&x.propia?`<button type="button" class="button primary" data-issue="${x.id}">Emitir factura</button>`:''}${x.facturaId&&hasPermission('VENTAS.FACTURA.CONTABILIZAR')?`<button type="button" class="button secondary" data-issued="${x.facturaId}">Ver factura</button>`:''}</td></tr>`).join('')||'<tr><td colspan="5">No hay solicitudes de autorización.</td></tr>'}</tbody></table></div>`;
+      $('[data-back-create]')?.addEventListener('click',()=>void create());notice('');
+      dialog.querySelectorAll('[data-issued]').forEach(button=>button.onclick=()=>void viewInvoice(Number(button.dataset.issued),null));
+      for(const action of ['approve','reject','issue'])dialog.querySelectorAll(`[data-${action}]`).forEach(button=>button.onclick=async()=>{
+        if(busy)return;const id=Number(button.dataset[action]);let response='';
+        if(action==='approve'){if(!confirm(`¿Aprobar la solicitud #${id} con los precios exactos mostrados?`))return;response=prompt('Observación de la aprobación (opcional):','')||'';}
+        if(action==='reject'){response=prompt('Motivo del rechazo:','')?.trim()||'';if(!response)return;}
+        if(action==='issue'&&!confirm(`¿Emitir la factura aprobada en la solicitud #${id}? Se verificarán de nuevo inventario, costo y descuento.`))return;
+        busy=true;button.disabled=true;
+        try{
+          const result=await apiRequest(`/api/v1/companies/${company}/sales-price-approvals/${id}/${action}`,{method:'POST',...(action==='issue'?{}:{body:JSON.stringify({respuesta:response})})});
+          await approvalListing();notice(action==='issue'?`Factura ${result.id} contabilizada en ERP; revisa su estado en Zeus.`:`Solicitud ${action==='approve'?'aprobada':'rechazada'}.`);
+        }catch(error){if(current(t))notice(error.message,true);}finally{busy=false;if(button.isConnected)button.disabled=false;}
+      });
+    }catch(error){if(current(t))notice(error.message,true);}
   }
   async function listing(before=null){
     const t=++token;view='list';dirty=false;shell();notice('Consultando documentos…');
@@ -139,14 +161,15 @@
       };notice('');
     }catch(error){if(current(t))notice(error.message,true);}
   }
-  async function open(selected,showList=false){
+  async function open(selected,showList=false,approvalsOnly=false){
     const permission=selected==='invoice'?'VENTAS.FACTURA.CONTABILIZAR':'TESORERIA.RECIBO.CONTABILIZAR';
-    if(!state.erpSession?.api||!hasPermission(permission)){showError('Requiere conexión al ERP y permiso para contabilizar este documento.');return;}
-    if(dialog.open)return;mode=selected;company=state.erpSession.company.id;search='';receiptFilter=showList&&selected==='receipt'?'ANTICIPO':'';dialog.showModal();if(showList)await listing();else await create();
+    if(!state.erpSession?.api||!(hasPermission(permission)||approvalsOnly&&selected==='invoice'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR'))){showError('Requiere conexión al ERP y el permiso correspondiente.');return;}
+    if(dialog.open)return;mode=selected;company=state.erpSession.company.id;search='';receiptFilter=showList&&selected==='receipt'?'ANTICIPO':'';dialog.showModal();if(approvalsOnly)await approvalListing();else if(showList)await listing();else await create();
   }
   document.querySelector('#cashReceiptsNav').addEventListener('click',()=>void open('receipt'));
   document.querySelector('#customerAdvancesNav').addEventListener('click',()=>void open('receipt',true));
   document.querySelector('#salesInvoicesNav').addEventListener('click',()=>void open('invoice'));
+  document.querySelector('#salesApprovalsNav').addEventListener('click',()=>void open('invoice',false,true));
   window.openSavedSalesInvoice=async id=>{
     if(!state.erpSession?.api||!hasPermission('VENTAS.FACTURA.CONTABILIZAR'))return;
     if(dialog.open)return;mode='invoice';company=state.erpSession.company.id;search='';receiptFilter='';dialog.showModal();shell();await viewInvoice(id,null);
@@ -262,7 +285,8 @@
       <div data-allocations></div><div class="customer-invoice-settings"><label class="customer-center-field">Centro de costo de la factura<select name="centroCostoIngreso"><option value="">Sin centro de costo</option>${(dimensions?.centrosCosto||[]).map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select><small data-general-center-hint>Se aplica a los artículos cuando Zeus lo exige.</small></label>
       <section class="customer-installment-settings"><h3>Plan de cuotas</h3><div class="customer-installment-fields"><label>Primer vencimiento<input name="vencimiento" type="date" value="${today()}" required></label><label>Número de cuotas ordinarias<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label><label>Vencimiento de las siguientes cuotas<select name="frecuenciaCuotas" required><option value="DIA_FIJO_MES">Mismo día de cada mes</option><option value="CADA_30_DIAS">Cada 30 días</option></select></label></div><small>Mensual: conserva el día del primer vencimiento. También puedes elegir cada 30 días.</small><div class="customer-extra-heading"><strong>Cuotas extraordinarias</strong><button type="button" class="button secondary" data-add-extra>+ Agregar cuota extra</button></div><div data-extra-rows></div></section></div>
       <div data-installments></div>
-      <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Emitir y contabilizar factura</button></div></fieldset></form>`;
+      <label class="customer-approval-reason">Motivo de excepción de precio o descuento <textarea name="motivoAutorizacion" maxlength="500" rows="2" placeholder="Solo cuando el precio supera el descuento libre o está bajo costo"></textarea></label>
+      <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Emitir factura o solicitar autorización</button></div></fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
     f.elements.frecuenciaCuotas.onchange=()=>{dirty=true;summary();};f.elements.vencimiento.onchange=()=>{dirty=true;summary();};
     f.elements.sucursalId.onchange=()=>{lines=[];f.elements.bodegaCarteraId.value='';addLine();};
@@ -431,10 +455,11 @@
     if(!client){notice('Selecciona un cliente de los resultados.',true);return;}
     if(lines.some(x=>!x.articuloId||!x.bodegaId||x.cantidad<=0||x.precioUnitarioConIva<=0)){notice('Completa artículos, cantidades y precios.',true);return;}
     if(!lines.length&&!conceptLines.length){notice('Agrega al menos un artículo o un concepto.',true);return;}
+    const priceIssues=[];
     for(const line of lines){const a=options.articulos.find(x=>x.id===line.articuloId&&x.bodegaId===line.bodegaId);
       if(a?.iva==null||a.inventario&&line.cantidad>a.existencia||a?.serial&&line.unidadesSerializadas.length!==line.cantidad){notice('Revisa el IVA, las existencias y los seriales seleccionados.',true);return;}
-      if(a.precioListaConIva&&line.precioUnitarioConIva<Math.round(a.precioListaConIva*(1-options.maxDescuentoVentaPct/100)*100)/100){notice(`El artículo ${a.codigo} supera el descuento libre de ${options.maxDescuentoVentaPct} %.`,true);return;}
-      if(a.inventario&&a.costoPromedio>0&&line.precioUnitarioConIva<Math.round(a.costoPromedio*(1+a.iva/100)*100)/100){notice(`El artículo ${a.codigo} queda por debajo del costo con IVA y requiere autorización.`,true);return;}}
+      if(a.precioListaConIva&&line.precioUnitarioConIva<Math.round(a.precioListaConIva*(1-options.maxDescuentoVentaPct/100)*100)/100)priceIssues.push(`${a.codigo}: descuento superior a ${options.maxDescuentoVentaPct} %`);
+      if(a.inventario&&a.costoPromedio>0&&line.precioUnitarioConIva<Math.round(a.costoPromedio*(1+a.iva/100)*100)/100)priceIssues.push(`${a.codigo}: precio bajo costo`);}
     if(conceptLines.some(x=>!x.conceptoVentaId||!Number.isFinite(x.valor)||x.valor<=0)){notice('Completa los conceptos y sus valores.',true);return;}
     const required=dimensions?.cuentasRequierenCentroCosto||[];
     if(conceptLines.some(x=>required.includes(options.conceptos.find(c=>c.id===x.conceptoVentaId)?.cuentaIngresoZeus)&&!x.centroCosto)){notice('Selecciona el centro de costo de cada concepto cuya cuenta Zeus lo exija.',true);return;}
@@ -444,6 +469,14 @@
     const extraCents=extraInstallments.reduce((s,x)=>s+Math.round(x.valor*100),0);
     if(financedCents>0&&financedCents-extraCents<Number(f.elements.cuotas.value)){notice('Las cuotas extras deben dejar al menos $0,01 para cada cuota ordinaria.',true);return;}
     const body={operacionGuid:operation,numero:f.elements.numero.value,clienteId:client.id,sucursalId:Number(f.elements.sucursalId.value),fechaContable:f.elements.fechaContable.value,vencimiento:f.elements.vencimiento.value,lineas:lines,conceptos:conceptLines,cuotas:Number(f.elements.cuotas.value),frecuenciaCuotas:f.elements.frecuenciaCuotas.value,anticipos:advances,bodegaCarteraId:lines.length?null:Number(f.elements.bodegaCarteraId.value),centroCostoIngreso:f.elements.centroCostoIngreso.value||null,claseCartera:f.elements.claseCartera.value,observacion:f.elements.observacion.value.trim()||null,cuotasExtras:extraInstallments};
+    if(priceIssues.length){
+      const reason=f.elements.motivoAutorizacion.value.trim();
+      if(reason.length<10){notice(`Esta factura requiere autorización (${priceIssues.join('; ')}). Escribe un motivo de al menos 10 caracteres.`,true);return;}
+      busy=true;const submit=f.querySelector('[type="submit"]');submit.disabled=true;notice('Guardando solicitud de autorización…');
+      try{const result=await apiRequest(`/api/v1/companies/${company}/sales-price-approvals`,{method:'POST',body:JSON.stringify({factura:body,motivo:reason})});dirty=false;await approvalListing();notice(`Solicitud #${result.id} pendiente. Otro usuario autorizado debe aprobarla; aún no se emitió ni contabilizó la factura.`);}
+      catch(error){notice(error.message,true);}finally{busy=false;if(submit.isConnected)submit.disabled=false;}
+      return;
+    }
     await send(body,'Factura');
   }
   async function send(body,title){

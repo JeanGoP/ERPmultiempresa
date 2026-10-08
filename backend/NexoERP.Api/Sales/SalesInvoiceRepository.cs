@@ -14,7 +14,7 @@ public sealed record SalesPortfolioClassification(string ClaseCartera);
 public sealed record SalesInvoiceInput(Guid OperacionGuid,string Numero,long ClienteId,long SucursalId,
     DateOnly FechaContable,DateOnly Vencimiento,SaleItem[] Lineas,SaleConceptLine[] Conceptos,
     int Cuotas,string FrecuenciaCuotas,SaleAdvance[] Anticipos,long? BodegaCarteraId,string? CentroCostoIngreso,
-    string ClaseCartera,string? Observacion,SalesExtraInstallment[]? CuotasExtras);
+    string ClaseCartera,string? Observacion,SalesExtraInstallment[]? CuotasExtras,long? AutorizacionVentaId=null);
 
 public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,ZeusTransport zeus)
 {
@@ -332,28 +332,29 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             q.Parameters.RemoveAt("@Concept");
         }
         var validated=new List<(SaleItem Input,decimal Base,decimal Iva,decimal Tarifa,bool Inventory,bool Serial,ZeusWarehouseAccounts Accounts)>();
+        var priceExceptions=new List<SalesPricing.ExceptionDetail>();
         foreach(var line in input.Lineas)
         {
             q.Parameters.Add("@Article",SqlDbType.BigInt).Value=line.ArticuloId;
             q.Parameters.Add("@Warehouse",SqlDbType.BigInt).Value=line.BodegaId;
             q.CommandText="""
-                SELECT a.PorcentajeIvaVenta,a.ManejaInventario,a.ManejaSerial,ISNULL(s.Existencia,0),z.Configuracion,z.Servidor,z.BaseDatos,a.PrecioListaConIva,ISNULL(s.CostoPromedio,0)
+                SELECT a.PorcentajeIvaVenta,a.ManejaInventario,a.ManejaSerial,ISNULL(s.Existencia,0),z.Configuracion,z.Servidor,z.BaseDatos,a.PrecioListaConIva,ISNULL(s.CostoPromedio,0),a.Codigo,a.Descripcion
                 FROM inv.Articulo a JOIN inv.Bodega b ON b.EmpresaId=a.EmpresaId AND b.BodegaId=@Warehouse AND b.SucursalId=@B AND b.Activa=1
                 LEFT JOIN inv.SaldoArticuloBodega s WITH(UPDLOCK,HOLDLOCK) ON s.EmpresaId=a.EmpresaId AND s.BodegaId=@Warehouse AND s.ArticuloId=a.ArticuloId
                 LEFT JOIN core.ZeusBodegaCuenta z ON z.EmpresaId=a.EmpresaId AND z.BodegaId=@Warehouse
                 WHERE a.EmpresaId=@E AND a.ArticuloId=@Article AND a.Activo=1;
                 """;
-            decimal rate,stock,cost;decimal? listPrice;bool inventory,serial;string? accountsJson,server,db;
+            decimal rate,stock,cost;decimal? listPrice;bool inventory,serial;string? accountsJson,server,db;string articleLabel;
             await using(var r=await q.ExecuteReaderAsync(ct))
             {
                 if(!await r.ReadAsync(ct)||r.IsDBNull(0))throw new ArgumentException("El artículo no existe, no pertenece a la sucursal o no tiene IVA de venta clasificado.");
                 rate=r.GetDecimal(0);inventory=r.GetBoolean(1);serial=r.GetBoolean(2);stock=r.GetDecimal(3);
                 accountsJson=r.IsDBNull(4)?null:r.GetString(4);server=r.IsDBNull(5)?null:r.GetString(5);db=r.IsDBNull(6)?null:r.GetString(6);
-                listPrice=r.IsDBNull(7)?null:r.GetDecimal(7);cost=r.GetDecimal(8);
+                listPrice=r.IsDBNull(7)?null:r.GetDecimal(7);cost=r.GetDecimal(8);articleLabel=r.GetString(9)+" · "+r.GetString(10);
             }
             q.Parameters.RemoveAt("@Article");q.Parameters.RemoveAt("@Warehouse");
             if(inventory&&stock<line.Cantidad)throw new ArgumentException("No hay existencias suficientes en la bodega seleccionada.");
-            SalesPricing.Validate(line.PrecioUnitarioConIva,listPrice,maxDiscount,cost,rate,inventory,line.ArticuloId);
+            priceExceptions.AddRange(SalesPricing.Assess(line.PrecioUnitarioConIva,listPrice,maxDiscount,cost,rate,inventory,line.ArticuloId,line.BodegaId,articleLabel));
             if(serial&&(line.UnidadesSerializadas?.Length!=line.Cantidad||line.UnidadesSerializadas.Distinct().Count()!=line.UnidadesSerializadas.Length))
                 throw new ArgumentException("Selecciona una unidad serializada distinta por cada artículo vendido.");
             if(!serial&&(line.UnidadesSerializadas?.Length??0)>0)throw new ArgumentException("Este artículo no maneja seriales.");
@@ -367,6 +368,20 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         }
         if(validated.Select(x=>x.Accounts.CarteraClientes).Distinct().Count()>1)
             throw new ArgumentException("Las bodegas de la factura deben usar la misma cuenta de cartera del cliente.");
+        if(priceExceptions.Count>0)
+        {
+            if(input.AutorizacionVentaId is not >0)throw new ArgumentException("Esta venta excede el descuento libre o está bajo costo. Solicita aprobación antes de emitir.");
+            ZeusRepository.Add(q,"@Approval",input.AutorizacionVentaId.Value);
+            q.CommandText="SELECT Huella,ExcepcionesJson,SolicitadoPor,ResueltoPor FROM ven.AutorizacionPrecioVenta WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND AutorizacionPrecioVentaId=@Approval AND Estado='APROBADA'";
+            await using(var approval=await q.ExecuteReaderAsync(ct))
+            {
+                if(!await approval.ReadAsync()||approval.GetInt64(2)!=user||approval.IsDBNull(3)||approval.GetInt64(3)==user
+                    ||approval.GetString(0)!=SalesPriceApprovalRepository.Hash(input)
+                    ||approval.GetString(1)!=JsonSerializer.Serialize(priceExceptions))
+                    throw new ArgumentException("La autorización no está aprobada, corresponde a otra factura o cambiaron las condiciones de precio/costo. Solicita una nueva.");
+            }
+        }
+        else if(input.AutorizacionVentaId is not null)throw new ArgumentException("Esta factura ya no requiere la autorización solicitada. Revísala y emítela sin ella.");
         string receivableAccount;
         if(validated.Count>0)receivableAccount=validated[0].Accounts.CarteraClientes!;
         else
@@ -415,6 +430,11 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         ZeusRepository.Add(q,"@Json",JsonSerializer.Serialize(input));ZeusRepository.Add(q,"@User",user);
         q.CommandText="INSERT ven.FacturaVenta(EmpresaId,OperacionGuid,Numero,SucursalId,ClienteId,FechaContable,Vencimiento,Base,Iva,Financiacion,ConceptosTotal,Total,AnticipoAplicado,SaldoPendiente,Cuotas,FrecuenciaCuotas,CentroCostoIngresoZeus,ClaseCartera,Observacion,Contenido,CreadoPor) OUTPUT inserted.FacturaVentaId VALUES(@E,@Key,@N,@B,@C,@Date,@Due,@Base,@Iva,@Finance,@ConceptsTotal,@Total,@Advance,@Balance,@Terms,@Frequency,@GeneralCenter,@ClaseCartera,@Observacion,@Json,@User)";
         var id=Convert.ToInt64(await q.ExecuteScalarAsync(ct));ZeusRepository.Add(q,"@Id",id);
+        if(priceExceptions.Count>0)
+        {
+            q.CommandText="UPDATE ven.AutorizacionPrecioVenta SET Estado='UTILIZADA',FacturaVentaId=@Id WHERE EmpresaId=@E AND AutorizacionPrecioVentaId=@Approval AND Estado='APROBADA'";
+            if(await q.ExecuteNonQueryAsync(ct)!=1)throw new ArgumentException("La autorización cambió durante la emisión; no se creó la factura.");
+        }
         foreach(var installment in schedule)
         {
             await using var due=ZeusRepository.Command(c,"INSERT ven.FacturaVentaCuota(EmpresaId,FacturaVentaId,NumeroCuota,FechaVencimiento,ValorOriginal,SaldoPendiente,TipoCuota) VALUES(@E,@Invoice,@Number,@Due,@Value,@Value,@Type)",company,tx);

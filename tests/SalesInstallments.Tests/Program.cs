@@ -16,6 +16,15 @@ try{SalesPricing.Validate(95m,100m,5m,90m,19m,true,1);throw new Exception("Permi
 catch(ArgumentException){Console.WriteLine("OK: venta bajo costo bloqueada incluso con descuento permitido");}
 SalesPricing.Validate(100m,null,0m,80m,19m,true,1);
 Check(true,"artículo sin precio de lista puede venderse sobre costo");
+var priceExceptions=SalesPricing.Assess(80m,100m,5m,90m,19m,true,7,2);
+Check(priceExceptions.Length==2&&priceExceptions.Any(x=>x.Tipo=="DESCUENTO"&&x.Umbral==95m)
+    &&priceExceptions.Any(x=>x.Tipo=="BAJO_COSTO"&&x.Umbral==107.10m),"solicitud separa exceso de descuento y venta bajo costo");
+var approvalInvoice=new SalesInvoiceInput(Guid.NewGuid(),"FV-AUT-1",3,2,new DateOnly(2026,10,8),new DateOnly(2026,11,8),
+    [new SaleItem(7,2,1m,80m,null)],[],1,SalesInstallments.SameDayMonthly,[],null,null,"MOTO",null,null);
+var originalHash=SalesPriceApprovalRepository.Hash(approvalInvoice);
+Check(originalHash==SalesPriceApprovalRepository.Hash(approvalInvoice with{AutorizacionVentaId=9}),"identificador de autorización no modifica la huella aprobada");
+Check(originalHash!=SalesPriceApprovalRepository.Hash(approvalInvoice with{Lineas=[new SaleItem(7,2,1m,79m,null)]}),
+    "la aprobación no sirve para un precio alterado");
 
 var monthly=SalesInstallments.Build(new DateOnly(2026,10,3),12,SalesInstallments.SameDayMonthly,1200m);
 Check(monthly.Length==12&&monthly[0].Vencimiento==new DateOnly(2026,10,3)

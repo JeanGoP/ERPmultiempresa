@@ -153,6 +153,38 @@ public static class SalesModule
             catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
             catch(SqlException e) when(e.Number is 2601 or 2627 or 52311 || e.Number is >=51200 and <=51299){return Results.Conflict(new{error=e.Message});}
         }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapGet("/sales-price-approvals",async(long empresaId,HttpContext http,SalesPriceApprovalRepository approvals,AuthRepository auth,CancellationToken ct)=>
+        {
+            var user=Convert.ToInt64(http.Items["UsuarioId"]);
+            return Results.Ok(await approvals.ListAsync(empresaId,user,await auth.HasPermissionAsync(user,empresaId,"SEGURIDAD.PERMISOS.ADMINISTRAR",ct),ct));
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR","SEGURIDAD.PERMISOS.ADMINISTRAR");
+        group.MapPost("/sales-price-approvals",async(long empresaId,SalesPriceApprovalRequest request,HttpContext http,SalesPriceApprovalRepository approvals,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await approvals.RequestAsync(empresaId,request,Convert.ToInt64(http.Items["UsuarioId"]),ct));}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+            catch(SqlException e) when(e.Number is 2601 or 2627){return Results.Conflict(new{error="La solicitud ya existe. Actualiza el listado."});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapPost("/sales-price-approvals/{id:long}/approve",async(long empresaId,long id,SalesPriceApprovalDecision decision,HttpContext http,SalesPriceApprovalRepository approvals,CancellationToken ct)=>
+        {
+            try{await approvals.DecideAsync(empresaId,id,Convert.ToInt64(http.Items["UsuarioId"]),true,decision.Respuesta,ct);return Results.Ok(new{estado="APROBADA"});}
+            catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
+        }).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+        group.MapPost("/sales-price-approvals/{id:long}/reject",async(long empresaId,long id,SalesPriceApprovalDecision decision,HttpContext http,SalesPriceApprovalRepository approvals,CancellationToken ct)=>
+        {
+            try{await approvals.DecideAsync(empresaId,id,Convert.ToInt64(http.Items["UsuarioId"]),false,decision.Respuesta,ct);return Results.Ok(new{estado="RECHAZADA"});}
+            catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
+        }).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+        group.MapPost("/sales-price-approvals/{id:long}/issue",async(long empresaId,long id,HttpContext http,SalesPriceApprovalRepository approvals,SalesInvoiceRepository sales,CancellationToken ct)=>
+        {
+            try
+            {
+                var user=Convert.ToInt64(http.Items["UsuarioId"]);
+                var input=await approvals.ApprovedInvoiceAsync(empresaId,id,user,ct);
+                return Results.Ok(await sales.PostAsync(empresaId,input,user,ct));
+            }
+            catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
+            catch(SqlException e) when(e.Number is 2601 or 2627 or 52311 || e.Number is >=51200 and <=51299){return Results.Conflict(new{error=e.Message});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapPost("/sales-invoices/{id:long}/retry",async(long empresaId,long id,CustomerPostingQueue queue,CancellationToken ct)=>
         {
             try {var fuente=await queue.RetryAsync(empresaId,"FACTURA",id,ct);return Results.Ok(new{estado="PENDIENTE",fuente});}

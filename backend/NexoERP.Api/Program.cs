@@ -31,6 +31,7 @@ builder.Services.AddScoped<MasterDataRepository>();
 builder.Services.AddScoped<CustomerRepository>();
 builder.Services.AddScoped<CustomerCashRepository>();
 builder.Services.AddScoped<SalesInvoiceRepository>();
+builder.Services.AddScoped<SalesPriceApprovalRepository>();
 builder.Services.AddScoped<PortfolioRefinancingRepository>();
 builder.Services.AddScoped<SalesConceptRepository>();
 builder.Services.AddScoped<CustomerPostingQueue>();

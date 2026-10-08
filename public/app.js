@@ -238,7 +238,7 @@ function applyAccessControls() {
   };
 
   setVisible('[data-nav-group="purchases"]', canPurchases || canServices);
-  setVisible('[data-nav-group="sales"]', Boolean(state.erpSession?.api)&&hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
+  setVisible('[data-nav-group="sales"]', Boolean(state.erpSession?.api)&&(hasPermission('VENTAS.FACTURA.CONTABILIZAR')||canSecurity));
   setVisible('[data-nav-group="treasury"]', Boolean(state.erpSession?.api)&&(hasPermission('TESORERIA.EGRESO.CONTABILIZAR')||hasPermission('TESORERIA.RECIBO.CONTABILIZAR')));
   setVisible('[data-nav-group="inventory"]', canInventory);
   setVisible('[data-nav-group="costs"]', canCosts);
@@ -248,6 +248,7 @@ function applyAccessControls() {
   setVisible(elements.securityAdminNav, canSecurity);
   setVisible('#zeusNavGroup',canSecurity||hasPermission('COMPRAS.RECEPCION.CONTABILIZAR')||hasPermission('TESORERIA.EGRESO.CONTABILIZAR')||hasPermission('VENTAS.FACTURA.CONTABILIZAR')||hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
   setVisible('#salesInvoicesNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
+  setVisible('#salesApprovalsNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR')||canSecurity);
   setVisible('#salesReceivablesNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
   setVisible('#cashReceiptsNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
   setVisible('#customerAdvancesNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
