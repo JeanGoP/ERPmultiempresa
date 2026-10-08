@@ -6,7 +6,7 @@ public sealed record SupplierResponse(
     string? Direccion,string? CiudadCodigo,string? Ciudad,string? DepartamentoCodigo,string? Departamento,string? CodigoPostal,
     string? PaisCodigo,string? Pais,string? ContactoNombre,string? Telefono,string? Correo,string? SitioWeb,string? DatosXmlJson,bool Activo,string? DivisionPoliticaZeus=null,string? ZeusEstado=null,string? ZeusMensaje=null);
 public sealed record UnitOfMeasureResponse(long UnidadMedidaId,string Codigo,string Nombre,string Simbolo,bool Activa);
-public sealed record ArticleResponse(long ArticuloId,string Codigo,string Descripcion,string Tipo,bool ManejaInventario,long UnidadBaseId,string UnidadBase,bool ManejaLote,bool ManejaSerial,bool RequiereVencimiento,decimal? PesoBaseKg,decimal? VolumenBaseM3,bool Activo,string? Marca,decimal? PorcentajeIvaVenta);
+public sealed record ArticleResponse(long ArticuloId,string Codigo,string Descripcion,string Tipo,bool ManejaInventario,long UnidadBaseId,string UnidadBase,bool ManejaLote,bool ManejaSerial,bool RequiereVencimiento,decimal? PesoBaseKg,decimal? VolumenBaseM3,bool Activo,string? Marca,decimal? PorcentajeIvaVenta,decimal? PrecioListaConIva);
 public sealed record ItemMappingResponse(long HomologacionArticuloProveedorId,long TerceroId,string ProveedorIdentificacion,string Proveedor,string CodigoExterno,string? DescripcionExterna,long ArticuloId,string ArticuloCodigo,string Articulo,string? UnidadCodigo,decimal FactorAUnidadBase,bool Activa);
 public sealed record MasterSaveResponse(long Id,bool Creado);
 
@@ -16,7 +16,7 @@ public sealed record SaveSupplierRequest(
     string? Direccion,string? CiudadCodigo,string? Ciudad,string? DepartamentoCodigo,string? Departamento,string? CodigoPostal,
     string? PaisCodigo,string? Pais,string? ContactoNombre,string? Telefono,string? Correo,string? SitioWeb,string? DatosXmlJson,long? UsuarioId);
 public sealed record SaveUnitRequest(string Codigo,string Nombre,string Simbolo,long? UsuarioId);
-public sealed record SaveArticleRequest(string Codigo,string Descripcion,string Tipo,long UnidadBaseId,bool ManejaInventario,bool ManejaLote,bool ManejaSerial,bool RequiereVencimiento,decimal? PesoBaseKg,decimal? VolumenBaseM3,long? UsuarioId,decimal? PorcentajeIvaVenta=null);
+public sealed record SaveArticleRequest(string Codigo,string Descripcion,string Tipo,long UnidadBaseId,bool ManejaInventario,bool ManejaLote,bool ManejaSerial,bool RequiereVencimiento,decimal? PesoBaseKg,decimal? VolumenBaseM3,long? UsuarioId,decimal? PorcentajeIvaVenta=null,decimal? PrecioListaConIva=null);
 public sealed record SaveArticleUnitRequest(long UnidadMedidaId,decimal FactorAUnidadBase,bool EsUnidadCompra,bool EsUnidadVenta,long? UsuarioId);
 public sealed record SaveWarehouseRequest(string Codigo,string Nombre,bool UsaUbicaciones,bool EsTransito,long? UsuarioId,long? SucursalId=null);
 public sealed record SaveItemMappingRequest(long TerceroId,string CodigoExterno,string? DescripcionExterna,long ArticuloId,long? UnidadMedidaId,decimal FactorAUnidadBase,long? UsuarioId);

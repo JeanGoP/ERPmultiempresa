@@ -50,6 +50,7 @@ function openCompanyMasterForm(record=null){
   const form=document.createElement('form');form.className='company-create-form';
   const field=(label,name,max,value,readOnly=false)=>{const wrap=document.createElement('label');const caption=document.createElement('span');caption.textContent=label;wrap.append(caption);const input=document.createElement('input');input.name=name;input.maxLength=max;input.required=name!=='digitoVerificacion';input.value=value||'';input.readOnly=readOnly;wrap.append(input);form.append(wrap);return input;};
   field('Código','codigo',20,record?.codigo);field('NIT','nit',20,record?.nit);field('Dígito de verificación','digitoVerificacion',1,record?.digitoVerificacion).pattern='[0-9]';field('Razón social','razonSocial',200,record?.razonSocial);
+  if(record){const discount=field('Descuento máximo sin aprobación %','maxDescuentoVentaPct',6,String(record.maxDescuentoVentaPct??0));discount.type='number';discount.min='0';discount.max='100';discount.step='0.01';}
   const nit=form.elements.nit;
   const digit=form.elements.digitoVerificacion;
   nit.maxLength=15;nit.inputMode='numeric';nit.pattern='[0-9]{1,15}';
@@ -65,7 +66,7 @@ function openCompanyMasterForm(record=null){
   let busy=false;cancel.onclick=()=>dialog.close();dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});dialog.addEventListener('close',()=>{zeus.clear();dialog.remove();},{once:true});
   form.onsubmit=async event=>{
     event.preventDefault();if(busy)return;if(!state.erpSession?.superAdmin||token!==apiToken()){dialog.close();return;}
-    const data=Object.fromEntries(new FormData(form));const payload=record?{codigo:data.codigo,nit:data.nit,digitoVerificacion:data.digitoVerificacion||null,razonSocial:data.razonSocial,version:record.version}:data;
+    const data=Object.fromEntries(new FormData(form));const payload=record?{codigo:data.codigo,nit:data.nit,digitoVerificacion:data.digitoVerificacion||null,razonSocial:data.razonSocial,version:record.version,maxDescuentoVentaPct:Number(data.maxDescuentoVentaPct)}:data;
     busy=true;save.disabled=cancel.disabled=true;error.textContent='';
     try{
       payload.zeus=zeus.read();

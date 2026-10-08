@@ -211,7 +211,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             JOIN ven.ClientePerfil p ON p.EmpresaId=t.EmpresaId AND p.TerceroId=t.TerceroId
             WHERE t.EmpresaId=@E AND t.Activo=1 ORDER BY t.RazonSocial;
             SELECT a.ArticuloId,a.Codigo,a.Descripcion,a.Tipo,a.ManejaInventario,a.ManejaSerial,a.PorcentajeIvaVenta,
-                b.BodegaId,b.Codigo,b.Nombre,b.SucursalId,ISNULL(s.Existencia,0),s.CostoPromedio
+                b.BodegaId,b.Codigo,b.Nombre,b.SucursalId,ISNULL(s.Existencia,0),s.CostoPromedio,a.PrecioListaConIva
             FROM inv.Articulo a CROSS JOIN inv.Bodega b
             LEFT JOIN inv.SaldoArticuloBodega s ON s.EmpresaId=a.EmpresaId AND s.ArticuloId=a.ArticuloId AND s.BodegaId=b.BodegaId
             WHERE a.EmpresaId=@E AND b.EmpresaId=@E AND a.Activo=1 AND b.Activa=1 AND b.SucursalId IS NOT NULL
@@ -226,13 +226,14 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             SELECT b.BodegaId,b.Codigo,b.Nombre,b.SucursalId,z.Configuracion
             FROM inv.Bodega b LEFT JOIN core.ZeusBodegaCuenta z ON z.EmpresaId=b.EmpresaId AND z.BodegaId=b.BodegaId
             WHERE b.EmpresaId=@E AND b.Activa=1 AND b.SucursalId IS NOT NULL ORDER BY b.Codigo;
+            SELECT MaxDescuentoVentaPct FROM core.Empresa WHERE EmpresaId=@E;
             """,company);
         q.Parameters.Add("@C",SqlDbType.BigInt).Value=(object?)client??DBNull.Value;
         var branches=new List<object>();var customers=new List<object>();var articles=new List<object>();var serials=new List<object>();var advances=new List<object>();var concepts=new List<object>();var warehouses=new List<object>();
         await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct))branches.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))customers.Add(new{id=r.GetInt64(0),identificacion=r.GetString(1),nombre=r.GetString(2),zeusEstado=r.GetString(3)});
-        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))articles.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),descripcion=r.GetString(2),tipo=r.GetString(3),inventario=r.GetBoolean(4),serial=r.GetBoolean(5),iva=r.IsDBNull(6)?(decimal?)null:r.GetDecimal(6),bodegaId=r.GetInt64(7),bodegaCodigo=r.GetString(8),bodega=r.GetString(9),sucursalId=r.GetInt64(10),existencia=r.GetDecimal(11),costoPromedio=r.IsDBNull(12)?(decimal?)null:r.GetDecimal(12)});
+        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))articles.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),descripcion=r.GetString(2),tipo=r.GetString(3),inventario=r.GetBoolean(4),serial=r.GetBoolean(5),iva=r.IsDBNull(6)?(decimal?)null:r.GetDecimal(6),bodegaId=r.GetInt64(7),bodegaCodigo=r.GetString(8),bodega=r.GetString(9),sucursalId=r.GetInt64(10),existencia=r.GetDecimal(11),costoPromedio=r.IsDBNull(12)?(decimal?)null:r.GetDecimal(12),precioListaConIva=r.IsDBNull(13)?(decimal?)null:r.GetDecimal(13)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))serials.Add(new{id=r.GetInt64(0),articuloId=r.GetInt64(1),bodegaId=r.GetInt64(2),estado=r.GetString(3),tipo=r.IsDBNull(4)?null:r.GetString(4),valor=r.IsDBNull(5)?null:r.GetString(5)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))advances.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1),concepto=r.GetString(2),fecha=r.GetDateTime(3).ToString("yyyy-MM-dd"),zeusEstado=r.GetString(4)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))concepts.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),cuentaIngresoZeus=r.GetString(3)});
@@ -241,7 +242,8 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             var account=r.IsDBNull(4)?null:JsonSerializer.Deserialize<ZeusWarehouseAccounts>(r.GetString(4))?.Ingreso;
             warehouses.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),sucursalId=r.GetInt64(3),cuentaIngreso=account});
         }
-        return new{sucursales=branches,clientes=customers,articulos=articles,seriales=serials,anticipos=advances,conceptos=concepts,bodegas=warehouses};
+        await r.NextResultAsync(ct);await r.ReadAsync(ct);
+        return new{sucursales=branches,clientes=customers,articulos=articles,seriales=serials,anticipos=advances,conceptos=concepts,bodegas=warehouses,maxDescuentoVentaPct=r.GetDecimal(0)};
     }
 
     public async Task<object> PostAsync(long company,SalesInvoiceInput input,long user,CancellationToken ct)
@@ -297,6 +299,8 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         if(customerState is not("TERCERO" or "CLIENTE"))throw new ArgumentException("El tercero del cliente debe estar confirmado en Zeus antes de emitir la primera factura.");
         q.CommandText="SELECT Configuracion FROM core.ZeusConfiguracion WHERE EmpresaId=@E";
         var settings=JsonSerializer.Deserialize<ZeusSettings>(await q.ExecuteScalarAsync(ct) as string??throw new ArgumentException("Configura Zeus para esta empresa."))!;
+        q.CommandText="SELECT MaxDescuentoVentaPct FROM core.Empresa WITH(HOLDLOCK) WHERE EmpresaId=@E";
+        var maxDiscount=Convert.ToDecimal(await q.ExecuteScalarAsync(ct));
         if(!settings.Habilitado||(settings.FuentesAutomaticas??[]).All(x=>x.Movimiento!="FACTURACION"||x.SucursalId!=input.SucursalId))
             throw new ArgumentException("Configura y habilita la fuente FACTURACION de esta sucursal en Zeus.");
         settings=ZeusRouting.Resolve(settings,input.SucursalId,"FACTURACION",branch);
@@ -332,21 +336,23 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             q.Parameters.Add("@Article",SqlDbType.BigInt).Value=line.ArticuloId;
             q.Parameters.Add("@Warehouse",SqlDbType.BigInt).Value=line.BodegaId;
             q.CommandText="""
-                SELECT a.PorcentajeIvaVenta,a.ManejaInventario,a.ManejaSerial,ISNULL(s.Existencia,0),z.Configuracion,z.Servidor,z.BaseDatos
+                SELECT a.PorcentajeIvaVenta,a.ManejaInventario,a.ManejaSerial,ISNULL(s.Existencia,0),z.Configuracion,z.Servidor,z.BaseDatos,a.PrecioListaConIva,ISNULL(s.CostoPromedio,0)
                 FROM inv.Articulo a JOIN inv.Bodega b ON b.EmpresaId=a.EmpresaId AND b.BodegaId=@Warehouse AND b.SucursalId=@B AND b.Activa=1
                 LEFT JOIN inv.SaldoArticuloBodega s WITH(UPDLOCK,HOLDLOCK) ON s.EmpresaId=a.EmpresaId AND s.BodegaId=@Warehouse AND s.ArticuloId=a.ArticuloId
                 LEFT JOIN core.ZeusBodegaCuenta z ON z.EmpresaId=a.EmpresaId AND z.BodegaId=@Warehouse
                 WHERE a.EmpresaId=@E AND a.ArticuloId=@Article AND a.Activo=1;
                 """;
-            decimal rate,stock;bool inventory,serial;string? accountsJson,server,db;
+            decimal rate,stock,cost;decimal? listPrice;bool inventory,serial;string? accountsJson,server,db;
             await using(var r=await q.ExecuteReaderAsync(ct))
             {
                 if(!await r.ReadAsync(ct)||r.IsDBNull(0))throw new ArgumentException("El artículo no existe, no pertenece a la sucursal o no tiene IVA de venta clasificado.");
                 rate=r.GetDecimal(0);inventory=r.GetBoolean(1);serial=r.GetBoolean(2);stock=r.GetDecimal(3);
                 accountsJson=r.IsDBNull(4)?null:r.GetString(4);server=r.IsDBNull(5)?null:r.GetString(5);db=r.IsDBNull(6)?null:r.GetString(6);
+                listPrice=r.IsDBNull(7)?null:r.GetDecimal(7);cost=r.GetDecimal(8);
             }
             q.Parameters.RemoveAt("@Article");q.Parameters.RemoveAt("@Warehouse");
             if(inventory&&stock<line.Cantidad)throw new ArgumentException("No hay existencias suficientes en la bodega seleccionada.");
+            SalesPricing.Validate(line.PrecioUnitarioConIva,listPrice,maxDiscount,cost,rate,inventory,line.ArticuloId);
             if(serial&&(line.UnidadesSerializadas?.Length!=line.Cantidad||line.UnidadesSerializadas.Distinct().Count()!=line.UnidadesSerializadas.Length))
                 throw new ArgumentException("Selecciona una unidad serializada distinta por cada artículo vendido.");
             if(!serial&&(line.UnidadesSerializadas?.Length??0)>0)throw new ArgumentException("Este artículo no maneja seriales.");

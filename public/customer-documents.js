@@ -246,14 +246,14 @@
       const item=choices.find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);
       return `<tr data-line="${index}"><td><select data-article required><option value="">Selecciona artículo y bodega…</option>${choices.map(a=>`<option value="${a.id}|${a.bodegaId}" ${a.id===line.articuloId&&a.bodegaId===line.bodegaId?'selected':''}>${esc(a.codigo+' · '+a.descripcion+' · '+a.bodegaCodigo+' · Disponible '+a.existencia)}</option>`).join('')}</select></td>
         <td><input data-qty type="number" min="0.000001" step="0.000001" value="${esc(line.cantidad)}" required></td>
-        <td><input data-price type="number" min="0.01" step="0.01" value="${esc(line.precioUnitarioConIva||'')}" required>${item?.inventario&&item.costoPromedio>0&&item.iva!=null?`<button type="button" class="customer-cost-price" data-cost-price>Usar costo + IVA</button>`:''}</td>
+        <td><input data-price type="number" min="0.01" step="0.01" value="${esc(line.precioUnitarioConIva||'')}" required>${item?.precioListaConIva?`<small>Lista ${money(item.precioListaConIva)} · libre ${esc(options.maxDescuentoVentaPct)} %</small>`:'<small>Sin precio de lista</small>'}${item?.inventario&&item.costoPromedio>0&&item.iva!=null?`<button type="button" class="customer-cost-price" data-cost-price>Usar costo + IVA</button>`:''}</td>
         <td>${item?.iva==null?'IVA sin clasificar':esc(item.iva+' %')}</td>
         <td>${item?.serial?`<button type="button" class="button secondary customer-serial-trigger" data-choose-serial>Buscar seriales</button><small class="customer-serial-count">${line.unidadesSerializadas.length} de ${esc(line.cantidad)} seleccionada(s)</small>`:'—'}</td>
         <td><button type="button" class="button secondary" data-remove>Quitar</button></td></tr>`;
     }).join('');
     area.querySelectorAll('[data-line]').forEach(row=>{
       const line=lines[Number(row.dataset.line)];
-      row.querySelector('[data-article]').onchange=event=>{const [id,warehouse]=event.target.value.split('|').map(Number);line.articuloId=id||0;line.bodegaId=warehouse||0;line.unidadesSerializadas=[];renderLines();dirty=true;};
+      row.querySelector('[data-article]').onchange=event=>{const [id,warehouse]=event.target.value.split('|').map(Number);line.articuloId=id||0;line.bodegaId=warehouse||0;line.precioUnitarioConIva=choices.find(a=>a.id===id&&a.bodegaId===warehouse)?.precioListaConIva||0;line.unidadesSerializadas=[];renderLines();dirty=true;};
       row.querySelector('[data-qty]').oninput=event=>{line.cantidad=Number(event.target.value);summary();dirty=true;};
       row.querySelector('[data-price]').oninput=event=>{line.precioUnitarioConIva=Number(event.target.value);summary();dirty=true;};
       row.querySelector('[data-cost-price]')?.addEventListener('click',()=>{const item=articleChoices().find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);if(!item||item.costoPromedio==null||item.iva==null)return;line.precioUnitarioConIva=Math.round(item.costoPromedio*(1+item.iva/100)*100)/100;renderLines();dirty=true;});
@@ -383,7 +383,9 @@
     if(lines.some(x=>!x.articuloId||!x.bodegaId||x.cantidad<=0||x.precioUnitarioConIva<=0)){notice('Completa artículos, cantidades y precios.',true);return;}
     if(!lines.length&&!conceptLines.length){notice('Agrega al menos un artículo o un concepto.',true);return;}
     for(const line of lines){const a=options.articulos.find(x=>x.id===line.articuloId&&x.bodegaId===line.bodegaId);
-      if(a?.iva==null||a.inventario&&line.cantidad>a.existencia||a?.serial&&line.unidadesSerializadas.length!==line.cantidad){notice('Revisa el IVA, las existencias y los seriales seleccionados.',true);return;}}
+      if(a?.iva==null||a.inventario&&line.cantidad>a.existencia||a?.serial&&line.unidadesSerializadas.length!==line.cantidad){notice('Revisa el IVA, las existencias y los seriales seleccionados.',true);return;}
+      if(a.precioListaConIva&&line.precioUnitarioConIva<Math.round(a.precioListaConIva*(1-options.maxDescuentoVentaPct/100)*100)/100){notice(`El artículo ${a.codigo} supera el descuento libre de ${options.maxDescuentoVentaPct} %.`,true);return;}
+      if(a.inventario&&a.costoPromedio>0&&line.precioUnitarioConIva<Math.round(a.costoPromedio*(1+a.iva/100)*100)/100){notice(`El artículo ${a.codigo} queda por debajo del costo con IVA y requiere autorización.`,true);return;}}
     if(conceptLines.some(x=>!x.conceptoVentaId||!Number.isFinite(x.valor)||x.valor<=0)){notice('Completa los conceptos y sus valores.',true);return;}
     const required=dimensions?.cuentasRequierenCentroCosto||[];
     if(conceptLines.some(x=>required.includes(options.conceptos.find(c=>c.id===x.conceptoVentaId)?.cuentaIngresoZeus)&&!x.centroCosto)){notice('Selecciona el centro de costo de cada concepto cuya cuenta Zeus lo exija.',true);return;}

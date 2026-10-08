@@ -5,8 +5,8 @@ using NexoERP.Api.Data;
 
 namespace NexoERP.Api.Security;
 
-public sealed record CompanyMasterRow(long Id,string Codigo,string Nit,string? DigitoVerificacion,string RazonSocial,string MonedaFuncional,string ZonaHoraria,string MarcoContable,bool Activa,string Version);
-public sealed record EditCompanyRequest(string Codigo,string Nit,string? DigitoVerificacion,string RazonSocial,string Version,NexoERP.Api.Zeus.ZeusConnectionInput? Zeus=null);
+public sealed record CompanyMasterRow(long Id,string Codigo,string Nit,string? DigitoVerificacion,string RazonSocial,string MonedaFuncional,string ZonaHoraria,string MarcoContable,bool Activa,string Version,decimal MaxDescuentoVentaPct);
+public sealed record EditCompanyRequest(string Codigo,string Nit,string? DigitoVerificacion,string RazonSocial,string Version,NexoERP.Api.Zeus.ZeusConnectionInput? Zeus=null,decimal MaxDescuentoVentaPct=0);
 public sealed class CompanyMasterRepository(TenantConnectionFactory connections,AuthRepository auth,NexoERP.Api.Zeus.ZeusConnectionStore? zeusConnections=null)
 {
     public static void Validate(string? code,string? nit,string? dv,string? name)
@@ -19,15 +19,16 @@ public sealed class CompanyMasterRepository(TenantConnectionFactory connections,
     {
         if(!await auth.IsSuperAdministratorAsync(actor,ct))throw new UnauthorizedAccessException();
         await using var c=await connections.OpenAsync(null,true,ct);await using var q=c.CreateCommand();
-        q.CommandText="SELECT EmpresaId,Codigo,Nit,DigitoVerificacion,RazonSocial,MonedaFuncional,ZonaHoraria,MarcoContable,Activa,RowVersion FROM core.Empresa ORDER BY RazonSocial";
+        q.CommandText="SELECT EmpresaId,Codigo,Nit,DigitoVerificacion,RazonSocial,MonedaFuncional,ZonaHoraria,MarcoContable,Activa,RowVersion,MaxDescuentoVentaPct FROM core.Empresa ORDER BY RazonSocial";
         await using var r=await q.ExecuteReaderAsync(ct);var rows=new List<CompanyMasterRow>();
-        while(await r.ReadAsync(ct))rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.IsDBNull(3)?null:r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7),r.GetBoolean(8),Convert.ToBase64String((byte[])r[9])));
+        while(await r.ReadAsync(ct))rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.IsDBNull(3)?null:r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7),r.GetBoolean(8),Convert.ToBase64String((byte[])r[9]),r.GetDecimal(10)));
         return rows;
     }
     public async Task UpdateAsync(long actor,long id,EditCompanyRequest input,CancellationToken ct)
     {
         if(!await auth.IsSuperAdministratorAsync(actor,ct))throw new UnauthorizedAccessException();
         Validate(input.Codigo,input.Nit,input.DigitoVerificacion,input.RazonSocial);
+        if(input.MaxDescuentoVentaPct is <0 or >100)throw new ArgumentException("El descuento libre debe estar entre 0 y 100 %.");
         byte[] version;
         try{version=Convert.FromBase64String(input.Version??"");}catch(FormatException){throw new ArgumentException("Versión de empresa inválida. Actualiza el listado.");}
         if(version.Length!=8)throw new ArgumentException("Actualiza el listado antes de editar la empresa.");
@@ -35,15 +36,16 @@ public sealed class CompanyMasterRepository(TenantConnectionFactory connections,
         q.CommandText="""
             IF NOT EXISTS(SELECT 1 FROM core.Empresa WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@Id AND RowVersion=@Version)
                 THROW 52040,'La empresa cambio o no existe. Actualiza el listado antes de guardar.',1;
-            DECLARE @Antes nvarchar(max)=(SELECT Codigo,Nit,DigitoVerificacion,RazonSocial FROM core.Empresa WHERE EmpresaId=@Id FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
-            UPDATE core.Empresa SET Codigo=@Codigo,Nit=@Nit,DigitoVerificacion=@Dv,RazonSocial=@Nombre WHERE EmpresaId=@Id;
+            DECLARE @Antes nvarchar(max)=(SELECT Codigo,Nit,DigitoVerificacion,RazonSocial,MaxDescuentoVentaPct FROM core.Empresa WHERE EmpresaId=@Id FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
+            UPDATE core.Empresa SET Codigo=@Codigo,Nit=@Nit,DigitoVerificacion=@Dv,RazonSocial=@Nombre,MaxDescuentoVentaPct=@Discount WHERE EmpresaId=@Id;
             INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen)
             VALUES(@Id,@Actor,'EMPRESA_ACTUALIZADA','core.Empresa',CONVERT(nvarchar(100),@Id),(SELECT JSON_QUERY(@Antes) anterior,JSON_QUERY(@Json) nuevo FOR JSON PATH,WITHOUT_ARRAY_WRAPPER),'SEGURIDAD');
             """;
         q.Parameters.AddWithValue("@Id",id);q.Parameters.AddWithValue("@Actor",actor);q.Parameters.Add("@Version",SqlDbType.Binary,8).Value=version;
         q.Parameters.AddWithValue("@Codigo",input.Codigo.Trim().ToUpperInvariant());q.Parameters.AddWithValue("@Nit",input.Nit.Trim());q.Parameters.AddWithValue("@Nombre",input.RazonSocial.Trim());
+        q.Parameters.Add(new SqlParameter("@Discount",SqlDbType.Decimal){Precision=5,Scale=2,Value=input.MaxDescuentoVentaPct});
         q.Parameters.Add("@Dv",SqlDbType.Char,1).Value=string.IsNullOrWhiteSpace(input.DigitoVerificacion)?DBNull.Value:input.DigitoVerificacion.Trim();
-        q.Parameters.AddWithValue("@Json",JsonSerializer.Serialize(new{input.Codigo,input.Nit,input.DigitoVerificacion,input.RazonSocial}));await q.ExecuteNonQueryAsync(ct);
+        q.Parameters.AddWithValue("@Json",JsonSerializer.Serialize(new{input.Codigo,input.Nit,input.DigitoVerificacion,input.RazonSocial,input.MaxDescuentoVentaPct}));await q.ExecuteNonQueryAsync(ct);
         if(input.Zeus is not null)await (zeusConnections??throw new ArgumentException("Servicio de conexión Zeus no disponible.")).SaveAsync(c,tx,id,actor,input.Zeus,ct);
         await tx.CommitAsync(ct);
     }

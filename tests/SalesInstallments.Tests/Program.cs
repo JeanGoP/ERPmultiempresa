@@ -8,6 +8,15 @@ static void Check(bool condition,string description)
     Console.WriteLine("OK: "+description);
 }
 
+SalesPricing.Validate(95m,100m,5m,70m,19m,true,1);
+Check(true,"descuento exacto al límite permitido");
+try{SalesPricing.Validate(94.99m,100m,5m,70m,19m,true,1);throw new Exception("Permitió exceso de descuento.");}
+catch(ArgumentException){Console.WriteLine("OK: descuento superior al límite bloqueado");}
+try{SalesPricing.Validate(95m,100m,5m,90m,19m,true,1);throw new Exception("Permitió vender bajo costo.");}
+catch(ArgumentException){Console.WriteLine("OK: venta bajo costo bloqueada incluso con descuento permitido");}
+SalesPricing.Validate(100m,null,0m,80m,19m,true,1);
+Check(true,"artículo sin precio de lista puede venderse sobre costo");
+
 var monthly=SalesInstallments.Build(new DateOnly(2026,10,3),12,SalesInstallments.SameDayMonthly,1200m);
 Check(monthly.Length==12&&monthly[0].Vencimiento==new DateOnly(2026,10,3)
     &&monthly[1].Vencimiento==new DateOnly(2026,11,3)
