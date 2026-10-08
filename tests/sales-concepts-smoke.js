@@ -44,6 +44,8 @@ assert.match(installmentMigration,/CREATE TABLE ven\.FacturaVentaCuota/);
 assert.match(ui,/Ver recibos<select name="tipo"/);
 assert.match(ui,/x\.concepto/);
 assert.match(ui,/data-advance-summary/);
+assert.match(ui,/x\.zeusEstado&&x\.zeusEstado!=='CONTABILIZADO'\?'disabled':''/);
+assert.match(ui,/El servidor aún no entrega fecha, concepto o estado/);
 assert.match(ui,/aún no vence/);
 assert.match(cash,/CustomerPaymentPolicy\.ValidateDueDate/);
 console.log('Conceptos, centros y cuotas: calendario, cuenta 13 y recaudos por vencimiento verificados.');
