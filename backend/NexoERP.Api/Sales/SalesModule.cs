@@ -91,6 +91,11 @@ public static class SalesModule
 
         group.MapGet("/sales-invoices",async(long empresaId,string? q,long? antes,SalesInvoiceRepository sales,CancellationToken ct)=>
             Results.Ok(await sales.ListAsync(empresaId,q,antes,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapGet("/sales-receivables",async(long empresaId,string? q,string? clase,int? pagina,SalesInvoiceRepository sales,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await sales.ReceivablesAsync(empresaId,q,clase,pagina??1,ct));}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/sales-invoices/{id:long}",async(long empresaId,long id,SalesInvoiceRepository sales,CancellationToken ct)=>
         {
             var invoice=await sales.DetailAsync(empresaId,id,ct);

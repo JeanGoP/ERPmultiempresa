@@ -92,6 +92,14 @@
 .customer-documents-dialog .customer-profit-preview small{color:#64756b}
 .customer-documents-dialog .customer-cost-price{border:0;background:none;color:#13634d;text-decoration:underline;cursor:pointer;font-size:11px;padding:4px 0 0;text-align:left}
 .customer-documents-dialog .customer-invoice-observation{padding:10px 12px;background:#f6f8f6;border-radius:6px;font-size:12px;white-space:pre-wrap}
+.sales-receivables-dialog{width:min(1180px,calc(100vw - 20px));max-height:calc(100dvh - 20px)}
+.sales-receivables-filters{display:grid;grid-template-columns:minmax(0,2fr) minmax(160px,1fr) auto;gap:10px;align-items:end;margin:14px 0}
+.sales-receivables-filters label{display:grid;gap:5px;font-size:12px;font-weight:600}
+.sales-receivables-total,.sales-receivables-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0;font-size:12px}
+.sales-receivables-total strong{font-size:15px;color:#14513e}
+.sales-receivables-dialog td small{display:block;margin-top:3px;color:#63766d;font-size:11px}
+.sales-receivables-dialog [data-status]:empty{display:none}
+.sales-receivables-dialog [data-status]{color:#a02c22;font-size:12px}
 
 .customer-serial-dialog{width:min(620px,calc(100vw - 20px));max-height:calc(100dvh - 20px);padding:22px;box-sizing:border-box;border:1px solid #d6e3db;border-radius:12px;overflow:auto;background:#fff;color:#16392e;box-shadow:0 24px 70px #102b2440}
 .customer-serial-dialog::backdrop{background:#10282099}
@@ -119,6 +127,9 @@
   .customer-documents-dialog .customer-extra-row .button{grid-column:1/-1}
   .customer-documents-dialog .customer-invoice-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .customer-documents-dialog .customer-invoice-meta{grid-template-columns:1fr}
+  .sales-receivables-filters{grid-template-columns:1fr}
+  .sales-receivables-filters .button{width:100%}
+  .sales-receivables-total{align-items:start;flex-direction:column}
   .customer-documents-dialog .customer-list-heading{align-items:stretch;flex-direction:column}
   .customer-documents-dialog .customer-document-search{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .customer-documents-dialog .customer-search-query,.customer-documents-dialog .customer-search-filter{grid-column:1/-1;width:auto;min-width:0}

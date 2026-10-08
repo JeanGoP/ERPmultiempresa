@@ -17,6 +17,43 @@ public sealed record SalesInvoiceInput(Guid OperacionGuid,string Numero,long Cli
 
 public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,ZeusTransport zeus)
 {
+    public async Task<object> ReceivablesAsync(long company,string? search,string? category,int page,CancellationToken ct)
+    {
+        search=search?.Trim()??"";category=category?.Trim().ToUpperInvariant()??"";
+        if(search.Length>100||category is not("" or "MOTO" or "OTROS" or "MIXTA" or "SIN_CLASIFICAR")||page is <1 or >10000)
+            throw new ArgumentException("Revisa la búsqueda, el tipo de cartera y la página solicitada.");
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=ZeusRepository.Command(c,"""
+            SELECT f.FacturaVentaId,f.Numero,t.RazonSocial,t.NumeroIdentificacion,f.ClaseCartera,
+                c.NumeroCuota,COALESCE(c.FechaVencimiento,f.Vencimiento),
+                COALESCE(c.ValorOriginal,f.Total),COALESCE(c.SaldoPendiente,f.SaldoPendiente),f.ZeusEstado
+            FROM ven.FacturaVenta f
+            JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
+            LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId
+            WHERE f.EmpresaId=@E AND f.SaldoPendiente>0 AND (c.FacturaVentaCuotaId IS NULL OR c.SaldoPendiente>0)
+                AND (@Category='' OR f.ClaseCartera=@Category)
+                AND (@Q='' OR f.Numero LIKE '%'+@Q+'%' OR t.RazonSocial LIKE '%'+@Q+'%' OR t.NumeroIdentificacion LIKE '%'+@Q+'%')
+            ORDER BY f.FacturaVentaId DESC,c.NumeroCuota
+            OFFSET @Offset ROWS FETCH NEXT 50 ROWS ONLY;
+            SELECT COUNT_BIG(*),COALESCE(SUM(COALESCE(c.SaldoPendiente,f.SaldoPendiente)),0)
+            FROM ven.FacturaVenta f
+            JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
+            LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId
+            WHERE f.EmpresaId=@E AND f.SaldoPendiente>0 AND (c.FacturaVentaCuotaId IS NULL OR c.SaldoPendiente>0)
+                AND (@Category='' OR f.ClaseCartera=@Category)
+                AND (@Q='' OR f.Numero LIKE '%'+@Q+'%' OR t.RazonSocial LIKE '%'+@Q+'%' OR t.NumeroIdentificacion LIKE '%'+@Q+'%');
+            """,company);
+        q.Parameters.Add("@Q",SqlDbType.NVarChar,100).Value=search;
+        q.Parameters.Add("@Category",SqlDbType.VarChar,20).Value=category;
+        q.Parameters.Add("@Offset",SqlDbType.Int).Value=checked((page-1)*50);
+        var items=new List<object>();
+        await using var r=await q.ExecuteReaderAsync(ct);
+        while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),numero=r.GetString(1),cliente=r.GetString(2),identificacion=r.GetString(3),claseCartera=r.GetString(4),
+            numeroCuota=r.IsDBNull(5)?(int?)null:r.GetInt32(5),vence=r.GetDateTime(6).ToString("yyyy-MM-dd"),original=r.GetDecimal(7),saldo=r.GetDecimal(8),zeusEstado=r.GetString(9)});
+        await r.NextResultAsync(ct);await r.ReadAsync(ct);
+        var count=r.GetInt64(0);
+        return new{items,pagina=page,totalRegistros=count,totalSaldo=r.GetDecimal(1),paginas=(int)Math.Ceiling(count/50m)};
+    }
     public async Task<object> MissingCostCentersAsync(long company,long id,ZeusSettings settings,CancellationToken ct)
     {
         await using var c=await connections.OpenAsync(company,false,ct);

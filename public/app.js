@@ -248,7 +248,9 @@ function applyAccessControls() {
   setVisible(elements.securityAdminNav, canSecurity);
   setVisible('#zeusNavGroup',canSecurity||hasPermission('COMPRAS.RECEPCION.CONTABILIZAR')||hasPermission('TESORERIA.EGRESO.CONTABILIZAR')||hasPermission('VENTAS.FACTURA.CONTABILIZAR')||hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
   setVisible('#salesInvoicesNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
+  setVisible('#salesReceivablesNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
   setVisible('#cashReceiptsNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
+  setVisible('#customerAdvancesNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
   setVisible('#salesConceptsNav',hasPermission('MAESTROS.CONCEPTO_VENTA.ADMINISTRAR'));
   setVisible(elements.savedPurchasesNav, canUseSavedPurchases());
   setVisible(elements.accountsPayableNav, canUseAccountsPayable());
@@ -270,6 +272,7 @@ function applyAccessControls() {
 function enterErp(session) {
   window.resetEgresos?.();
   window.resetCustomerDocuments?.();
+  window.resetSalesReceivables?.();
   window.resetZeus?.();
   state.securityData=null;state.securityEditingUserId=null;state.securityEditingRoleId=null;state.securityPasswordUserId=null;
   state.erpSession = session;
@@ -287,6 +290,7 @@ function enterErp(session) {
 function leaveErp() {
   window.resetEgresos?.();
   window.resetCustomerDocuments?.();
+  window.resetSalesReceivables?.();
   window.resetZeus?.();
   state.securityData=null;
   localStorage.removeItem(uiStorage.session);

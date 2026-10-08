@@ -20,8 +20,9 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         if(type is not("" or "ANTICIPO" or "CARTERA" or "NORMAL"))throw new ArgumentException("El tipo de recibo no es válido.");
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=ZeusRepository.Command(c,"""
-            SELECT TOP(51) r.ReciboCajaId,r.FechaContable,r.Tipo,t.RazonSocial,r.Total,r.ZeusEstado,r.ZeusFuente,r.ZeusDocumento,r.ZeusError,r.Concepto
+            SELECT TOP(51) r.ReciboCajaId,r.FechaContable,r.Tipo,t.RazonSocial,r.Total,r.ZeusEstado,r.ZeusFuente,r.ZeusDocumento,r.ZeusError,r.Concepto,a.Saldo
             FROM cxc.ReciboCaja r JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.ClienteId
+            LEFT JOIN cxc.AnticipoCliente a ON a.EmpresaId=r.EmpresaId AND a.ReciboCajaId=r.ReciboCajaId
             WHERE r.EmpresaId=@E AND (@Type='' OR r.Tipo=@Type) AND (@Before IS NULL OR r.ReciboCajaId<@Before)
               AND (@Q='' OR r.ReciboCajaId=TRY_CONVERT(bigint,@Q) OR t.RazonSocial LIKE '%'+@Q+'%'
                    OR t.NumeroIdentificacion LIKE '%'+@Q+'%' OR r.ZeusDocumento LIKE '%'+@Q+'%'
@@ -35,7 +36,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         while(await r.ReadAsync(ct))
         {
             if(list.Count==50)return new{items=list,siguiente=next};
-            next=r.GetInt64(0);list.Add(new{id=next,fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),tipo=r.GetString(2),cliente=r.GetString(3),total=r.GetDecimal(4),zeusEstado=r.GetString(5),fuente=r.IsDBNull(6)?null:r.GetString(6),documento=r.IsDBNull(7)?null:r.GetString(7),error=r.IsDBNull(8)?null:r.GetString(8),concepto=r.GetString(9)});
+            next=r.GetInt64(0);list.Add(new{id=next,fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),tipo=r.GetString(2),cliente=r.GetString(3),total=r.GetDecimal(4),zeusEstado=r.GetString(5),fuente=r.IsDBNull(6)?null:r.GetString(6),documento=r.IsDBNull(7)?null:r.GetString(7),error=r.IsDBNull(8)?null:r.GetString(8),concepto=r.GetString(9),saldoAnticipo=r.IsDBNull(10)?(decimal?)null:r.GetDecimal(10)});
         }
         return new{items=list,siguiente=(long?)null};
     }
