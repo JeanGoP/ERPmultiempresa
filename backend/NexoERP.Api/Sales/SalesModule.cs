@@ -101,6 +101,11 @@ public static class SalesModule
             var invoice=await sales.DetailAsync(empresaId,id,ct);
             return invoice is null?Results.NotFound(new{error="No se encontró la factura en esta empresa."}):Results.Ok(invoice);
         }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapPut("/sales-invoices/{id:long}/portfolio-class",async(long empresaId,long id,SalesPortfolioClassification input,HttpContext http,SalesInvoiceRepository sales,CancellationToken ct)=>
+        {
+            try{await sales.ClassifyAsync(empresaId,id,input.ClaseCartera,Convert.ToInt64(http.Items["UsuarioId"]),ct);return Results.NoContent();}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/sales-invoices/options",async(long empresaId,long? clienteId,SalesInvoiceRepository sales,CancellationToken ct)=>
             Results.Ok(await sales.OptionsAsync(empresaId,clienteId,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/sales-invoices/accounting-dimensions",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>

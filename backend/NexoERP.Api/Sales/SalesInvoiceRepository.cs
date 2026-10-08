@@ -10,6 +10,7 @@ public sealed record SaleItem(long ArticuloId,long BodegaId,decimal Cantidad,dec
 public sealed record SaleAdvance(long ReciboCajaId,decimal Valor);
 public sealed record SaleConceptLine(long ConceptoVentaId,decimal Valor,string? CentroCosto);
 public sealed record SalesCostCenterCorrection(string CentroCosto);
+public sealed record SalesPortfolioClassification(string ClaseCartera);
 public sealed record SalesInvoiceInput(Guid OperacionGuid,string Numero,long ClienteId,long SucursalId,
     DateOnly FechaContable,DateOnly Vencimiento,SaleItem[] Lineas,SaleConceptLine[] Conceptos,
     int Cuotas,string FrecuenciaCuotas,SaleAdvance[] Anticipos,long? BodegaCarteraId,string? CentroCostoIngreso,
@@ -17,6 +18,22 @@ public sealed record SalesInvoiceInput(Guid OperacionGuid,string Numero,long Cli
 
 public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,ZeusTransport zeus)
 {
+    public async Task ClassifyAsync(long company,long id,string category,long user,CancellationToken ct)
+    {
+        category=category?.Trim().ToUpperInvariant()??"";
+        if(category is not("MOTO" or "OTROS" or "MIXTA"))
+            throw new ArgumentException("Selecciona motos, otros artículos o cartera mixta.");
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var tx=(SqlTransaction)await c.BeginTransactionAsync(ct);
+        await using var q=ZeusRepository.Command(c,"UPDATE ven.FacturaVenta SET ClaseCartera=@Class OUTPUT deleted.ClaseCartera WHERE EmpresaId=@E AND FacturaVentaId=@Id",company,tx);
+        ZeusRepository.Add(q,"@Class",category);ZeusRepository.Add(q,"@Id",id);
+        var previous=await q.ExecuteScalarAsync(ct) as string;
+        if(previous is null)throw new ArgumentException("No se encontró la factura en esta empresa.");
+        if(previous.Trim().Equals(category,StringComparison.OrdinalIgnoreCase)){await tx.CommitAsync(ct);return;}
+        q.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresAnteriores,ValoresPosteriores,AplicacionOrigen) VALUES(@E,@User,'CLASIFICAR_CARTERA_VENTA','ven.FacturaVenta',CONVERT(varchar(30),@Id),@Before,@Detail,'ERP')";
+        ZeusRepository.Add(q,"@User",user);ZeusRepository.Add(q,"@Before",JsonSerializer.Serialize(new{claseCartera=previous.Trim()}));ZeusRepository.Add(q,"@Detail",JsonSerializer.Serialize(new{claseCartera=category}));
+        await q.ExecuteNonQueryAsync(ct);await tx.CommitAsync(ct);
+    }
     public async Task<object> ReceivablesAsync(long company,string? search,string? category,int page,CancellationToken ct)
     {
         search=search?.Trim()??"";category=category?.Trim().ToUpperInvariant()??"";

@@ -54,6 +54,7 @@
       const table=(headers,rows,empty)=>`<div class="table-wrap"><table><thead><tr>${headers.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows||`<tr><td colspan="${headers.length}">${empty}</td></tr>`}</tbody></table></div>`;
       $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Factura ${esc(h.numero)}</strong><button type="button" class="button secondary" data-back-results>← Volver a resultados</button></div>
         <div class="customer-invoice-detail-grid"><div><small>Cliente</small><strong>${esc(h.cliente)}</strong><span>${esc(h.identificacion)}</span></div><div><small>Sucursal</small><strong>${esc(h.sucursalCodigo+' · '+h.sucursal)}</strong></div><div><small>Cartera / fecha</small><strong>${esc(portfolioLabel(h.claseCartera))}</strong><span>${esc(h.fecha)}</span></div><div><small>Zeus</small><strong>${esc(h.zeusEstado)}</strong><span>${esc([h.fuente,h.documento].filter(Boolean).join(' · '))}</span></div></div>
+        <form class="customer-reclassify" data-reclassify><label>Clasificar esta factura<select name="claseCartera" required><option value="">Sin clasificar</option><option value="MOTO" ${h.claseCartera==='MOTO'?'selected':''}>Motos</option><option value="OTROS" ${h.claseCartera==='OTROS'?'selected':''}>Otros artículos</option><option value="MIXTA" ${h.claseCartera==='MIXTA'?'selected':''}>Mixta</option></select></label><button type="submit" class="button secondary">Guardar clasificación</button><small>No cambia valores ni movimientos en Zeus.</small></form>
         ${h.observacion?`<p class="customer-invoice-observation"><strong>Observación:</strong> ${esc(h.observacion)}</p>`:''}
         ${h.error?`<p class="error">${esc(h.error)}</p>`:''}
         <h3>Artículos</h3>${table(['Artículo','Bodega','Cantidad','Precio con IVA','IVA','Total'],data.articulos.map(x=>`<tr><td>${esc(x.codigo+' · '+x.descripcion)}</td><td>${esc(x.bodegaCodigo+' · '+x.bodega)}</td><td>${esc(x.cantidad)}</td><td>${money(x.precio)}</td><td>${esc(x.ivaTarifa)} %</td><td>${money(x.base+x.iva)}</td></tr>`).join(''),'Sin artículos.')}
@@ -63,6 +64,10 @@
         ${table(['Cuota','Tipo','Vencimiento','Valor','Saldo'],data.cuotas.map(x=>`<tr><td>${esc(x.numero)}</td><td>${x.tipo==='EXTRA'?'Extra':'Ordinaria'}</td><td>${esc(x.vence)}</td><td>${money(x.valor)}</td><td>${money(x.saldo)}</td></tr>`).join(''),'La cuota inicial cubrió toda la factura.')}
         <div class="customer-invoice-totals"><span>Total ${money(h.total)}</span><span>Anticipos ${money(h.anticipo)}</span><strong>Saldo ${money(h.saldo)}</strong></div>`;
       $('[data-back-results]').onclick=()=>void listing(before);notice('');
+      $('[data-reclassify]').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;
+        try{await apiRequest(endpoint()+`/${id}/portfolio-class`,{method:'PUT',body:JSON.stringify({claseCartera:event.target.elements.claseCartera.value})});if(current(t)){await viewInvoice(id,before);notice('Clasificación guardada.');}}
+        catch(error){if(current(t))notice(error.message,true);}finally{if(button.isConnected)button.disabled=false;}
+      };
     }catch(error){if(current(t))notice(error.message,true);}
   }
   async function correctCostCenter(id,before,t){
@@ -93,6 +98,10 @@
   document.querySelector('#cashReceiptsNav').addEventListener('click',()=>void open('receipt'));
   document.querySelector('#customerAdvancesNav').addEventListener('click',()=>void open('receipt',true));
   document.querySelector('#salesInvoicesNav').addEventListener('click',()=>void open('invoice'));
+  window.openSavedSalesInvoice=async id=>{
+    if(!state.erpSession?.api||!hasPermission('VENTAS.FACTURA.CONTABILIZAR'))return;
+    if(dialog.open)return;mode='invoice';company=state.erpSession.company.id;search='';receiptFilter='';dialog.showModal();shell();await viewInvoice(id,null);
+  };
   async function create(){
     const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];extraInstallments=[];dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
     try{
