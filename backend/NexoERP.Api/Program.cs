@@ -39,6 +39,7 @@ builder.Services.AddScoped<BrandCatalogRepository>();
 builder.Services.AddScoped<PurchasingRepository>();
 builder.Services.AddScoped<DisbursementRepository>();
 builder.Services.AddScoped<DisbursementPosting>();
+builder.Services.AddScoped<DisbursementDocumentReader>();
 builder.Services.AddScoped<DisbursementQueue>();
 builder.Services.AddSingleton<IDisbursementCheck>(sp=>sp.GetRequiredService<ZeusTransport>());
 builder.Services.AddHostedService<DisbursementWorker>();

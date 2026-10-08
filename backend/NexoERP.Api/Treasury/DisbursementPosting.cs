@@ -172,6 +172,11 @@ public static class PostedDisbursementsModule
     public static void MapPostedDisbursements(this WebApplication app)
     {
         var g=app.MapGroup("/api/v1/companies/{empresaId:long}/disbursements");
+        g.MapPost("/read-document",async(long empresaId,IFormFile archivo,DisbursementDocumentReader reader,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await reader.ReadAsync(archivo,ct));}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+        }).DisableAntiforgery().RequireErpPermission(DisbursementPosting.Permission);
         g.MapPost("/{id:long}/retry",async(long empresaId,long id,HttpContext http,DisbursementQueue queue,CancellationToken ct)=>{await queue.RetryAsync(empresaId,id,Convert.ToInt64(http.Items["UsuarioId"]),ct);return Results.NoContent();}).RequireErpPermission(DisbursementPosting.Permission);
         g.MapPost("/{id:long}/reconcile",async(long empresaId,long id,DisbursementQueue queue,ZeusTransport transport,CancellationToken ct)=>Results.Ok(await queue.ReconcileAsync(empresaId,id,transport,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
         g.AddEndpointFilter(async(ctx,next)=>{try{return await next(ctx);}catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}catch(DraftConflict e){return Results.Conflict(new{error=e.Message});}catch(SqlException e)when(e.Number is 52112 or 52113 or 52114){return Results.Conflict(new{error=e.Message});}catch(SqlException){return Results.Json(new{error="No se pudo completar la operación. Comprueba conexión, permisos, período y configuración. No repitas un pago sin actualizar su estado."},statusCode:502);}});

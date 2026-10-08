@@ -103,6 +103,14 @@
 .sales-receivables-dialog td small{display:block;margin-top:3px;color:#63766d;font-size:11px}
 .sales-receivables-dialog [data-status]:empty{display:none}
 .sales-receivables-dialog [data-status]{color:#a02c22;font-size:12px}
+.egreso-document-reader{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:0 0 16px;padding:12px;border:1px solid #d5e0da;border-radius:8px;background:#f7faf8}
+.egreso-document-reader label{display:grid;gap:5px;min-width:min(100%,270px);font-size:12px;font-weight:600}
+.egreso-document-reader input[type=file]{max-width:100%;font-size:12px}
+.egreso-document-reader>.egreso-help{flex-basis:100%;margin:0}
+.egreso-document-reader [data-read-result]{flex-basis:100%}
+.egreso-read-preview{padding:10px;border:1px solid #cbded3;border-radius:7px;background:#fff;font-size:12px}
+.egreso-read-preview p{margin:5px 0}
+.egreso-read-preview pre{max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}
 
 .customer-serial-dialog{width:min(620px,calc(100vw - 20px));max-height:calc(100dvh - 20px);padding:22px;box-sizing:border-box;border:1px solid #d6e3db;border-radius:12px;overflow:auto;background:#fff;color:#16392e;box-shadow:0 24px 70px #102b2440}
 .customer-serial-dialog::backdrop{background:#10282099}

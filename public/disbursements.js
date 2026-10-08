@@ -57,6 +57,7 @@
     const d=current.datos;
     const input=(name,label,max,required=false,type='text')=>`<label>${label}<input name="${name}" type="${type}" value="${esc(d[name])}" maxlength="${max}" ${required?'required':''}></label>`;
     $e('[data-content]').innerHTML=`<form data-form><fieldset><div class="egreso-toolbar"><h3>Nuevo egreso</h3></div>
+      <div class="egreso-document-reader"><label>Leer soporte para preparar el egreso<input type="file" name="soporte" accept="application/pdf,image/png,image/jpeg"></label><button type="button" class="button secondary" data-read-document>Leer PDF o foto</button><p class="egreso-help">Solo propone datos; revisa proveedor, factura, cuenta y valor. El soporte no se almacena ni se contabiliza por sí solo.</p><div data-read-result role="status" aria-live="polite"></div></div>
       <div class="egreso-grid"><label>Sucursal<select name="sucursalId" required><option value="">Selecciona…</option>${options.sucursales.map(x=>`<option value="${x.id}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label>
       ${input('fechaContable','Fecha contable',10,true,'date')}${input('moneda','Moneda',3,true)}
       <label>Medio de pago<select name="medioPago"><option>TRANSFERENCIA</option><option>EFECTIVO</option><option>CHEQUE</option></select></label>
@@ -74,6 +75,7 @@
     current.beneficiario=options.beneficiarios.find(x=>String(x.id)===String(d.terceroId));
     $e('[data-beneficiary]').value=beneficiaryLabel(current.beneficiario);beneficiaryOptions();
     $e('[data-form]').addEventListener('input',()=>{dirty=true;});
+    $e('[data-read-document]').onclick=()=>void readDocument();
     $e('[data-beneficiary]').oninput=beneficiaryInput;
     $e('[data-beneficiary]').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();beneficiaryInput();}};
     for(const name of ['sucursalId','medioPago'])$e(`[name="${name}"]`).onchange=()=>{capture();accountHint();};
@@ -83,6 +85,43 @@
     $e('[data-expense]').onclick=()=>{capture();d.lineas.push({tipo:'GASTO',documentoPorPagarId:null,cuenta:'',concepto:'',valor:0});dirty=true;renderLines();};
     $e('[data-back]').onclick=()=>{if(!dirty||confirm('¿Salir sin guardar los cambios?'))void listing();};
     $e('[data-form]').onsubmit=save;renderLines();accountHint();
+  }
+  async function readDocument(){
+    const file=$e('[name="soporte"]')?.files?.[0];if(!file){notice('Selecciona un PDF o una imagen.',true);return;}
+    if(file.size>10*1024*1024){notice('El archivo no puede superar 10 MB.',true);return;}
+    const token=generation,button=$e('[data-read-document]');button.disabled=true;notice('Leyendo el soporte localmente…');
+    try{
+      const body=new FormData();body.append('archivo',file);
+      const response=await fetch(`/erp-api${url()}/read-document`,{method:'POST',headers:{Authorization:`Bearer ${apiToken()}`,Accept:'application/json'},body});
+      const result=await response.json().catch(()=>null);
+      if(!response.ok)throw new Error(result?.error||result?.title||`No se pudo leer el soporte (${response.status}).`);
+      if(!valid(token))return;
+      const preview=$e('[data-read-result]');
+      preview.innerHTML=`<div class="egreso-read-preview"><strong>${esc(result.metodo)} · revisa antes de contabilizar</strong><p>Posible beneficiario: ${esc(result.proveedorSugerido||'No identificado')} · Identificación: ${esc(result.identificacionSugerida||'No identificada')}</p><p>Posible factura: ${esc(result.facturaSugerida||'No identificada')} · Total: ${esc(result.totalSugerido||'No identificado')}</p><details><summary>Ver texto extraído</summary><pre>${esc(result.texto)}</pre></details><button type="button" class="button secondary" data-apply-read>Usar concepto y valor sugeridos</button></div>`;
+      preview.querySelector('[data-apply-read]').onclick=async()=>{
+        const apply=preview.querySelector('[data-apply-read]');apply.disabled=true;
+        try{
+        if(result.identificacionSugerida){
+          const candidates=await apiRequest(url()+'/options?q='+encodeURIComponent(result.identificacionSugerida));
+          if(!valid(token))return;
+          const exact=candidates.beneficiarios.filter(x=>String(x.identificacion).replace(/\D/g,'')===result.identificacionSugerida);
+          if(exact.length===1){options.beneficiarios=candidates.beneficiarios;$e('[data-beneficiary]').value=beneficiaryLabel(exact[0]);await changeSupplier(exact[0]);if(!valid(token))return;}
+        }
+        const concept=(result.facturaSugerida?`Pago factura ${result.facturaSugerida}`:result.proveedorSugerido?`Pago a ${result.proveedorSugerido}`:'Pago según soporte').slice(0,300);
+        $e('[name="concepto"]').value=concept;
+        const raw=String(result.totalSugerido||'').replace(/[^\d,.]/g,'');
+        const normalized=raw.includes(',')?raw.replace(/\./g,'').replace(',','.'):raw;
+        const amount=Number(normalized);
+        capture();
+        const invoices=options.facturas.filter(x=>String(x.numero).trim().toUpperCase()===String(result.facturaSugerida).trim().toUpperCase());
+        if(invoices.length===1){current.datos.lineas.push({tipo:'FACTURA',documentoPorPagarId:invoices[0].id,cuenta:'',concepto:concept.slice(0,200),valor:Number.isFinite(amount)&&amount>0?Math.min(Math.round(amount*100)/100,invoices[0].saldo):invoices[0].saldo});notice('Se encontró la factura pendiente. Confirma el abono, beneficiario y cuenta de salida.');}
+        else if(Number.isFinite(amount)&&amount>0&&amount<=1e12){current.datos.lineas.push({tipo:'GASTO',documentoPorPagarId:null,cuenta:'',concepto:concept.slice(0,200),valor:Math.round(amount*100)/100});notice('No se identificó una factura pendiente inequívoca. Confirma si es gasto o pago de cartera y escoge la cuenta contable.');}
+        else notice('Confirma el valor del soporte y agrega la factura o el gasto correspondiente.');
+        renderLines();dirty=true;
+        }catch(error){if(valid(token))notice(error.message,true);}finally{if(apply.isConnected)apply.disabled=false;}
+      };
+      notice('Lectura terminada. Revisa el texto y aplica solo los datos correctos.');
+    }catch(error){if(valid(token))notice(error.message,true);}finally{if(button.isConnected)button.disabled=false;}
   }
   function capture(){
     const f=$e('[data-form]');if(!f)return;const data=new FormData(f);

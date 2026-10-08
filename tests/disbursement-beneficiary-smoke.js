@@ -6,6 +6,9 @@ assert.match(source,/searchTerm='';dialog.showModal\(\);await edit\(\)/,'Tesorer
 assert.doesNotMatch(source,/data-config>Caja/,'No configura caja desde tesorería');
 assert.match(source,/\?q='\+encodeURIComponent\(searchTerm\)/,'Consulta filtrada en servidor');
 assert.match(source,/if\(!searchTerm\)/,'Sin búsqueda no descarga historial');
+assert.match(source,/read-document/,'El soporte se lee antes de contabilizar');
+assert.match(source,/data-apply-read/,'El usuario decide si aplicar las sugerencias');
+assert.match(source,/cuenta:'',concepto:concept/,'Una cuenta de gasto no se inventa por OCR');
 assert.match(fs.readFileSync('public/zeus.js','utf8'),/id="zeusCashAccounts"/,'Configuración en integración Zeus');
 const parts={};
 for(const key of ['[data-beneficiary]','#egresoBeneficiarios','[data-options-note]','[name="terceroId"]','fieldset'])parts[key]={value:'',setCustomValidity(v){this.error=v;}};

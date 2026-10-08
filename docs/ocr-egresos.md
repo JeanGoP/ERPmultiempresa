@@ -1,0 +1,7 @@
+# Lectura local de soportes de egreso
+
+La opción «Leer PDF o foto» extrae datos para revisión; no guarda el archivo, no crea borradores persistentes y no contabiliza. Acepta PDF, PNG y JPG de hasta 10 MB. En PDF examina como máximo las primeras tres páginas: primero intenta extraer texto y, si no lo hay, renderiza esas páginas y aplica OCR. Los archivos temporales se eliminan al finalizar.
+
+En el servidor del backend se requieren ejecutables locales de Poppler (`pdftotext`, `pdftoppm`) y Tesseract con los idiomas `spa` y `eng`. Configura rutas absolutas en variables privadas `Ocr__PdfToTextPath`, `Ocr__PdfToPpmPath` y `Ocr__TesseractPath`, o pon los ejecutables en `PATH`. No se incluyen los binarios en `publish/`; hay que instalarlos y verificarlos en el servidor. [Tesseract documenta su línea de comandos](https://github.com/tesseract-ocr/tesseract/blob/main/doc/tesseract.1.asc) y [su catálogo de idiomas incluye español](https://github.com/tesseract-ocr/tessdoc/blob/main/Data-Files.md).
+
+La identificación y la factura solo se vinculan automáticamente cuando existe una coincidencia única y exacta en el ERP. Si no, el usuario debe escoger el beneficiario y decidir si el pago es una factura o un gasto. La cuenta del gasto queda vacía hasta que se confirme manualmente; no se asigna una cuenta basándose únicamente en OCR. Antes de habilitar el flujo en producción, probar con soportes reales, validar permisos del proceso IIS sobre los ejecutables y confirmar que no quedan temporales ante errores.
