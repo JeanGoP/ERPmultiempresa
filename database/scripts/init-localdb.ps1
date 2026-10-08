@@ -29,7 +29,7 @@ if ($LASTEXITCODE -ne 0) { throw 'No fue posible crear o abrir la base local.' }
 
 Get-ChildItem -LiteralPath $migrationFolder -Filter '*.sql' | Sort-Object Name | ForEach-Object {
     Write-Host "Aplicando $($_.Name)..."
-    & sqlcmd -S $Instance -E -b -d $DatabaseName -i $_.FullName
+    & sqlcmd -S $Instance -E -b -I -d $DatabaseName -i $_.FullName
     if ($LASTEXITCODE -ne 0) { throw "Falló la migración $($_.Name)." }
 }
 

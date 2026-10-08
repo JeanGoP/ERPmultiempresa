@@ -178,5 +178,35 @@ public static class SalesModule
         }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapPost("/sales-invoices/{id:long}/reconcile",async(long empresaId,long id,CustomerPostingQueue queue,ZeusTransport zeus,CancellationToken ct)=>
             Results.Ok(await queue.ReconcileAsync(empresaId,"FACTURA",id,zeus,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+        group.MapGet("/sales-invoices/{id:long}/refinancings",async(long empresaId,long id,PortfolioRefinancingRepository portfolio,CancellationToken ct)=>
+            Results.Ok(await portfolio.ListAsync(empresaId,id,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapGet("/sales-invoices/refinancing-options",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
+        {
+            var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus para esta empresa.")).Configuracion;
+            return Results.Ok(new{cuentas=(await zeus.ChartAsync(empresaId,config,ct)).Where(x=>x.Codigo.StartsWith("4",StringComparison.Ordinal)).ToArray(),centrosCosto=(await zeus.AccountingDimensionsAsync(empresaId,config,ct)).CentrosCosto});
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapPost("/sales-invoices/{id:long}/refinancings",async(long empresaId,long id,PortfolioRefinancingInput input,HttpContext http,PortfolioRefinancingRepository portfolio,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await portfolio.CreateAsync(empresaId,id,input,Convert.ToInt64(http.Items["UsuarioId"]),ct));}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+            catch(SqlException e) when(e.Number is 2601 or 2627){return Results.Conflict(new{error="La nota ya existe o la cartera cambió; actualiza antes de continuar."});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapPost("/portfolio-notes/{noteId:long}/retry",async(long empresaId,long noteId,CustomerPostingQueue queue,CancellationToken ct)=>
+        {
+            try{var source=await queue.RetryAsync(empresaId,"NOTA",noteId,ct);return Results.Ok(new{estado="PENDIENTE",fuente=source});}
+            catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapPost("/portfolio-notes/{noteId:long}/reconcile",async(long empresaId,long noteId,CustomerPostingQueue queue,ZeusTransport zeus,CancellationToken ct)=>
+            Results.Ok(await queue.ReconcileAsync(empresaId,"NOTA",noteId,zeus,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+        group.MapPost("/portfolio-notes/{noteId:long}/approve",async(long empresaId,long noteId,HttpContext http,PortfolioRefinancingRepository portfolio,CancellationToken ct)=>
+        {
+            try{await portfolio.ApproveAsync(empresaId,noteId,Convert.ToInt64(http.Items["UsuarioId"]),ct);return Results.Ok(new{estado="PENDIENTE"});}
+            catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
+        }).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+        group.MapPost("/sales-invoices/{id:long}/refinancings/{noteId:long}/cancel",async(long empresaId,long id,long noteId,HttpContext http,PortfolioRefinancingRepository portfolio,CancellationToken ct)=>
+        {
+            try{await portfolio.CancelUnsentAsync(empresaId,id,noteId,Convert.ToInt64(http.Items["UsuarioId"]),ct);return Results.NoContent();}
+            catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
     }
 }

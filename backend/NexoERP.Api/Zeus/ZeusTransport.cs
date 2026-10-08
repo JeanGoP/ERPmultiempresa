@@ -56,7 +56,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             """;
         q.Parameters.Add("@N",SqlDbType.VarChar,10).Value=number;
         q.Parameters.Add("@B",SqlDbType.VarChar,20).Value=s.Configuracion.UnidadNegocio;
-        q.Parameters.AddWithValue("@Payment",s.Egreso is null&&s.ClienteDocumento?.Tipo!="RECIBO"?0:1);
+        q.Parameters.AddWithValue("@Payment",s.Egreso is null&&s.ClienteDocumento?.Tipo!="RECIBO"&&s.NotaCartera is null?0:1);
         var expected=s.Movimientos.GroupBy(m=>(m.Regla.Cuenta,Math.Sign(m.Valor))).ToDictionary(g=>g.Key,g=>g.Sum(m=>m.Valor));
         await using(var r=await q.ExecuteReaderAsync(ct))
             while(await r.ReadAsync(ct))
@@ -80,6 +80,31 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             }
         }
         if(s.Egreso is not null)await VerifyPaymentLines(c,tx,s,number,ct);
+        if(s.NotaCartera is { } note)
+        {
+            await using var lines=c.CreateCommand();lines.Transaction=tx;
+            lines.CommandText="""
+                SELECT RTRIM(CODICTA),CONVERT(date,VENCEFAC),CASE WHEN VALORTRA>0 THEN 1 ELSE -1 END,
+                    SUM(VALORTRA),COUNT_BIG(*)
+                FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND INDCPITRA='2'
+                  AND RTRIM(NITTRA)=@Third AND RTRIM(CLIPRV)=@Customer
+                  AND RTRIM(TIPOFAC)=@Type AND RTRIM(NUMEFAC)=@Invoice AND RTRIM(BU)=@Bu
+                  AND STATUSTRA IN('AC','XA')
+                GROUP BY CODICTA,CONVERT(date,VENCEFAC),CASE WHEN VALORTRA>0 THEN 1 ELSE -1 END;
+                """;
+            foreach(var p in new (string,object)[]{("@F",s.Configuracion.Fuente),("@N",number),("@Third",s.Proveedor.CodigoTercero),("@Customer",s.Proveedor.CodigoProveedor),("@Type",note.TipoFactura),("@Invoice",note.NumeroFactura),("@Bu",note.UnidadNegocio)})lines.Parameters.AddWithValue(p.Item1,p.Item2);
+            var due=s.Movimientos.Where(m=>m.Regla.Concepto=="CLIENTE")
+                .GroupBy(m=>(m.Regla.Cuenta,DateOnly.FromDateTime(m.VencimientoCartera!.Value),Math.Sign(m.Valor)))
+                .ToDictionary(g=>g.Key,g=>(Amount:g.Sum(x=>x.Valor),Count:(long)g.Count()));
+            await using var lr=await lines.ExecuteReaderAsync(ct);
+            while(await lr.ReadAsync(ct))
+            {
+                var keyLine=(lr.GetString(0),DateOnly.FromDateTime(lr.GetDateTime(1)),lr.GetInt32(2));
+                if(!due.Remove(keyLine,out var expectedLine)||expectedLine.Amount!=Convert.ToDecimal(lr.GetValue(3))||expectedLine.Count!=lr.GetInt64(4))
+                    throw new InvalidOperationException("La nota de cartera no confirmó la factura, vencimientos y valores esperados.");
+            }
+            if(due.Count!=0)throw new InvalidOperationException("Faltan cuotas de la nota de cartera en Zeus.");
+        }
         if(s.ClienteDocumento is { Tipo:"RECIBO" } receipt)
             foreach(var invoice in receipt.Facturas??[])
             {
@@ -126,7 +151,19 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                 stage="validación del egreso";
                 s=await CheckPayment(c,tx,s,ct);
             }
-            if(s.ClienteDocumento is { } customerDocument)
+            if(s.NotaCartera is { } portfolioNote)
+            {
+                stage="validación de nota de cartera";
+                if(s.Movimientos.Sum(m=>m.Valor)!=0||s.Movimientos.Count(m=>m.Regla.Concepto=="CLIENTE")<2
+                   ||s.Movimientos.Where(m=>m.Regla.Concepto=="CLIENTE").Any(m=>m.VencimientoCartera is null)
+                   ||string.IsNullOrWhiteSpace(portfolioNote.NumeroFactura))
+                    throw new ArgumentException("La nota de cartera no está balanceada o carece de referencias de factura.");
+                if(!await CustomerThirdExists(c,tx,s.Proveedor.CodigoTercero,ct))throw new ArgumentException("El tercero del cliente no existe en Zeus.");
+                q.Parameters.Clear();q.CommandText="SELECT COUNT(*) FROM dbo.FUENTES WHERE IDFUENTE=@F AND Deshabilitado=0";
+                q.Parameters.AddWithValue("@F",s.Configuracion.Fuente);
+                if(Convert.ToInt32(await q.ExecuteScalarAsync(ct))!=1)throw new ArgumentException("La fuente de la nota no está habilitada en Zeus.");
+            }
+            else if(s.ClienteDocumento is { } customerDocument)
             {
                 stage="validación del cliente y recibo/factura";
                 if(s.Movimientos.Sum(m=>m.Valor)!=0)throw new ArgumentException("El comprobante de cliente no está balanceado.");
@@ -179,7 +216,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                 .Select(m=>(m.Regla.Cuenta,Proveedor:m.Regla.Concepto=="PROVEEDOR",Cliente:m.Regla.Concepto=="CLIENTE",Caja:m.Regla.Concepto=="BANCO_CAJA",Retencion:ZeusJournal.IsRetention(m.Regla.Concepto),m.Tarifa)).Distinct()
                 .Select(a=>new XElement("Cuenta",new XAttribute("Cuenta",a.Cuenta),new XAttribute("Proveedor",a.Proveedor?1:0),new XAttribute("Cliente",a.Cliente?1:0),new XAttribute("Caja",a.Caja?1:0),new XAttribute("Retencion",a.Retencion?1:0),new XAttribute("Tarifa",a.Tarifa))))
                 .ToString(SaveOptions.DisableFormatting);
-            q.Parameters.AddWithValue("@Payment",s.Egreso is null&&s.ClienteDocumento?.Tipo!="RECIBO"?0:1);
+            q.Parameters.AddWithValue("@Payment",s.Egreso is null&&s.ClienteDocumento?.Tipo!="RECIBO"&&s.NotaCartera is null?0:1);
             await q.ExecuteNonQueryAsync(ct);q.Parameters.Clear();
             stage="dbo.spWSG_Contabilidad";
             string? invoiceDocument=null;

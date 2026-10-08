@@ -48,6 +48,23 @@ var legacy=XElement.Parse(ZeusXml.Build(snapshot with{ClienteDocumento=snapshot.
 Check(legacy.Descendants("Transac").Where(x=>(string?)x.Element("CODICTA")=="130505")
     .All(x=>(string?)x.Element("NUMEFAC")=="FV-1"),"los snapshots históricos conservan su numeración");
 
+var noteSnapshot=new ZeusSnapshot(settings with{Fuente="09"},source,new ZeusSupplier(1,"BUR0002","1063281836"),
+    [new(new ZeusAccount("CLIENTE","130505001"),-150800m,VencimientoCartera:new DateTime(2026,10,25),NumeroCuota:1),
+     new(new ZeusAccount("CLIENTE","130505001"),-233000m,VencimientoCartera:new DateTime(2026,11,25),NumeroCuota:2),
+     new(new ZeusAccount("CLIENTE","130505001"),203000m,VencimientoCartera:new DateTime(2026,12,28),NumeroCuota:1),
+     new(new ZeusAccount("CLIENTE","130505001"),203000m,VencimientoCartera:new DateTime(2027,1,28),NumeroCuota:2),
+     new(new ZeusAccount("REFINANCIACION_INGRESO","421025001"),-22200m)],
+    NotaCartera:new ZeusPortfolioNote("FA","0000000060","Local","Cambio de plazo"));
+var noteXml=XElement.Parse(ZeusXml.Build(noteSnapshot,Guid.NewGuid()));
+var noteLines=noteXml.Descendants("Transac").ToArray();
+Check(noteLines.Length==5&&noteLines.Sum(x=>decimal.Parse((string)x.Element("VALORTRA")!,System.Globalization.CultureInfo.InvariantCulture))==0m,
+    "nota de cartera balanceada con cuotas anteriores, nuevas y diferencia de ingreso");
+Check(noteLines.Where(x=>(string?)x.Element("INDCPITRA")=="2").All(x=>(string?)x.Element("NUMEFAC")=="0000000060"&&(string?)x.Element("TIPOFAC")=="FA"&&(string?)x.Element("CLIPRV")=="BUR0002"),
+    "las cuotas de la nota conservan la referencia original y cliente Zeus");
+Check(noteLines.Single(x=>(string?)x.Element("CODICTA")=="421025001").Element("NUMEFAC")!.Value=="" &&
+    (string?)noteXml.Descendants("Document").Single().Element("XmlAdicionales") is string marker && marker.StartsWith("NEXO:"),
+    "el ingreso de financiación no crea una nueva factura y la nota conserva idempotencia");
+
 var days=SalesInstallments.Build(new DateOnly(2026,10,3),3,SalesInstallments.EveryThirtyDays,100.01m);
 Check(days[1].Vencimiento==new DateOnly(2026,11,2)&&days[2].Vencimiento==new DateOnly(2026,12,2),"intervalos reales de treinta días");
 Check(days[0].Valor==33.33m&&days[1].Valor==33.33m&&days[2].Valor==33.35m

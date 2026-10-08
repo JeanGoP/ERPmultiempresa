@@ -54,8 +54,8 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             SELECT f.FacturaVentaId,f.Numero,f.FechaContable,COALESCE(c.FechaVencimiento,f.Vencimiento),
                 COALESCE(c.ValorOriginal,f.Total),COALESCE(c.SaldoPendiente,f.SaldoPendiente),f.ZeusEstado,
                 c.FacturaVentaCuotaId,c.NumeroCuota,f.ClaseCartera
-            FROM ven.FacturaVenta f LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId
-            WHERE f.EmpresaId=@E AND f.ClienteId=@C AND f.SaldoPendiente>0
+            FROM ven.FacturaVenta f LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId AND c.PlanVersion=f.PlanVersion AND c.EstadoPlan='ACTIVA'
+            WHERE f.EmpresaId=@E AND f.ClienteId=@C AND f.SaldoPendiente>0 AND f.RefinanciacionEstado='LIBRE'
                 AND (c.FacturaVentaCuotaId IS NULL OR c.SaldoPendiente>0)
             ORDER BY COALESCE(c.FechaVencimiento,f.Vencimiento),f.FacturaVentaId,c.NumeroCuota;
             SELECT a.ReciboCajaId,a.Saldo,r.Concepto,r.FechaContable,r.ZeusEstado
@@ -154,7 +154,8 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                 FROM ven.FacturaVenta f WITH(UPDLOCK,HOLDLOCK)
                 LEFT JOIN ven.FacturaVentaCuota c WITH(UPDLOCK,HOLDLOCK)
                     ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId AND c.FacturaVentaCuotaId=@Installment
-                WHERE f.EmpresaId=@E AND f.FacturaVentaId=@Invoice AND f.ClienteId=@C AND f.FechaContable<=@Date
+                    AND c.PlanVersion=f.PlanVersion AND c.EstadoPlan='ACTIVA'
+                WHERE f.EmpresaId=@E AND f.FacturaVentaId=@Invoice AND f.ClienteId=@C AND f.FechaContable<=@Date AND f.RefinanciacionEstado='LIBRE'
                 """;
             await using(var reader=await q.ExecuteReaderAsync(ct))
             {
@@ -201,12 +202,12 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             q.Parameters.Add("@Value",SqlDbType.Decimal).Value=line.Valor;
             q.Parameters.Add("@Installment",SqlDbType.BigInt).Value=(object?)line.FacturaVentaCuotaId??DBNull.Value;
             q.CommandText="""
-                UPDATE ven.FacturaVenta SET SaldoPendiente=SaldoPendiente-@Value WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND ClienteId=@C AND SaldoPendiente>=@Value;
+                UPDATE ven.FacturaVenta SET SaldoPendiente=SaldoPendiente-@Value WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND ClienteId=@C AND RefinanciacionEstado='LIBRE' AND SaldoPendiente>=@Value;
                 IF @@ROWCOUNT<>1 THROW 52310,'El saldo de la factura cambió. Actualiza antes de cobrar.',1;
                 IF @Installment IS NOT NULL
                 BEGIN
                     UPDATE ven.FacturaVentaCuota SET SaldoPendiente=SaldoPendiente-@Value
-                    WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND FacturaVentaCuotaId=@Installment AND SaldoPendiente>=@Value;
+                    WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND FacturaVentaCuotaId=@Installment AND EstadoPlan='ACTIVA' AND SaldoPendiente>=@Value;
                     IF @@ROWCOUNT<>1 THROW 52310,'El saldo de la cuota cambió. Actualiza antes de cobrar.',1;
                 END;
                 INSERT cxc.ReciboCajaAplicacion(EmpresaId,ReciboCajaId,FacturaVentaId,FacturaVentaCuotaId,Valor)

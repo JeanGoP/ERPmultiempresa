@@ -49,7 +49,7 @@
   async function viewInvoice(id,before){
     const t=++token;view='detail';notice('Cargando factura…');
     try{
-      const data=await apiRequest(endpoint()+`/${id}`);if(!current(t))return;
+      const [data,notes]=await Promise.all([apiRequest(endpoint()+`/${id}`),apiRequest(endpoint()+`/${id}/refinancings`)]);if(!current(t))return;
       const h=data.header;
       const table=(headers,rows,empty)=>`<div class="table-wrap"><table><thead><tr>${headers.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows||`<tr><td colspan="${headers.length}">${empty}</td></tr>`}</tbody></table></div>`;
       $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Factura ${esc(h.numero)}</strong><button type="button" class="button secondary" data-back-results>← Volver a resultados</button></div>
@@ -60,14 +60,63 @@
         <h3>Artículos</h3>${table(['Artículo','Bodega','Cantidad','Precio con IVA','IVA','Total'],data.articulos.map(x=>`<tr><td>${esc(x.codigo+' · '+x.descripcion)}</td><td>${esc(x.bodegaCodigo+' · '+x.bodega)}</td><td>${esc(x.cantidad)}</td><td>${money(x.precio)}</td><td>${esc(x.ivaTarifa)} %</td><td>${money(x.base+x.iva)}</td></tr>`).join(''),'Sin artículos.')}
         <h3>Conceptos</h3>${table(['Concepto','Cuenta Zeus','Centro de costo','Valor'],data.conceptos.map(x=>`<tr><td>${esc(x.codigo+' · '+x.nombre)}</td><td>${esc(x.cuenta)}</td><td>${esc(x.centroCosto||'—')}</td><td>${money(x.valor)}</td></tr>`).join(''),'Sin conceptos.')}
         <h3>Anticipos aplicados</h3>${table(['Recibo','Fecha','Concepto','Valor aplicado'],data.anticipos.map(x=>`<tr><td>RC-${esc(x.reciboId)}</td><td>${esc(x.fecha)}</td><td>${esc(x.concepto)}</td><td>${money(x.valor)}</td></tr>`).join(''),'Sin anticipos aplicados.')}
-        <h3>Plan de cuotas</h3><p class="egreso-help">Primer vencimiento: ${esc(h.primerVencimiento)} · ${esc(h.cuotas)} cuota(s) · ${h.frecuencia==='CADA_30_DIAS'?'Cada 30 días':'Mismo día de cada mes'}</p>
+        <h3>Plan de cuotas</h3><p class="egreso-help">Primer vencimiento: ${esc(h.primerVencimiento)} · ${esc(h.cuotas)} cuota(s) · ${h.frecuencia==='PERSONALIZADA'?'Fechas pactadas en nota de cartera':h.frecuencia==='CADA_30_DIAS'?'Cada 30 días':'Mismo día de cada mes'}</p>
         ${table(['Cuota','Tipo','Vencimiento','Valor','Saldo'],data.cuotas.map(x=>`<tr><td>${esc(x.numero)}</td><td>${x.tipo==='EXTRA'?'Extra':'Ordinaria'}</td><td>${esc(x.vence)}</td><td>${money(x.valor)}</td><td>${money(x.saldo)}</td></tr>`).join(''),'La cuota inicial cubrió toda la factura.')}
-        <div class="customer-invoice-totals"><span>Total ${money(h.total)}</span><span>Anticipos ${money(h.anticipo)}</span><strong>Saldo ${money(h.saldo)}</strong></div>`;
+        <div class="customer-invoice-totals"><span>Total ${money(h.total)}</span><span>Anticipos ${money(h.anticipo)}</span><strong>Saldo ${money(h.saldo)}</strong></div>
+        <section class="customer-refinancing"><div class="customer-list-heading"><strong>Notas de cartera y refinanciaciones</strong>${h.zeusEstado==='CONTABILIZADO'&&h.saldo>0&&(!notes.items.length||['CONTABILIZADO','CANCELADO'].includes(notes.items[0].zeusEstado))?'<button type="button" class="button secondary" data-new-refinancing>Refinanciar cartera</button>':''}</div>
+          ${notes.items.length?table(['Fecha / plan','Saldo anterior','Nuevo saldo','Incremento','Estado Zeus','Acción'],notes.items.map(n=>`<tr><td>${esc(n.fecha)}<small>${esc(n.motivo)}</small><details><summary>Comparar cuotas</summary><strong>Anteriores</strong>${(n.planAnterior||[]).map(x=>`<small>${esc(x.vencimiento)} · ${money(x.saldo)}</small>`).join('')}<strong>Nuevas</strong>${(n.planNuevo||[]).map(x=>`<small>${esc(x.vencimiento)} · ${money(x.valor)}</small>`).join('')}</details></td><td>${money(n.saldoAnterior)}</td><td>${money(n.nuevoSaldo)}</td><td>${money(n.incremento)}${n.cuentaIngreso?`<small>Ingreso ${esc(n.cuentaIngreso)}${n.centroCosto?` · CC ${esc(n.centroCosto)}`:''}</small>`:''}</td><td>${esc(n.zeusEstado)}<small>${esc([n.fuente,n.documento].filter(Boolean).join(' · '))}</small><small>${esc(n.error||'')}</small></td><td>${n.zeusEstado==='POR_APROBAR'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button type="button" class="button secondary" data-note-approve="${n.id}">Aprobar</button>`:''}${n.zeusEstado==='RECHAZADO'?`<button type="button" class="button secondary" data-note-retry="${n.id}">Reintentar</button>`:''}${['POR_APROBAR','RECHAZADO'].includes(n.zeusEstado)?` <button type="button" class="button secondary" data-note-cancel="${n.id}">Descartar</button>`:''}${n.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button type="button" class="button secondary" data-note-reconcile="${n.id}">Conciliar</button>`:''}</td></tr>`).join(''),'Sin notas.'):''}
+          <div data-refinancing-form></div></section>`;
       $('[data-back-results]').onclick=()=>void listing(before);notice('');
       $('[data-reclassify]').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;
         try{await apiRequest(endpoint()+`/${id}/portfolio-class`,{method:'PUT',body:JSON.stringify({claseCartera:event.target.elements.claseCartera.value})});if(current(t)){await viewInvoice(id,before);notice('Clasificación guardada.');}}
         catch(error){if(current(t))notice(error.message,true);}finally{if(button.isConnected)button.disabled=false;}
       };
+      $('[data-new-refinancing]')?.addEventListener('click',()=>void openRefinancing(id,before,t,data));
+      for(const action of ['approve','retry','cancel','reconcile'])dialog.querySelectorAll(`[data-note-${action}]`).forEach(button=>button.onclick=async()=>{
+        if(busy)return;if(action==='approve'&&!confirm('¿Aprobar el envío de esta nota a Zeus? Debes ser una persona distinta de quien la preparó.'))return;
+        if(action==='cancel'&&!confirm('¿Descartar esta nota sin enviar o rechazada? La cartera original permanecerá intacta.'))return;
+        busy=true;button.disabled=true;
+        try{
+          const noteId=Number(button.dataset['note'+action[0].toUpperCase()+action.slice(1)]);
+          const url=action==='cancel'?endpoint()+`/${id}/refinancings/${noteId}/cancel`:`/api/v1/companies/${company}/portfolio-notes/${noteId}/${action}`;
+          await apiRequest(url,{method:'POST'});await viewInvoice(id,before);
+        }catch(error){notice(error.message,true);}finally{busy=false;}
+      });
+    }catch(error){if(current(t))notice(error.message,true);}
+  }
+  async function openRefinancing(id,before,t,data){
+    notice('Consultando cuentas de Zeus…');
+    try{
+      const options=await apiRequest(endpoint()+'/refinancing-options');if(!current(t))return;
+      const old=data.cuotas.filter(x=>Number(x.saldo)>0),first=old[0];
+      if(!first){notice('La factura no tiene cuotas abiertas para refinanciar.',true);return;}
+      const host=$('[data-refinancing-form]');
+      host.innerHTML=`<form data-refinance><h3>Nueva nota de cartera</h3><p class="egreso-help">Se acreditarán las cuotas abiertas y se crearán los nuevos vencimientos. El plan actual permanece vigente hasta que Zeus confirme la nota. Por ahora no se permiten reducciones del saldo.</p>
+        <div class="egreso-grid"><label>Fecha contable<input type="date" name="fechaContable" value="${today()}" required></label><label class="egreso-wide">Motivo<input name="motivo" maxlength="300" placeholder="Motivo de la refinanciación" required></label></div>
+        <div class="table-wrap"><table><thead><tr><th>Nuevo vencimiento</th><th>Valor</th><th>Tipo</th><th></th></tr></thead><tbody data-new-dues></tbody></table></div>
+        <button type="button" class="button secondary" data-add-due>Agregar cuota</button>
+        <div class="egreso-grid"><label>Cuenta de ingreso para el incremento<select name="cuentaIngresoZeus"><option value="">Sin incremento</option>${options.cuentas.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label><label>Centro de costo de ese ingreso<select name="centroCostoZeus"><option value="">Sin centro de costo</option>${options.centrosCosto.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label></div>
+        <p data-refinance-total role="status"></p><div class="egreso-toolbar"><button type="submit" class="button primary">Solicitar aprobación de la nota</button><button type="button" class="button secondary" data-cancel-refinance>Cancelar</button></div></form>`;
+      const form=host.querySelector('form'),body=form.querySelector('[data-new-dues]');
+      const appendDue=(date,value,type='ORDINARIA')=>{
+        const row=document.createElement('tr');row.innerHTML=`<td><input type="date" name="vence" value="${esc(date)}" required></td><td><input type="number" name="valor" min="0.01" step="0.01" value="${esc(value)}" required></td><td><select name="tipo"><option value="ORDINARIA" ${type==='ORDINARIA'?'selected':''}>Ordinaria</option><option value="EXTRA" ${type==='EXTRA'?'selected':''}>Extra</option></select></td><td><button type="button" class="button secondary" data-remove-due aria-label="Quitar cuota">×</button></td>`;
+        body.append(row);row.querySelector('[data-remove-due]').onclick=()=>{row.remove();updateTotal();};row.querySelectorAll('input').forEach(x=>x.addEventListener('input',updateTotal));updateTotal();
+      };
+      const updateTotal=()=>{const cents=[...body.querySelectorAll('[name="valor"]')].reduce((sum,x)=>sum+Math.round((Number(x.value)||0)*100),0);const delta=cents-Math.round(Number(data.header.saldo)*100);form.querySelector('[data-refinance-total]').textContent=`Saldo anterior ${money(data.header.saldo)} · Nuevo saldo ${money(cents/100)} · Incremento ${money(delta/100)}${delta<0?' — No se permite reducir el saldo en esta operación.':''}`;};
+      const plusDays=(date,days)=>new Date(Date.parse(date+'T00:00:00Z')+days*86400000).toISOString().slice(0,10);
+      old.forEach((x,i)=>appendDue(plusDays(today(),30*(i+1)),x.saldo,x.tipo));
+      form.querySelector('[data-add-due]').onclick=()=>appendDue(plusDays(body.lastElementChild?.querySelector('[name="vence"]')?.value||today(),30),'0.01');
+      form.querySelector('[data-cancel-refinance]').onclick=()=>{host.innerHTML='';notice('');};
+      form.onsubmit=async event=>{
+        event.preventDefault();if(busy)return;
+        const rows=[...body.rows];const dues=rows.map(row=>({vencimiento:row.querySelector('[name="vence"]').value,valor:Number(row.querySelector('[name="valor"]').value),tipo:row.querySelector('[name="tipo"]').value}));
+        const delta=dues.reduce((sum,x)=>sum+Math.round(x.valor*100),0)-Math.round(Number(data.header.saldo)*100);
+        if(!dues.length||delta<0){notice('El nuevo plan debe conservar o incrementar el saldo y contener al menos una cuota.',true);return;}
+        if(delta>0&&!form.elements.cuentaIngresoZeus.value){notice('Selecciona la cuenta de ingreso para el incremento.',true);return;}
+        busy=true;form.querySelector('[type="submit"]').disabled=true;
+        try{await apiRequest(endpoint()+`/${id}/refinancings`,{method:'POST',body:JSON.stringify({operacionGuid:crypto.randomUUID(),fechaContable:form.elements.fechaContable.value,motivo:form.elements.motivo.value,cuotas:dues,cuentaIngresoZeus:form.elements.cuentaIngresoZeus.value||null,centroCostoZeus:form.elements.centroCostoZeus.value||null})});await viewInvoice(id,before);notice('Nota preparada. Otro usuario autorizado debe aprobarla antes del envío a Zeus.');}
+        catch(error){notice(error.message,true);form.querySelector('[type="submit"]').disabled=false;}finally{busy=false;}
+      };notice('');
     }catch(error){if(current(t))notice(error.message,true);}
   }
   async function correctCostCenter(id,before,t){

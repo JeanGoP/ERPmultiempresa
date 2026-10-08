@@ -83,6 +83,14 @@
 .customer-documents-dialog .customer-invoice-detail-grid small,.customer-documents-dialog .customer-invoice-detail-grid span{color:#63766d;font-size:11px;overflow-wrap:anywhere}
 .customer-documents-dialog .customer-invoice-detail-grid strong{font-size:12px;overflow-wrap:anywhere}
 .customer-documents-dialog .customer-invoice-totals{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:12px 22px;margin:18px 0;padding-top:14px;border-top:1px solid #dce7e1;font-size:13px}
+.customer-documents-dialog .customer-refinancing{margin:18px 0 4px;padding:14px;border:1px solid #dce7e1;border-radius:8px;background:#fbfdfb}
+.customer-documents-dialog .customer-refinancing .customer-list-heading{margin:0 0 10px}
+.customer-documents-dialog .customer-refinancing [data-refinancing-form]:not(:empty){margin-top:14px;padding-top:14px;border-top:1px solid #dce7e1}
+.customer-documents-dialog .customer-refinancing [data-new-dues] input,.customer-documents-dialog .customer-refinancing [data-new-dues] select{min-width:120px;width:100%;box-sizing:border-box}
+.customer-documents-dialog .customer-refinancing [data-refinance-total]{font-weight:700;color:#135a45}
+.customer-documents-dialog .customer-refinancing details{max-height:180px;overflow:auto;margin-top:5px;font-size:11px}
+.customer-documents-dialog .customer-refinancing details summary{cursor:pointer;color:#13634d}
+.customer-documents-dialog .customer-refinancing details strong{display:block;margin-top:5px}
 .customer-documents-dialog .customer-invoice-meta{display:grid;grid-template-columns:minmax(190px,1fr) minmax(0,3fr);gap:12px;align-items:start;margin:12px 0 18px}
 .customer-documents-dialog .customer-invoice-meta label,.customer-documents-dialog .customer-portfolio-filter{display:grid;gap:5px;font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-invoice-meta textarea{width:100%;min-height:58px;box-sizing:border-box;padding:7px 9px;border:1px solid #cbdad4;border-radius:5px;font:inherit;resize:vertical}

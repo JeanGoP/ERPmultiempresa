@@ -6,7 +6,7 @@ public sealed record ZeusSourceRoute(string Sucursal,string Movimiento,string Fu
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? TipoFactura=null);
 public static class ZeusRouting
 {
-    public static readonly string[] Movements=["ENTRADA_MERCANCIA","FACTURACION","RECIBO_CAJA","EGRESO"];
+    public static readonly string[] Movements=["ENTRADA_MERCANCIA","FACTURACION","RECIBO_CAJA","EGRESO","NOTA_CARTERA"];
     public static void Validate(ZeusSourceRoute[]? routes)
     {
         if(routes is null)return;

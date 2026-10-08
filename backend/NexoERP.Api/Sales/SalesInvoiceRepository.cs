@@ -46,7 +46,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
                 COALESCE(c.ValorOriginal,f.Total),COALESCE(c.SaldoPendiente,f.SaldoPendiente),f.ZeusEstado
             FROM ven.FacturaVenta f
             JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
-            LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId
+            LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId AND c.PlanVersion=f.PlanVersion AND c.EstadoPlan='ACTIVA'
             WHERE f.EmpresaId=@E AND f.SaldoPendiente>0 AND (c.FacturaVentaCuotaId IS NULL OR c.SaldoPendiente>0)
                 AND (@Category='' OR f.ClaseCartera=@Category)
                 AND (@Q='' OR f.Numero LIKE '%'+@Q+'%' OR t.RazonSocial LIKE '%'+@Q+'%' OR t.NumeroIdentificacion LIKE '%'+@Q+'%')
@@ -55,7 +55,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             SELECT COUNT_BIG(*),COALESCE(SUM(COALESCE(c.SaldoPendiente,f.SaldoPendiente)),0)
             FROM ven.FacturaVenta f
             JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
-            LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId
+            LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId AND c.PlanVersion=f.PlanVersion AND c.EstadoPlan='ACTIVA'
             WHERE f.EmpresaId=@E AND f.SaldoPendiente>0 AND (c.FacturaVentaCuotaId IS NULL OR c.SaldoPendiente>0)
                 AND (@Category='' OR f.ClaseCartera=@Category)
                 AND (@Q='' OR f.Numero LIKE '%'+@Q+'%' OR t.RazonSocial LIKE '%'+@Q+'%' OR t.NumeroIdentificacion LIKE '%'+@Q+'%');
@@ -174,8 +174,9 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             SELECT r.ReciboCajaId,r.FechaContable,r.Concepto,a.Valor
             FROM ven.FacturaAnticipo a JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
             WHERE a.EmpresaId=@E AND a.FacturaVentaId=@Id ORDER BY r.FechaContable,r.ReciboCajaId;
-            SELECT NumeroCuota,FechaVencimiento,ValorOriginal,SaldoPendiente,TipoCuota
-            FROM ven.FacturaVentaCuota WHERE EmpresaId=@E AND FacturaVentaId=@Id ORDER BY NumeroCuota;
+            SELECT c.NumeroCuota,c.FechaVencimiento,c.ValorOriginal,c.SaldoPendiente,c.TipoCuota
+            FROM ven.FacturaVentaCuota c JOIN ven.FacturaVenta f ON f.EmpresaId=c.EmpresaId AND f.FacturaVentaId=c.FacturaVentaId
+            WHERE c.EmpresaId=@E AND c.FacturaVentaId=@Id AND c.PlanVersion=f.PlanVersion AND c.EstadoPlan='ACTIVA' ORDER BY c.NumeroCuota;
             """,company);
         ZeusRepository.Add(q,"@Id",id);
         await using var r=await q.ExecuteReaderAsync(ct);

@@ -123,6 +123,33 @@ public static class ZeusXml
             foreach(var invoice in receipt.Facturas??[])ReceiptLine(new(new ZeusAccount("CLIENTE",invoice.Cuenta),-invoice.Valor),invoice);
             foreach(var movement in s.Movimientos.Where(m=>m.Regla.Concepto!="CLIENTE"))ReceiptLine(movement,null);
         }
+        if(s.NotaCartera is { } note)
+        {
+            var description="REFINANCIACION CARTERA - "+note.NumeroFactura+" - "+note.Concepto;
+            Set(header,"DESCDCTO",description[..Math.Min(120,description.Length)]);
+            Set(header,"XmlAdicionales",Marker(key));
+            document.Elements("Transac").Remove();
+            foreach(var movement in s.Movimientos)
+            {
+                var account=movement.Regla;
+                var receivable=account.Concepto=="CLIENTE";
+                var line=Create("Transac",DetailText,DetailNumber);
+                Set(line,"ANOTRA",period);Set(line,"IDFUENTE",config.Fuente);Set(line,"NUMDOCTRA",number);Set(line,"FECHATRA",date);
+                Set(line,"CODICTA",account.Cuenta);Set(line,"NITTRA",s.Proveedor.CodigoTercero);
+                Set(line,"CLIPRV",receivable?s.Proveedor.CodigoProveedor:"");
+                Set(line,"DESCRITRA",receivable?"REFINANCIACION "+note.NumeroFactura+" - CUOTA "+movement.NumeroCuota:note.Concepto);
+                Set(line,"BU",note.UnidadNegocio);Set(line,"IDUSUARIO",config.UsuarioZeus);
+                Set(line,"STATUSTRA","XA");Set(line,"INDCPITRA",receivable?"2":"1");Set(line,"VALORTRA",movement.Valor);
+                Set(line,"TasaCambio",1);Set(line,"Aplicacion","CONTABILIDAD");
+                Set(line,"IDCENCO",account.CentroCosto);
+                if(receivable)
+                {
+                    Set(line,"TIPOFAC",note.TipoFactura);Set(line,"NUMEFAC",note.NumeroFactura);
+                    Set(line,"VENCEFAC",movement.VencimientoCartera!.Value.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));
+                }
+                document.Add(line);
+            }
+        }
         var xml=new XElement("ZEUS_SQL",document).ToString(SaveOptions.DisableFormatting);
         // El SP recibe varchar: las referencias numéricas conservan Unicode sin depender del codepage SQL.
         var ascii=new StringBuilder();

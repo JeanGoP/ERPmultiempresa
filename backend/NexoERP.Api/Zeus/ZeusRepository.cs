@@ -240,8 +240,15 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             SELECT 'RECIBO_CAJA',r.ReciboCajaId,NULL,NULL,r.OperacionGuid,r.ZeusEstado,r.ZeusIntentos,r.ZeusFuente,r.ZeusDocumento,r.ZeusError,r.CreadoEnUtc,r.ZeusActualizadoEnUtc,
                    CONCAT('RC-',r.ReciboCajaId),t.RazonSocial,r.FechaContable,r.Total
             FROM cxc.ReciboCaja r JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.ClienteId
-            WHERE r.EmpresaId=@E AND @Cash=1)
-            SELECT * FROM Envio WHERE (@S IS NULL OR Estado=@S) AND (@Pending=0 OR Estado<>'CONTABILIZADO')
+            WHERE r.EmpresaId=@E AND @Cash=1
+            UNION ALL
+            SELECT 'NOTA_CARTERA',n.RefinanciacionCarteraId,NULL,NULL,n.OperacionGuid,n.ZeusEstado,n.ZeusIntentos,n.ZeusFuente,n.ZeusDocumento,n.ZeusError,n.CreadoEnUtc,n.ZeusActualizadoEnUtc,
+                   CONCAT(f.Numero,' · NC-',n.RefinanciacionCarteraId),t.RazonSocial,n.FechaContable,n.NuevoSaldo
+            FROM ven.RefinanciacionCartera n
+            JOIN ven.FacturaVenta f ON f.EmpresaId=n.EmpresaId AND f.FacturaVentaId=n.FacturaVentaId
+            JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
+            WHERE n.EmpresaId=@E AND @Sales=1)
+            SELECT * FROM Envio WHERE (@S IS NULL OR Estado=@S) AND (@Pending=0 OR Estado NOT IN('CONTABILIZADO','CANCELADO'))
             ORDER BY FechaContable DESC,TipoDocumento,OrigenId DESC OFFSET @O ROWS FETCH NEXT 100 ROWS ONLY;
             """,company);
         Add(q,"@S",string.IsNullOrWhiteSpace(state)?DBNull.Value:state);Add(q,"@O",Math.Max(0,offset));
