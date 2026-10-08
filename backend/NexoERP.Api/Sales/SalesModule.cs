@@ -57,8 +57,8 @@ public static class SalesModule
             catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
         }).RequireErpPermission("MAESTROS.CLIENTE.ADMINISTRAR","MAESTROS.PROVEEDOR.ADMINISTRAR");
 
-        group.MapGet("/cash-receipts",async(long empresaId,string? q,long? antes,CustomerCashRepository receipts,CancellationToken ct)=>
-            Results.Ok(await receipts.ListAsync(empresaId,q,antes,ct))).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
+        group.MapGet("/cash-receipts",async(long empresaId,string? q,long? antes,string? tipo,CustomerCashRepository receipts,CancellationToken ct)=>
+            Results.Ok(await receipts.ListAsync(empresaId,q,antes,tipo,ct))).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
         group.MapGet("/cash-receipts/options",async(long empresaId,long? clienteId,string? q,CustomerCashRepository receipts,CancellationToken ct)=>
             Results.Ok(await receipts.OptionsAsync(empresaId,clienteId,q,ct))).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
         group.MapGet("/cash-receipts/accounts",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>

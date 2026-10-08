@@ -5,7 +5,7 @@
   const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'America/Bogota'});
   const dialog=document.createElement('dialog');dialog.className='erp-dialog egreso-dialog customer-documents-dialog';document.body.append(dialog);
   const $=selector=>dialog.querySelector(selector);
-  let mode='',company=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,search='',next=null;
+  let mode='',company=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,search='',receiptFilter='',next=null;
   let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[];
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='invoice'?'sales-invoices':'cash-receipts'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
@@ -17,18 +17,18 @@
   function shell(){
     const title=mode==='invoice'?'Facturas de venta':'Recibos de caja';
     dialog.innerHTML=`<div class="dialog-heading"><div><span class="dialog-kicker">${mode==='invoice'?'VENTAS':'TESORERÍA'} · ${esc(state.erpSession?.company?.name||'Empresa')}</span><h2>${title}</h2></div><button class="dialog-close" type="button" data-close aria-label="Cerrar">×</button></div>
-      <form class="egreso-toolbar" data-search-form><label>Buscar documentos guardados<input name="buscar" maxlength="100" placeholder="Número, cliente, identificación o Zeus" value="${esc(search)}"></label><button class="button secondary">Buscar</button><button type="button" class="button primary" data-new>Nuevo</button></form>
+      <form class="egreso-toolbar" data-search-form><label>Buscar documentos guardados<input name="buscar" maxlength="100" placeholder="Número, cliente, identificación o Zeus" value="${esc(search)}"></label>${mode==='receipt'?`<label>Ver recibos<select name="tipo"><option value="" ${receiptFilter===''?'selected':''}>Todos</option><option value="ANTICIPO" ${receiptFilter==='ANTICIPO'?'selected':''}>Anticipos</option><option value="CARTERA" ${receiptFilter==='CARTERA'?'selected':''}>Recaudos de cartera</option><option value="NORMAL" ${receiptFilter==='NORMAL'?'selected':''}>Otros recibos</option></select></label>`:''}<button class="button secondary">Buscar</button><button type="button" class="button primary" data-new>Nuevo</button></form>
       <p data-message role="status" aria-live="polite"></p><div data-content></div>`;
     $('[data-close]').onclick=()=>close();
     $('[data-new]').onclick=()=>{if(!busy&&(!dirty||confirm('¿Descartar los datos sin contabilizar?')))void create();};
-    $('[data-search-form]').onsubmit=event=>{event.preventDefault();if(busy||dirty&&!confirm('¿Descartar el documento sin contabilizar?'))return;search=event.target.elements.buscar.value.trim();void listing();};
+    $('[data-search-form]').onsubmit=event=>{event.preventDefault();if(busy||dirty&&!confirm('¿Descartar el documento sin contabilizar?'))return;search=event.target.elements.buscar.value.trim();if(mode==='receipt')receiptFilter=event.target.elements.tipo.value;void listing();};
   }
   async function listing(before=null){
     const t=++token;dirty=false;shell();notice('Consultando documentos…');
     try{
-      const response=await apiRequest(endpoint()+`?q=${encodeURIComponent(search)}${before?`&antes=${before}`:''}`);
+      const response=await apiRequest(endpoint()+`?q=${encodeURIComponent(search)}${before?`&antes=${before}`:''}${mode==='receipt'&&receiptFilter?`&tipo=${encodeURIComponent(receiptFilter)}`:''}`);
       if(!current(t))return;next=response.siguiente;
-      $('[data-content]').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Documento</th><th>Fecha</th><th>Cliente</th><th>Total</th><th>Saldo / tipo</th><th>Zeus</th></tr></thead><tbody>${response.items.map(row=>`<tr><td>${esc(row.numero||'RC-'+row.id)}</td><td>${esc(row.fecha)}</td><td>${esc(row.cliente)}</td><td>${money(row.total)}</td><td>${mode==='invoice'?money(row.saldo)+' · anticipo '+money(row.anticipo):esc(row.tipo)}</td><td>${esc(row.zeusEstado)} ${esc([row.fuente,row.documento].filter(Boolean).join(' · '))}<br><small>${esc(row.error||'')}</small>${row.zeusEstado==='RECHAZADO'?(mode==='invoice'?`<button type="button" class="button secondary" data-cost-center="${row.id}">Corregir centro de costo</button>`:'')+`<button type="button" class="button secondary" data-retry="${row.id}">Reintentar Zeus</button>`:''}${row.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button type="button" class="button secondary" data-reconcile="${row.id}">Conciliar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6">No se encontraron documentos.</td></tr>'}</tbody></table></div>
+      $('[data-content]').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Documento</th><th>Fecha</th><th>Cliente</th><th>Total</th><th>Saldo / tipo</th><th>Zeus</th></tr></thead><tbody>${response.items.map(row=>`<tr><td>${esc(row.numero||'RC-'+row.id)}</td><td>${esc(row.fecha)}</td><td>${esc(row.cliente)}</td><td>${money(row.total)}</td><td>${mode==='invoice'?money(row.saldo)+' · anticipo '+money(row.anticipo):esc(row.tipo)+(row.concepto?`<br><small>${esc(row.concepto)}</small>`:'')}</td><td>${esc(row.zeusEstado)} ${esc([row.fuente,row.documento].filter(Boolean).join(' · '))}<br><small>${esc(row.error||'')}</small>${row.zeusEstado==='RECHAZADO'?(mode==='invoice'?`<button type="button" class="button secondary" data-cost-center="${row.id}">Corregir centro de costo</button>`:'')+`<button type="button" class="button secondary" data-retry="${row.id}">Reintentar Zeus</button>`:''}${row.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button type="button" class="button secondary" data-reconcile="${row.id}">Conciliar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6">No se encontraron documentos.</td></tr>'}</tbody></table></div>
         <div class="egreso-toolbar"><button type="button" class="button secondary" data-first>Primera página</button><button type="button" class="button secondary" data-next ${next?'':'disabled'}>Siguientes</button></div>`;
       notice('');$('[data-first]').onclick=()=>listing();$('[data-next]').onclick=()=>listing(next);
       for(const action of ['retry','reconcile'])dialog.querySelectorAll(`[data-${action}]`).forEach(button=>button.onclick=async()=>{
@@ -62,7 +62,7 @@
   async function open(selected){
     const permission=selected==='invoice'?'VENTAS.FACTURA.CONTABILIZAR':'TESORERIA.RECIBO.CONTABILIZAR';
     if(!state.erpSession?.api||!hasPermission(permission)){showError('Requiere conexión al ERP y permiso para contabilizar este documento.');return;}
-    if(dialog.open)return;mode=selected;company=state.erpSession.company.id;search='';dialog.showModal();await create();
+    if(dialog.open)return;mode=selected;company=state.erpSession.company.id;search='';receiptFilter='';dialog.showModal();await create();
   }
   document.querySelector('#cashReceiptsNav').addEventListener('click',()=>void open('receipt'));
   document.querySelector('#salesInvoicesNav').addEventListener('click',()=>void open('invoice'));
@@ -114,6 +114,7 @@
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
     f.elements.tipo.onchange=()=>{applications=[];renderAllocations();};
     f.elements.sucursalId.onchange=accountHint;f.elements.medioPago.onchange=accountHint;
+    f.elements.fechaContable.onchange=()=>{applications=[];renderAllocations();dirty=true;};
     f.onsubmit=submitReceipt;renderAllocations();accountHint();
   }
   function accountHint(){
@@ -129,7 +130,7 @@
     f.elements.total.readOnly=kind==='CARTERA';
     if(kind!=='CARTERA'){area.innerHTML=kind==='ANTICIPO'?'<p class="egreso-help">El saldo del anticipo quedará disponible para aplicarlo a una factura futura.</p>':'<p class="egreso-help">Selecciona la cuenta contable específica para este ingreso. No modifica cartera.</p>';summary();return;}
     const selected=x=>applications.find(a=>a.facturaVentaId===x.id&&(a.facturaVentaCuotaId??null)===(x.cuotaId??null));
-    area.innerHTML=`<h3>Cuotas y facturas pendientes del cliente</h3><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Factura / cuota</th><th>Vencimiento</th><th>Saldo</th><th>Valor a recaudar</th></tr></thead><tbody>${(options.facturas||[]).map((x,i)=>`<tr><td><input type="checkbox" data-pick="${i}" ${selected(x)?'checked':''} ${x.zeusEstado==='CONTABILIZADO'?'':'disabled'}></td><td>${esc(x.numero)}${x.numeroCuota?' · cuota '+x.numeroCuota:''}</td><td>${esc(x.vence)}</td><td>${money(x.saldo)}</td><td><input type="number" data-amount="${i}" min="0.01" max="${x.saldo}" step="0.01" value="${selected(x)?.valor||x.saldo}" ${selected(x)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="5">Selecciona un cliente con facturas pendientes.</td></tr>'}</tbody></table></div><small class="egreso-help">Solo se recaudan cuotas de facturas confirmadas en Zeus.</small>`;
+    area.innerHTML=`<h3>Cuotas y facturas pendientes del cliente</h3><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Factura / cuota</th><th>Vencimiento</th><th>Saldo</th><th>Valor a recaudar</th></tr></thead><tbody>${(options.facturas||[]).map((x,i)=>{const future=x.vence>f.elements.fechaContable.value;return `<tr><td><input type="checkbox" data-pick="${i}" ${selected(x)?'checked':''} ${x.zeusEstado==='CONTABILIZADO'&&!future?'':'disabled'}></td><td>${esc(x.numero)}${x.numeroCuota?' · cuota '+x.numeroCuota:''}</td><td>${esc(x.vence)}${future?' · aún no vence':''}</td><td>${money(x.saldo)}</td><td><input type="number" data-amount="${i}" min="0.01" max="${x.saldo}" step="0.01" value="${selected(x)?.valor||x.saldo}" ${selected(x)?'':'disabled'}></td></tr>`;}).join('')||'<tr><td colspan="5">Selecciona un cliente con facturas pendientes.</td></tr>'}</tbody></table></div><small class="egreso-help">Solo se recaudan cuotas vencidas y confirmadas en Zeus. Los anticipos se registran por separado.</small>`;
     area.querySelectorAll('[data-pick]').forEach(box=>box.onchange=()=>{
       const invoice=options.facturas[Number(box.dataset.pick)];
       applications=applications.filter(a=>!(a.facturaVentaId===invoice.id&&(a.facturaVentaCuotaId??null)===(invoice.cuotaId??null)));
@@ -231,7 +232,7 @@
   }
   function renderAdvances(){
     const area=$('[data-allocations]');if(!area)return;
-    area.innerHTML=`<h3>Cuota inicial / anticipos disponibles</h3><p class="egreso-help">Aplica aquí los anticipos contabilizados mediante recibos de caja. Se descuentan antes de calcular las cuotas.</p><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Recibo</th><th>Saldo disponible</th><th>Valor a descontar</th></tr></thead><tbody>${(options.anticipos||[]).map(x=>`<tr><td><input type="checkbox" data-pick-advance="${x.id}" ${advances.some(a=>a.reciboCajaId===x.id)?'checked':''}></td><td>RC-${x.id}</td><td>${money(x.saldo)}</td><td><input data-advance-value="${x.id}" type="number" min="0.01" max="${x.saldo}" step="0.01" value="${advances.find(a=>a.reciboCajaId===x.id)?.valor||x.saldo}" ${advances.some(a=>a.reciboCajaId===x.id)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="4">No hay anticipos disponibles. Registra primero un recibo de caja si el cliente pagó cuota inicial.</td></tr>'}</tbody></table></div>`;
+    area.innerHTML=`<h3>Cuota inicial / anticipos disponibles</h3><p class="egreso-help">Cada anticipo conserva su concepto. Puedes sumar varios para esta factura; solo se aplican los confirmados en Zeus.</p><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Recibo / fecha</th><th>Concepto</th><th>Saldo disponible</th><th>Valor a descontar</th></tr></thead><tbody>${(options.anticipos||[]).map(x=>`<tr><td><input type="checkbox" data-pick-advance="${x.id}" ${advances.some(a=>a.reciboCajaId===x.id)?'checked':''} ${x.zeusEstado==='CONTABILIZADO'?'':'disabled'}></td><td>RC-${x.id}<br><small>${esc(x.fecha)}</small></td><td>${esc(x.concepto)}</td><td>${money(x.saldo)}</td><td><input data-advance-value="${x.id}" type="number" min="0.01" max="${x.saldo}" step="0.01" value="${advances.find(a=>a.reciboCajaId===x.id)?.valor||x.saldo}" ${advances.some(a=>a.reciboCajaId===x.id)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="5">No hay anticipos disponibles. Registra primero un recibo de caja si el cliente pagó cuota inicial.</td></tr>'}</tbody></table></div><strong data-advance-summary></strong>`;
     area.querySelectorAll('[data-pick-advance]').forEach(box=>box.onchange=()=>{const id=Number(box.dataset.pickAdvance),advance=options.anticipos.find(x=>x.id===id);advances=advances.filter(x=>x.reciboCajaId!==id);if(box.checked)advances.push({reciboCajaId:id,valor:advance.saldo});renderAdvances();dirty=true;});
     area.querySelectorAll('[data-advance-value]').forEach(input=>input.oninput=()=>{const x=advances.find(a=>a.reciboCajaId===Number(input.dataset.advanceValue));if(x)x.valor=Number(input.value);summary();dirty=true;});summary();
   }
@@ -243,6 +244,7 @@
     const total=goods+concepts,balance=Math.round((total-advance)*100)/100,terms=Number(f.elements.cuotas.value);
     const cents=Math.round(balance*100),calendar=$('[data-installments]');
     $('[data-summary]').textContent=`Artículos ${money(goods)} + conceptos ${money(concepts)} = total ${money(total)} · Cuota inicial ${money(advance)} · Saldo a financiar ${money(balance)}`;
+    const advanceSummary=$('[data-advance-summary]');if(advanceSummary)advanceSummary.textContent=`${advances.length} anticipo(s) seleccionado(s) · Total a aplicar: ${money(advance)}`;
     if(!Number.isInteger(terms)||terms<1||terms>120||!f.elements.vencimiento.value||cents<0){calendar.innerHTML='<p class="egreso-help">Completa el primer vencimiento y el número de cuotas para ver el calendario.</p>';return;}
     if(cents===0){calendar.innerHTML='<p class="egreso-help">No queda saldo de cartera: la cuota inicial cubre toda la factura.</p>';return;}
     if(cents<terms){calendar.innerHTML='<p class="egreso-help">El saldo no alcanza para asignar al menos $0,01 a cada cuota.</p>';return;}

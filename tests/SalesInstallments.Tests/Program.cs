@@ -51,3 +51,7 @@ Check(SalesInstallments.Build(new DateOnly(2026,10,3),1,SalesInstallments.SameDa
     "sin saldo no se crean partidas de cartera");
 try{SalesInstallments.Build(new DateOnly(2026,10,3),12,SalesInstallments.SameDayMonthly,0.10m);throw new Exception("No rechazó cuotas inferiores a un centavo.");}
 catch(ArgumentException){Console.WriteLine("OK: saldo insuficiente rechazado");}
+CustomerPaymentPolicy.ValidateDueDate(new DateTime(2026,10,3),new DateOnly(2026,10,3));
+CustomerPaymentPolicy.ValidateDueDate(new DateTime(2026,10,3),new DateOnly(2026,10,4));
+try{CustomerPaymentPolicy.ValidateDueDate(new DateTime(2026,10,4),new DateOnly(2026,10,3));throw new Exception("Permitió cobrar una cuota futura.");}
+catch(ArgumentException){Console.WriteLine("OK: no recauda cuotas antes del vencimiento");}

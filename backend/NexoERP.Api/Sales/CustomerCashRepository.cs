@@ -13,25 +13,29 @@ public sealed record CashReceiptInput(Guid OperacionGuid,long SucursalId,long Cl
 
 public sealed class CustomerCashRepository(TenantConnectionFactory connections)
 {
-    public async Task<object> ListAsync(long company,string? search,long? before,CancellationToken ct)
+    public async Task<object> ListAsync(long company,string? search,long? before,string? type,CancellationToken ct)
     {
         search=search?.Trim()??"";if(search.Length>100)throw new ArgumentException("Búsqueda demasiado larga.");
+        type=type?.Trim().ToUpperInvariant()??"";
+        if(type is not("" or "ANTICIPO" or "CARTERA" or "NORMAL"))throw new ArgumentException("El tipo de recibo no es válido.");
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=ZeusRepository.Command(c,"""
-            SELECT TOP(51) r.ReciboCajaId,r.FechaContable,r.Tipo,t.RazonSocial,r.Total,r.ZeusEstado,r.ZeusFuente,r.ZeusDocumento,r.ZeusError
+            SELECT TOP(51) r.ReciboCajaId,r.FechaContable,r.Tipo,t.RazonSocial,r.Total,r.ZeusEstado,r.ZeusFuente,r.ZeusDocumento,r.ZeusError,r.Concepto
             FROM cxc.ReciboCaja r JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.ClienteId
-            WHERE r.EmpresaId=@E AND (@Before IS NULL OR r.ReciboCajaId<@Before)
+            WHERE r.EmpresaId=@E AND (@Type='' OR r.Tipo=@Type) AND (@Before IS NULL OR r.ReciboCajaId<@Before)
               AND (@Q='' OR r.ReciboCajaId=TRY_CONVERT(bigint,@Q) OR t.RazonSocial LIKE '%'+@Q+'%'
-                   OR t.NumeroIdentificacion LIKE '%'+@Q+'%' OR r.ZeusDocumento LIKE '%'+@Q+'%')
+                   OR t.NumeroIdentificacion LIKE '%'+@Q+'%' OR r.ZeusDocumento LIKE '%'+@Q+'%'
+                   OR r.Concepto LIKE '%'+@Q+'%')
             ORDER BY r.ReciboCajaId DESC;
             """,company);
         q.Parameters.Add("@Q",SqlDbType.NVarChar,100).Value=search;
+        q.Parameters.Add("@Type",SqlDbType.VarChar,12).Value=type;
         q.Parameters.Add("@Before",SqlDbType.BigInt).Value=(object?)before??DBNull.Value;
         var list=new List<object>();long? next=null;await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct))
         {
             if(list.Count==50)return new{items=list,siguiente=next};
-            next=r.GetInt64(0);list.Add(new{id=next,fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),tipo=r.GetString(2),cliente=r.GetString(3),total=r.GetDecimal(4),zeusEstado=r.GetString(5),fuente=r.IsDBNull(6)?null:r.GetString(6),documento=r.IsDBNull(7)?null:r.GetString(7),error=r.IsDBNull(8)?null:r.GetString(8)});
+            next=r.GetInt64(0);list.Add(new{id=next,fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),tipo=r.GetString(2),cliente=r.GetString(3),total=r.GetDecimal(4),zeusEstado=r.GetString(5),fuente=r.IsDBNull(6)?null:r.GetString(6),documento=r.IsDBNull(7)?null:r.GetString(7),error=r.IsDBNull(8)?null:r.GetString(8),concepto=r.GetString(9)});
         }
         return new{items=list,siguiente=(long?)null};
     }
@@ -53,7 +57,9 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             WHERE f.EmpresaId=@E AND f.ClienteId=@C AND f.SaldoPendiente>0
                 AND (c.FacturaVentaCuotaId IS NULL OR c.SaldoPendiente>0)
             ORDER BY COALESCE(c.FechaVencimiento,f.Vencimiento),f.FacturaVentaId,c.NumeroCuota;
-            SELECT ReciboCajaId,Saldo FROM cxc.AnticipoCliente WHERE EmpresaId=@E AND ClienteId=@C AND Saldo>0 ORDER BY ReciboCajaId;
+            SELECT a.ReciboCajaId,a.Saldo,r.Concepto,r.FechaContable,r.ZeusEstado
+            FROM cxc.AnticipoCliente a JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
+            WHERE a.EmpresaId=@E AND a.ClienteId=@C AND a.Saldo>0 ORDER BY a.ReciboCajaId;
             SELECT SucursalId,MedioPago,Cuenta,Nombre FROM cxp.EgresoCuentaSucursal WHERE EmpresaId=@E;
             """,company);
         q.Parameters.Add("@Q",SqlDbType.NVarChar,100).Value=search;
@@ -63,7 +69,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         while(await r.ReadAsync(ct))branches.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))clients.Add(new{id=r.GetInt64(0),identificacion=r.GetString(1),nombre=r.GetString(2)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))invoices.Add(new{id=r.GetInt64(0),numero=r.GetString(1),fecha=r.GetDateTime(2).ToString("yyyy-MM-dd"),vence=r.GetDateTime(3).ToString("yyyy-MM-dd"),total=r.GetDecimal(4),saldo=r.GetDecimal(5),zeusEstado=r.GetString(6),cuotaId=r.IsDBNull(7)?(long?)null:r.GetInt64(7),numeroCuota=r.IsDBNull(8)?(int?)null:r.GetInt32(8)});
-        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))advances.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1)});
+        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))advances.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1),concepto=r.GetString(2),fecha=r.GetDateTime(3).ToString("yyyy-MM-dd"),zeusEstado=r.GetString(4)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))accounts.Add(new{sucursalId=r.GetInt64(0),medioPago=r.GetString(1),cuenta=r.GetString(2),nombre=r.GetString(3)});
         return new{sucursales=branches,clientes=clients,facturas=invoices,anticipos=advances,cuentas=accounts};
     }
@@ -161,6 +167,8 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                 var original=JsonSerializer.Deserialize<ZeusSnapshot>(reader.GetString(4))!;
                 if(original.Configuracion.ServidorEsperado!=settings.ServidorEsperado||original.Configuracion.BaseEsperada!=settings.BaseEsperada)
                     throw new ArgumentException("La factura pertenece a otro destino Zeus. Concíliala antes de recaudar.");
+                var dueDate=line.FacturaVentaCuotaId.HasValue?reader.GetDateTime(6):reader.GetDateTime(3);
+                CustomerPaymentPolicy.ValidateDueDate(dueDate,input.FechaContable);
                 var account=original.ClienteDocumento?.CuentaCliente??throw new ArgumentException("La factura no tiene cuenta de cartera de cliente.");
                 var invoiceNumber=reader.GetString(2);
                 if(original.ClienteDocumento?.FacturaUsaConsecutivoZeus==true)
@@ -172,7 +180,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                     invoiceNumber=original.ClienteDocumento.CarteraConsecutivoCompleto?document:document[2..];
                 }
                 invoiceApplications.Add(new(line.FacturaVentaId,account,original.Configuracion.TipoFactura,invoiceNumber,original.Configuracion.UnidadNegocio,
-                    line.FacturaVentaCuotaId.HasValue?reader.GetDateTime(6):reader.GetDateTime(3),line.Valor));
+                    dueDate,line.Valor));
             }
             q.Parameters.RemoveAt("@Invoice");q.Parameters.RemoveAt("@Value");q.Parameters.RemoveAt("@Installment");
         }
