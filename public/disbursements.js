@@ -97,7 +97,8 @@
       if(!response.ok)throw new Error(result?.error||result?.title||`No se pudo leer el soporte (${response.status}).`);
       if(!valid(token))return;
       const preview=$e('[data-read-result]');
-      preview.innerHTML=`<div class="egreso-read-preview"><strong>${esc(result.metodo)} · revisa antes de contabilizar</strong><p>Posible beneficiario: ${esc(result.proveedorSugerido||'No identificado')} · Identificación: ${esc(result.identificacionSugerida||'No identificada')}</p><p>Posible factura: ${esc(result.facturaSugerida||'No identificada')} · Total: ${esc(result.totalSugerido||'No identificado')}</p><details><summary>Ver texto extraído</summary><pre>${esc(result.texto)}</pre></details><button type="button" class="button secondary" data-apply-read>Usar concepto y valor sugeridos</button></div>`;
+      const amounts=Array.isArray(result.importes)?result.importes:[];
+      preview.innerHTML=`<div class="egreso-read-preview"><strong>${esc(result.metodo)} · revisa antes de contabilizar</strong><p>Posible beneficiario: ${esc(result.proveedorSugerido||'No identificado')} · Identificación: ${esc(result.identificacionSugerida||'No identificada')}</p><p>Posible factura: ${esc(result.facturaSugerida||'No identificada')} · Fecha del soporte: ${esc(result.fechaSugerida||'No identificada')}</p><div class="egreso-read-amounts"><strong>Importes encontrados · selecciona el valor del pago</strong>${amounts.length?amounts.map((x,i)=>`<label><input type="radio" name="importeLeido" value="${esc(x.valor)}" ${result.totalSugeridoNumero===x.valor?'checked':''}><span>${esc(x.concepto)}</span><b>${esc(money(x.valor,'COP'))}</b></label>`).join(''):'<p>No se detectaron importes. Revisa el texto o diligencia el valor manualmente.</p>'}</div><p class="egreso-help">${esc(result.advertencia||'Los importes son sugerencias; compara cada uno con el soporte.')}</p><details><summary>Ver texto extraído</summary><pre>${esc(result.texto)}</pre></details><button type="button" class="button secondary" data-apply-read>Usar datos revisados</button></div>`;
       preview.querySelector('[data-apply-read]').onclick=async()=>{
         const apply=preview.querySelector('[data-apply-read]');apply.disabled=true;
         try{
@@ -109,14 +110,13 @@
         }
         const concept=(result.facturaSugerida?`Pago factura ${result.facturaSugerida}`:result.proveedorSugerido?`Pago a ${result.proveedorSugerido}`:'Pago según soporte').slice(0,300);
         $e('[name="concepto"]').value=concept;
-        const raw=String(result.totalSugerido||'').replace(/[^\d,.]/g,'');
-        const normalized=raw.includes(',')?raw.replace(/\./g,'').replace(',','.'):raw;
-        const amount=Number(normalized);
+        const amount=Number(preview.querySelector('[name="importeLeido"]:checked')?.value||0);
         capture();
         const invoices=options.facturas.filter(x=>String(x.numero).trim().toUpperCase()===String(result.facturaSugerida).trim().toUpperCase());
-        if(invoices.length===1){current.datos.lineas.push({tipo:'FACTURA',documentoPorPagarId:invoices[0].id,cuenta:'',concepto:concept.slice(0,200),valor:Number.isFinite(amount)&&amount>0?Math.min(Math.round(amount*100)/100,invoices[0].saldo):invoices[0].saldo});notice('Se encontró la factura pendiente. Confirma el abono, beneficiario y cuenta de salida.');}
+        if(invoices.length===1&&Number.isFinite(amount)&&amount>0&&amount<=invoices[0].saldo){current.datos.lineas.push({tipo:'FACTURA',documentoPorPagarId:invoices[0].id,cuenta:'',concepto:concept.slice(0,200),valor:Math.round(amount*100)/100});notice('Se encontró la factura pendiente. Confirma el abono, beneficiario y cuenta de salida.');}
+        else if(invoices.length===1&&amount>invoices[0].saldo)notice('El importe elegido supera el saldo de la factura. Revisa el soporte y registra el abono manualmente.',true);
         else if(Number.isFinite(amount)&&amount>0&&amount<=1e12){current.datos.lineas.push({tipo:'GASTO',documentoPorPagarId:null,cuenta:'',concepto:concept.slice(0,200),valor:Math.round(amount*100)/100});notice('No se identificó una factura pendiente inequívoca. Confirma si es gasto o pago de cartera y escoge la cuenta contable.');}
-        else notice('Confirma el valor del soporte y agrega la factura o el gasto correspondiente.');
+        else notice('Selecciona un importe legible del soporte o registra el valor manualmente. No se asumirá el saldo completo de una factura.');
         renderLines();dirty=true;
         }catch(error){if(valid(token))notice(error.message,true);}finally{if(apply.isConnected)apply.disabled=false;}
       };
