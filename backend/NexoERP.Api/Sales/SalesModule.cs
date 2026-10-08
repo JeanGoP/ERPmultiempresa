@@ -91,6 +91,11 @@ public static class SalesModule
 
         group.MapGet("/sales-invoices",async(long empresaId,string? q,long? antes,SalesInvoiceRepository sales,CancellationToken ct)=>
             Results.Ok(await sales.ListAsync(empresaId,q,antes,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapGet("/sales-invoices/{id:long}",async(long empresaId,long id,SalesInvoiceRepository sales,CancellationToken ct)=>
+        {
+            var invoice=await sales.DetailAsync(empresaId,id,ct);
+            return invoice is null?Results.NotFound(new{error="No se encontró la factura en esta empresa."}):Results.Ok(invoice);
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/sales-invoices/options",async(long empresaId,long? clienteId,SalesInvoiceRepository sales,CancellationToken ct)=>
             Results.Ok(await sales.OptionsAsync(empresaId,clienteId,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/sales-invoices/accounting-dimensions",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>

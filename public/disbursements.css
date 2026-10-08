@@ -62,6 +62,24 @@
 .customer-documents-dialog .customer-advance-list input[type="number"]{height:30px;max-width:120px;padding:4px 7px}
 .customer-documents-dialog .customer-advance-list [data-advance-summary]{display:block;margin-top:9px;padding:8px 10px;background:#edf5f0;border-radius:6px;color:#14513e;font-size:12px}
 .customer-documents-dialog .customer-advance-list .table-wrap{max-height:280px;overflow:auto}
+.customer-documents-dialog .customer-invoice-settings{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,3fr);gap:18px;align-items:start;margin:18px 0;padding:15px;border:1px solid #d9e5de;border-radius:10px;background:#fbfdfb}
+.customer-documents-dialog .customer-invoice-settings label{display:grid;align-content:start;gap:6px;min-width:0;font-size:12px;font-weight:600}
+.customer-documents-dialog .customer-invoice-settings small{display:block;color:#63766d;font-size:11px;font-weight:400;line-height:1.4}
+.customer-documents-dialog .customer-center-field{padding-top:26px}
+.customer-documents-dialog .customer-installment-settings{min-width:0}
+.customer-documents-dialog .customer-installment-settings h3{margin:0 0 11px;font-size:14px}
+.customer-documents-dialog .customer-installment-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}
+.customer-documents-dialog .customer-installment-settings>small{margin-top:8px}
+.customer-documents-dialog [data-document]>.egreso-toolbar:last-child{justify-content:space-between;border-top:1px solid #dce7e1;padding-top:15px;gap:12px}
+.customer-documents-dialog [data-document]>.egreso-toolbar:last-child [data-summary]{flex:1;min-width:240px;line-height:1.5}
+.customer-documents-dialog .customer-list-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 15px}
+.customer-documents-dialog .customer-document-link{border:0;background:none;padding:2px 0;color:#125f48;text-decoration:underline;font:inherit;font-weight:700;text-align:left;cursor:pointer}
+.customer-documents-dialog .customer-document-link:hover{color:#0b4635}
+.customer-documents-dialog .customer-invoice-detail-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0 20px}
+.customer-documents-dialog .customer-invoice-detail-grid>div{display:grid;align-content:start;gap:4px;min-width:0;padding:11px;background:#f4f8f5;border:1px solid #dce8df;border-radius:7px}
+.customer-documents-dialog .customer-invoice-detail-grid small,.customer-documents-dialog .customer-invoice-detail-grid span{color:#63766d;font-size:11px;overflow-wrap:anywhere}
+.customer-documents-dialog .customer-invoice-detail-grid strong{font-size:12px;overflow-wrap:anywhere}
+.customer-documents-dialog .customer-invoice-totals{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:12px 22px;margin:18px 0;padding-top:14px;border-top:1px solid #dce7e1;font-size:13px}
 
 .customer-serial-dialog{width:min(620px,calc(100vw - 20px));max-height:calc(100dvh - 20px);padding:22px;box-sizing:border-box;border:1px solid #d6e3db;border-radius:12px;overflow:auto;background:#fff;color:#16392e;box-shadow:0 24px 70px #102b2440}
 .customer-serial-dialog::backdrop{background:#10282099}
@@ -82,6 +100,11 @@
 .customer-serial-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 .customer-serial-dialog :focus-visible,.customer-documents-dialog .customer-document-search :focus-visible{outline:2px solid #148567;outline-offset:2px}
 @media(max-width:720px){
+  .customer-documents-dialog .customer-invoice-settings{grid-template-columns:1fr;gap:14px}
+  .customer-documents-dialog .customer-center-field{padding-top:0}
+  .customer-documents-dialog .customer-installment-fields{grid-template-columns:1fr}
+  .customer-documents-dialog .customer-invoice-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .customer-documents-dialog .customer-list-heading{align-items:stretch;flex-direction:column}
   .customer-documents-dialog .customer-document-search{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .customer-documents-dialog .customer-search-query,.customer-documents-dialog .customer-search-filter{grid-column:1/-1;width:auto;min-width:0}
   .customer-documents-dialog .customer-document-search .button{width:100%}

@@ -97,6 +97,54 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         }
         return new{items=list,siguiente=(long?)null};
     }
+    public async Task<object?> DetailAsync(long company,long id,CancellationToken ct)
+    {
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=ZeusRepository.Command(c,"""
+            SELECT f.Numero,f.FechaContable,f.Vencimiento,f.Cuotas,f.FrecuenciaCuotas,f.Total,
+                f.AnticipoAplicado,f.SaldoPendiente,f.ZeusEstado,f.ZeusFuente,f.ZeusDocumento,f.ZeusError,
+                t.NumeroIdentificacion,t.RazonSocial,s.Codigo,s.Nombre,f.CentroCostoIngresoZeus
+            FROM ven.FacturaVenta f
+            JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
+            JOIN core.Sucursal s ON s.EmpresaId=f.EmpresaId AND s.SucursalId=f.SucursalId
+            WHERE f.EmpresaId=@E AND f.FacturaVentaId=@Id;
+            SELECT a.Codigo,a.Descripcion,b.Codigo,b.Nombre,l.Cantidad,l.PrecioConIva,l.TarifaIva,l.Base,l.Iva
+            FROM ven.FacturaVentaLinea l
+            JOIN inv.Articulo a ON a.EmpresaId=l.EmpresaId AND a.ArticuloId=l.ArticuloId
+            JOIN inv.Bodega b ON b.EmpresaId=l.EmpresaId AND b.BodegaId=l.BodegaId
+            WHERE l.EmpresaId=@E AND l.FacturaVentaId=@Id ORDER BY l.FacturaVentaLineaId;
+            SELECT Codigo,Nombre,CuentaIngresoZeus,CentroCostoZeus,Valor
+            FROM ven.FacturaVentaConcepto WHERE EmpresaId=@E AND FacturaVentaId=@Id ORDER BY FacturaVentaConceptoId;
+            SELECT r.ReciboCajaId,r.FechaContable,r.Concepto,a.Valor
+            FROM ven.FacturaAnticipo a JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
+            WHERE a.EmpresaId=@E AND a.FacturaVentaId=@Id ORDER BY r.FechaContable,r.ReciboCajaId;
+            SELECT NumeroCuota,FechaVencimiento,ValorOriginal,SaldoPendiente
+            FROM ven.FacturaVentaCuota WHERE EmpresaId=@E AND FacturaVentaId=@Id ORDER BY NumeroCuota;
+            """,company);
+        ZeusRepository.Add(q,"@Id",id);
+        await using var r=await q.ExecuteReaderAsync(ct);
+        if(!await r.ReadAsync(ct))return null;
+        var header=new{
+            id,numero=r.GetString(0),fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),primerVencimiento=r.GetDateTime(2).ToString("yyyy-MM-dd"),
+            cuotas=r.GetInt32(3),frecuencia=r.IsDBNull(4)?null:r.GetString(4),total=r.GetDecimal(5),anticipo=r.GetDecimal(6),saldo=r.GetDecimal(7),
+            zeusEstado=r.GetString(8),fuente=r.IsDBNull(9)?null:r.GetString(9),documento=r.IsDBNull(10)?null:r.GetString(10),
+            error=r.IsDBNull(11)?null:r.GetString(11),identificacion=r.GetString(12),cliente=r.GetString(13),
+            sucursalCodigo=r.GetString(14),sucursal=r.GetString(15),centroCosto=r.IsDBNull(16)?null:r.GetString(16)
+        };
+        var items=new List<object>();
+        await r.NextResultAsync(ct);
+        while(await r.ReadAsync(ct))items.Add(new{codigo=r.GetString(0),descripcion=r.GetString(1),bodegaCodigo=r.GetString(2),bodega=r.GetString(3),cantidad=r.GetDecimal(4),precio=r.GetDecimal(5),ivaTarifa=r.GetDecimal(6),@base=r.GetDecimal(7),iva=r.GetDecimal(8)});
+        var concepts=new List<object>();
+        await r.NextResultAsync(ct);
+        while(await r.ReadAsync(ct))concepts.Add(new{codigo=r.GetString(0),nombre=r.GetString(1),cuenta=r.GetString(2),centroCosto=r.IsDBNull(3)?null:r.GetString(3),valor=r.GetDecimal(4)});
+        var receipts=new List<object>();
+        await r.NextResultAsync(ct);
+        while(await r.ReadAsync(ct))receipts.Add(new{reciboId=r.GetInt64(0),fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),concepto=r.GetString(2),valor=r.GetDecimal(3)});
+        var installments=new List<object>();
+        await r.NextResultAsync(ct);
+        while(await r.ReadAsync(ct))installments.Add(new{numero=r.GetInt32(0),vence=r.GetDateTime(1).ToString("yyyy-MM-dd"),valor=r.GetDecimal(2),saldo=r.GetDecimal(3)});
+        return new{header,articulos=items,conceptos=concepts,anticipos=receipts,cuotas=installments};
+    }
     public async Task<object> OptionsAsync(long company,long? client,CancellationToken ct)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
