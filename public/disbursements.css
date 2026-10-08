@@ -31,3 +31,64 @@
 .customer-documents-dialog [data-lines] td:first-child{min-width:250px}
 .customer-documents-dialog [data-allocations] td:last-child input{max-width:150px}
 @media(max-width:720px){.customer-documents-dialog{width:calc(100vw - 12px);max-height:calc(100dvh - 12px)}.customer-documents-dialog .egreso-grid{grid-template-columns:1fr}.customer-documents-dialog .egreso-toolbar{flex-wrap:wrap}.customer-documents-dialog [data-lines] td:first-child{min-width:190px}}
+
+/* Ventas y recibos: controles compactos y búsqueda separada del formulario nuevo. */
+.customer-documents-dialog [data-content]{overflow-x:visible;min-width:0}
+.customer-documents-dialog .customer-document-search{display:flex;align-items:end;gap:8px;margin:8px 0 16px;padding:12px;background:#f5f8f6;border:1px solid #dce7e1;border-radius:9px}
+.customer-documents-dialog .customer-document-search[hidden],.customer-documents-dialog .customer-create-nav[hidden]{display:none}
+.customer-documents-dialog .customer-document-search label{display:grid;gap:5px;margin:0;font-size:12px;font-weight:600;color:#315046}
+.customer-documents-dialog .customer-search-query{flex:1;min-width:180px}
+.customer-documents-dialog .customer-search-filter{width:190px;flex:none}
+.customer-documents-dialog .customer-document-search .button{flex:none;height:35px;white-space:nowrap}
+.customer-documents-dialog .customer-create-nav{display:flex;justify-content:flex-end;margin:4px 0 12px}
+.customer-documents-dialog .customer-create-nav .button{font-size:12px}
+.customer-documents-dialog [data-message]:empty{display:none}
+.customer-documents-dialog [data-message]{margin:8px 0}
+.customer-documents-dialog [data-lines] td:first-child{min-width:260px}
+.customer-documents-dialog [data-lines] td:nth-child(5){min-width:135px}
+.customer-documents-dialog .customer-serial-trigger{width:auto;white-space:nowrap}
+.customer-documents-dialog .customer-serial-count{display:block;margin-top:4px;color:#5c7068;font-size:11px;white-space:nowrap}
+.customer-documents-dialog .customer-advance-list{margin:18px 0 14px;padding:14px 16px;background:#fbfdfb;border:1px solid #d9e5de;border-radius:10px}
+.customer-documents-dialog .customer-advance-list h3{margin:0 0 5px}
+.customer-documents-dialog .customer-advance-list .egreso-help{margin:4px 0;font-size:11px}
+.customer-documents-dialog .customer-advance-list .egreso-toolbar{margin:10px 0;gap:7px}
+.customer-documents-dialog .customer-advance-list table{table-layout:fixed;min-width:650px;font-size:12px}
+.customer-documents-dialog .customer-advance-list th,.customer-documents-dialog .customer-advance-list td{padding:6px 8px;vertical-align:middle}
+.customer-documents-dialog .customer-advance-list th:first-child,.customer-documents-dialog .customer-advance-list td:first-child{width:52px;min-width:52px;text-align:center}
+.customer-documents-dialog .customer-advance-list th:nth-child(2){width:125px}
+.customer-documents-dialog .customer-advance-list th:nth-child(4){width:145px}
+.customer-documents-dialog .customer-advance-list th:nth-child(5){width:138px}
+.customer-documents-dialog .customer-advance-list input[type="checkbox"]{display:inline-block;width:16px;height:16px;min-height:16px;padding:0;margin:0;accent-color:#166c50;vertical-align:middle}
+.customer-documents-dialog .customer-advance-list input[type="number"]{height:30px;max-width:120px;padding:4px 7px}
+.customer-documents-dialog .customer-advance-list [data-advance-summary]{display:block;margin-top:9px;padding:8px 10px;background:#edf5f0;border-radius:6px;color:#14513e;font-size:12px}
+.customer-documents-dialog .customer-advance-list .table-wrap{max-height:280px;overflow:auto}
+
+.customer-serial-dialog{width:min(620px,calc(100vw - 20px));max-height:calc(100dvh - 20px);padding:22px;box-sizing:border-box;border:1px solid #d6e3db;border-radius:12px;overflow:auto;background:#fff;color:#16392e;box-shadow:0 24px 70px #102b2440}
+.customer-serial-dialog::backdrop{background:#10282099}
+.customer-serial-heading{display:flex;justify-content:space-between;align-items:start;gap:16px;padding-bottom:12px;border-bottom:1px solid #e1e9e4}
+.customer-serial-heading h2{margin:4px 0;font-size:20px;line-height:1.25}
+.customer-serial-heading small{color:#667a70}
+.customer-serial-dialog .dialog-close{flex:none;border:1px solid #d6e3db;border-radius:6px;background:#fff;color:#315046;cursor:pointer;font-size:20px;width:32px;height:32px}
+.customer-serial-search{display:grid;gap:6px;margin:16px 0 9px;font-size:12px;font-weight:600}
+.customer-serial-search input{height:38px;width:100%;box-sizing:border-box;border:1px solid #bcd2c4;border-radius:7px;padding:8px 10px;font:inherit}
+.customer-serial-status{font-size:12px;color:#47675a;margin-bottom:9px}
+.customer-serial-options{display:grid;gap:7px;max-height:min(48vh,390px);overflow:auto;padding:2px}
+.customer-serial-option{display:flex;gap:11px;align-items:start;padding:9px 10px;border:1px solid #dce7df;border-radius:7px;cursor:pointer;background:#fbfdfb}
+.customer-serial-option:hover{background:#f0f7f2}
+.customer-serial-option input[type="checkbox"]{flex:none;width:17px;height:17px;margin:2px 0 0;accent-color:#166c50}
+.customer-serial-option span{display:grid;gap:2px;min-width:0}
+.customer-serial-option strong{font-size:12px}
+.customer-serial-option small{font-size:11px;color:#5f7168;overflow-wrap:anywhere}
+.customer-serial-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.customer-serial-dialog :focus-visible,.customer-documents-dialog .customer-document-search :focus-visible{outline:2px solid #148567;outline-offset:2px}
+@media(max-width:720px){
+  .customer-documents-dialog .customer-document-search{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .customer-documents-dialog .customer-search-query,.customer-documents-dialog .customer-search-filter{grid-column:1/-1;width:auto;min-width:0}
+  .customer-documents-dialog .customer-document-search .button{width:100%}
+  .customer-documents-dialog .customer-advance-list{padding:12px}
+  .customer-documents-dialog .customer-advance-list .egreso-toolbar{flex-direction:row;align-items:center}
+  .customer-documents-dialog .customer-advance-list .egreso-toolbar .button{width:auto}
+  .customer-serial-dialog{padding:14px}
+  .customer-serial-actions{flex-direction:column-reverse}
+  .customer-serial-actions .button{width:100%}
+}

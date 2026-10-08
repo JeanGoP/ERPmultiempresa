@@ -4,6 +4,7 @@
   const money=value=>new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',minimumFractionDigits:2,maximumFractionDigits:2}).format(value||0);
   const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'America/Bogota'});
   const dialog=document.createElement('dialog');dialog.className='erp-dialog egreso-dialog customer-documents-dialog';document.body.append(dialog);
+  const serialDialog=document.createElement('dialog');serialDialog.className='erp-dialog customer-serial-dialog';document.body.append(serialDialog);
   const $=selector=>dialog.querySelector(selector);
   let mode='',company=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,search='',receiptFilter='',next=null;
   let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[];
@@ -11,16 +12,18 @@
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
   const clientLabel=c=>c?`${c.identificacion} · ${c.nombre}`:'';
-  function close(force=false){if(!force&&(busy||dirty&&!confirm('¿Salir sin contabilizar el documento?')))return;token++;dirty=false;dialog.close();mode='';company=0;}
+  function close(force=false){if(!force&&(busy||dirty&&!confirm('¿Salir sin contabilizar el documento?')))return;token++;dirty=false;if(serialDialog.open)serialDialog.close();dialog.close();mode='';company=0;}
   window.resetCustomerDocuments=()=>close(true);
   dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
   function shell(){
     const title=mode==='invoice'?'Facturas de venta':'Recibos de caja';
     dialog.innerHTML=`<div class="dialog-heading"><div><span class="dialog-kicker">${mode==='invoice'?'VENTAS':'TESORERÍA'} · ${esc(state.erpSession?.company?.name||'Empresa')}</span><h2>${title}</h2></div><button class="dialog-close" type="button" data-close aria-label="Cerrar">×</button></div>
-      <form class="egreso-toolbar" data-search-form><label>Buscar documentos guardados<input name="buscar" maxlength="100" placeholder="Número, cliente, identificación o Zeus" value="${esc(search)}"></label>${mode==='receipt'?`<label>Ver recibos<select name="tipo"><option value="" ${receiptFilter===''?'selected':''}>Todos</option><option value="ANTICIPO" ${receiptFilter==='ANTICIPO'?'selected':''}>Anticipos</option><option value="CARTERA" ${receiptFilter==='CARTERA'?'selected':''}>Recaudos de cartera</option><option value="NORMAL" ${receiptFilter==='NORMAL'?'selected':''}>Otros recibos</option></select></label>`:''}<button class="button secondary">Buscar</button><button type="button" class="button primary" data-new>Nuevo</button></form>
+      <form class="customer-document-search" data-search-form><label class="customer-search-query">Buscar documentos guardados<input name="buscar" maxlength="100" placeholder="Número, cliente, identificación o comprobante Zeus" value="${esc(search)}"></label>${mode==='receipt'?`<label class="customer-search-filter">Tipo<select name="tipo"><option value="" ${receiptFilter===''?'selected':''}>Todos</option><option value="ANTICIPO" ${receiptFilter==='ANTICIPO'?'selected':''}>Anticipos</option><option value="CARTERA" ${receiptFilter==='CARTERA'?'selected':''}>Recaudos de cartera</option><option value="NORMAL" ${receiptFilter==='NORMAL'?'selected':''}>Otros recibos</option></select></label>`:''}<button class="button secondary" type="submit">Buscar</button><button type="button" class="button primary" data-new>Nuevo</button></form>
+      <div class="customer-create-nav" data-create-nav hidden><button type="button" class="button secondary" data-view-list>← Ver documentos guardados</button></div>
       <p data-message role="status" aria-live="polite"></p><div data-content></div>`;
     $('[data-close]').onclick=()=>close();
     $('[data-new]').onclick=()=>{if(!busy&&(!dirty||confirm('¿Descartar los datos sin contabilizar?')))void create();};
+    $('[data-view-list]').onclick=()=>{if(!busy&&(!dirty||confirm('¿Salir sin contabilizar el documento?')))void listing();};
     $('[data-search-form]').onsubmit=event=>{event.preventDefault();if(busy||dirty&&!confirm('¿Descartar el documento sin contabilizar?'))return;search=event.target.elements.buscar.value.trim();if(mode==='receipt')receiptFilter=event.target.elements.tipo.value;void listing();};
   }
   async function listing(before=null){
@@ -67,7 +70,7 @@
   document.querySelector('#cashReceiptsNav').addEventListener('click',()=>void open('receipt'));
   document.querySelector('#salesInvoicesNav').addEventListener('click',()=>void open('invoice'));
   async function create(){
-    const t=++token;operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];dirty=false;shell();notice('Cargando catálogos…');
+    const t=++token;operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
     try{
       const [opts,chart,dims]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions'):Promise.resolve(null)]);
       if(!current(t))return;options=opts;accounts=chart;dimensions=dims;
@@ -174,13 +177,13 @@
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
     f.elements.frecuenciaCuotas.onchange=()=>{dirty=true;summary();};f.elements.vencimiento.onchange=()=>{dirty=true;summary();};
     f.elements.sucursalId.onchange=()=>{lines=[];f.elements.bodegaCarteraId.value='';addLine();};
-    $('[data-add-line]').onclick=addLine;$('[data-add-concept]').onclick=addConcept;f.onsubmit=submitInvoice;addLine();renderConcepts();renderAllocations();
+    $('[data-add-line]').onclick=()=>addLine();$('[data-add-concept]').onclick=addConcept;f.onsubmit=submitInvoice;addLine(false);renderConcepts();renderAllocations();
   }
   function articleChoices(){
     const branch=$('[data-document]')?.elements.sucursalId.value;
     return (options.articulos||[]).filter(a=>String(a.sucursalId)===branch);
   }
-  function addLine(){lines.push({articuloId:0,bodegaId:0,cantidad:1,precioUnitarioConIva:0,unidadesSerializadas:[]});renderLines();dirty=true;}
+  function addLine(markDirty=true){lines.push({articuloId:0,bodegaId:0,cantidad:1,precioUnitarioConIva:0,unidadesSerializadas:[]});renderLines();if(markDirty)dirty=true;}
   function renderLines(){
     const area=$('[data-lines]');if(!area)return;const choices=articleChoices();
     const f=$('[data-document]'),warehouseWrap=$('[data-concept-warehouse]');warehouseWrap.hidden=lines.length>0;
@@ -190,13 +193,11 @@
     f.elements.bodegaCarteraId.value=selectedWarehouse;f.elements.bodegaCarteraId.required=lines.length===0;
     area.innerHTML=lines.map((line,index)=>{
       const item=choices.find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);
-      const serials=(options.seriales||[]).filter(x=>x.articuloId===line.articuloId&&x.bodegaId===line.bodegaId);
-      const available=[...new Map(serials.map(x=>[x.id,x])).values()];
       return `<tr data-line="${index}"><td><select data-article required><option value="">Selecciona artículo y bodega…</option>${choices.map(a=>`<option value="${a.id}|${a.bodegaId}" ${a.id===line.articuloId&&a.bodegaId===line.bodegaId?'selected':''}>${esc(a.codigo+' · '+a.descripcion+' · '+a.bodegaCodigo+' · Disponible '+a.existencia)}</option>`).join('')}</select></td>
         <td><input data-qty type="number" min="0.000001" step="0.000001" value="${esc(line.cantidad)}" required></td>
         <td><input data-price type="number" min="0.01" step="0.01" value="${esc(line.precioUnitarioConIva||'')}" required></td>
         <td>${item?.iva==null?'IVA sin clasificar':esc(item.iva+' %')}</td>
-        <td>${item?.serial?`<select data-serial multiple size="${Math.min(4,Math.max(2,available.length))}" aria-label="Unidades serializadas">${available.map(x=>`<option value="${x.id}" ${line.unidadesSerializadas.includes(x.id)?'selected':''}>${esc(x.tipo+' '+x.valor+' · '+x.id)}</option>`).join('')}</select><small>Selecciona ${esc(line.cantidad)} unidad(es) con Ctrl/Cmd.</small>`:'—'}</td>
+        <td>${item?.serial?`<button type="button" class="button secondary customer-serial-trigger" data-choose-serial>Buscar seriales</button><small class="customer-serial-count">${line.unidadesSerializadas.length} de ${esc(line.cantidad)} seleccionada(s)</small>`:'—'}</td>
         <td><button type="button" class="button secondary" data-remove>Quitar</button></td></tr>`;
     }).join('');
     area.querySelectorAll('[data-line]').forEach(row=>{
@@ -204,9 +205,48 @@
       row.querySelector('[data-article]').onchange=event=>{const [id,warehouse]=event.target.value.split('|').map(Number);line.articuloId=id||0;line.bodegaId=warehouse||0;line.unidadesSerializadas=[];renderLines();dirty=true;};
       row.querySelector('[data-qty]').oninput=event=>{line.cantidad=Number(event.target.value);summary();dirty=true;};
       row.querySelector('[data-price]').oninput=event=>{line.precioUnitarioConIva=Number(event.target.value);summary();dirty=true;};
-      row.querySelector('[data-serial]')?.addEventListener('change',event=>{line.unidadesSerializadas=Array.from(event.target.selectedOptions,x=>Number(x.value));dirty=true;});
+      row.querySelector('[data-choose-serial]')?.addEventListener('click',()=>openSerialPicker(Number(row.dataset.line)));
       row.querySelector('[data-remove]').onclick=()=>{lines.splice(Number(row.dataset.line),1);renderLines();dirty=true;};
     });updateGeneralCenterHint();summary();
+  }
+  function openSerialPicker(index){
+    const line=lines[index],article=articleChoices().find(x=>x.id===line.articuloId&&x.bodegaId===line.bodegaId);
+    if(!article){notice('Selecciona primero el artículo y la bodega.',true);return;}
+    const units=new Map();
+    for(const serial of options.seriales||[]){
+      if(serial.articuloId!==line.articuloId||serial.bodegaId!==line.bodegaId)continue;
+      if(!units.has(serial.id))units.set(serial.id,{id:serial.id,identifiers:[]});
+      units.get(serial.id).identifiers.push(`${serial.tipo}: ${serial.valor}`);
+    }
+    const available=[...units.values()],chosen=new Set(line.unidadesSerializadas);
+    const reserved=new Set(lines.flatMap((other,i)=>i===index?[]:other.unidadesSerializadas));
+    const required=Number(line.cantidad);
+    if(!Number.isInteger(required)||required<1){notice('Para artículos serializados, escribe primero una cantidad entera mayor que cero.',true);return;}
+    serialDialog.innerHTML=`<div class="customer-serial-heading"><div><span class="dialog-kicker">UNIDADES DISPONIBLES</span><h2>${esc(article.descripcion)}</h2><small>${esc(article.bodegaCodigo)} · ${esc(article.codigo)}</small></div><button type="button" class="dialog-close" data-close-serial aria-label="Cerrar">×</button></div>
+      <label class="customer-serial-search">Buscar por chasis, motor, VIN o código<input data-serial-search type="search" autocomplete="off" placeholder="Escribe parte del serial…"></label>
+      <div class="customer-serial-status" data-serial-status role="status"></div><div class="customer-serial-options" data-serial-options></div>
+      <div class="customer-serial-actions"><button type="button" class="button secondary" data-cancel-serial>Cancelar</button><button type="button" class="button primary" data-save-serial>Usar unidades seleccionadas</button></div>`;
+    const status=serialDialog.querySelector('[data-serial-status]'),list=serialDialog.querySelector('[data-serial-options]');
+    function renderOptions(){
+      const term=serialDialog.querySelector('[data-serial-search]').value.trim().toLocaleLowerCase('es-CO');
+      const shown=available.filter(unit=>!term||unit.identifiers.some(value=>value.toLocaleLowerCase('es-CO').includes(term))||String(unit.id).includes(term));
+      status.textContent=`${chosen.size} de ${required} unidad(es) seleccionada(s) · ${shown.length} resultado(s)`;
+      list.innerHTML=shown.map(unit=>`<label class="customer-serial-option"><input type="checkbox" data-unit-id="${unit.id}" ${chosen.has(unit.id)?'checked':''} ${reserved.has(unit.id)?'disabled':''}><span><strong>Unidad ${unit.id}</strong><small>${esc(unit.identifiers.join(' · '))}</small>${reserved.has(unit.id)?'<small>Ya asignada en otra línea</small>':''}</span></label>`).join('')||'<p class="egreso-help">No se encontraron unidades con ese dato.</p>';
+      list.querySelectorAll('[data-unit-id]').forEach(box=>box.onchange=()=>{
+        const id=Number(box.dataset.unitId);
+        if(box.checked&&chosen.size>=required){box.checked=false;status.textContent=`Solo puedes elegir ${required} unidad(es).`;return;}
+        if(box.checked)chosen.add(id);else chosen.delete(id);
+        status.textContent=`${chosen.size} de ${required} unidad(es) seleccionada(s) · ${shown.length} resultado(s)`;
+      });
+    }
+    serialDialog.querySelector('[data-serial-search]').oninput=renderOptions;
+    serialDialog.querySelector('[data-close-serial]').onclick=()=>serialDialog.close();
+    serialDialog.querySelector('[data-cancel-serial]').onclick=()=>serialDialog.close();
+    serialDialog.querySelector('[data-save-serial]').onclick=()=>{
+      if(chosen.size!==required){status.textContent=`Selecciona exactamente ${required} unidad(es) para continuar.`;return;}
+      line.unidadesSerializadas=[...chosen];serialDialog.close();renderLines();dirty=true;
+    };
+    renderOptions();serialDialog.showModal();serialDialog.querySelector('[data-serial-search]').focus();
   }
   function updateGeneralCenterHint(){
     const hint=$('[data-general-center-hint]');if(!hint)return;
@@ -232,8 +272,9 @@
   }
   function renderAdvances(){
     const area=$('[data-allocations]');if(!area)return;
+    area.classList.add('customer-advance-list');
     const advancesWithoutDetails=(options.anticipos||[]).some(x=>!x.concepto||!x.fecha||!x.zeusEstado);
-    area.innerHTML=`<h3>Cuota inicial / anticipos disponibles</h3><p class="egreso-help">Puedes aplicar los anticipos automáticamente, hasta cubrir el total de la factura, o escogerlos uno por uno. Cada recibo conserva su concepto y el servidor verifica su estado en Zeus.</p>${advancesWithoutDetails?'<p class="egreso-help">El servidor aún no entrega fecha, concepto o estado de algunos anticipos. Puedes seleccionarlos; actualiza el backend para ver esos datos.</p>':''}<div class="egreso-toolbar"><button type="button" class="button secondary" data-apply-advances>Aplicar anticipos disponibles</button><button type="button" class="button secondary" data-clear-advances ${advances.length?'':'disabled'}>Quitar selección</button></div><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Recibo / fecha</th><th>Concepto</th><th>Saldo disponible</th><th>Valor a descontar</th></tr></thead><tbody>${(options.anticipos||[]).map(x=>`<tr><td><input type="checkbox" data-pick-advance="${x.id}" ${advances.some(a=>a.reciboCajaId===x.id)?'checked':''} ${x.zeusEstado&&x.zeusEstado!=='CONTABILIZADO'?'disabled':''}></td><td>RC-${x.id}<br><small>${esc(x.fecha||'Fecha no disponible')}</small></td><td>${esc(x.concepto||'Concepto no disponible')}</td><td>${money(x.saldo)}</td><td><input data-advance-value="${x.id}" type="number" min="0.01" max="${x.saldo}" step="0.01" value="${advances.find(a=>a.reciboCajaId===x.id)?.valor||x.saldo}" ${advances.some(a=>a.reciboCajaId===x.id)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="5">No hay anticipos disponibles. Registra primero un recibo de caja si el cliente pagó cuota inicial.</td></tr>'}</tbody></table></div><strong data-advance-summary></strong>`;
+    area.innerHTML=`<h3>Cuota inicial / anticipos disponibles</h3><p class="egreso-help">Aplica en bloque hasta cubrir la factura o elige recibos individuales. Puedes ajustar cada importe.</p>${advancesWithoutDetails?'<p class="egreso-help">El servidor aún no entrega fecha, concepto o estado de algunos anticipos. Actualiza el backend para verlos.</p>':''}<div class="egreso-toolbar"><button type="button" class="button secondary" data-apply-advances>Aplicar anticipos disponibles</button><button type="button" class="button secondary" data-clear-advances ${advances.length?'':'disabled'}>Quitar selección</button></div><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Recibo / fecha</th><th>Concepto</th><th>Saldo disponible</th><th>Valor a descontar</th></tr></thead><tbody>${(options.anticipos||[]).map(x=>`<tr><td><input type="checkbox" data-pick-advance="${x.id}" ${advances.some(a=>a.reciboCajaId===x.id)?'checked':''} ${x.zeusEstado&&x.zeusEstado!=='CONTABILIZADO'?'disabled':''}></td><td>RC-${x.id}<br><small>${esc(x.fecha||'—')}</small></td><td>${esc(x.concepto||'—')}</td><td>${money(x.saldo)}</td><td><input data-advance-value="${x.id}" type="number" min="0.01" max="${x.saldo}" step="0.01" value="${advances.find(a=>a.reciboCajaId===x.id)?.valor||x.saldo}" ${advances.some(a=>a.reciboCajaId===x.id)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="5">No hay anticipos disponibles. Registra primero un recibo de caja si el cliente pagó cuota inicial.</td></tr>'}</tbody></table></div><strong data-advance-summary></strong>`;
     area.querySelector('[data-apply-advances]').onclick=()=>{
       let remaining=lines.reduce((sum,x)=>sum+Math.round(x.cantidad*x.precioUnitarioConIva*100),0)
         +conceptLines.reduce((sum,x)=>sum+Math.round(x.valor*100),0);
