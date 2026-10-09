@@ -13,32 +13,13 @@ public sealed record PortfolioOldInstallment(long Id,int Numero,DateOnly Vencimi
 
 public sealed class PortfolioRefinancingRepository(TenantConnectionFactory connections,ZeusTransport zeus)
 {
-    public async Task ApproveAsync(long company,long noteId,long approver,CancellationToken ct)
-    {
-        await using var c=await connections.OpenAsync(company,false,ct);
-        await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
-        await using var q=ZeusRepository.Command(c,"""
-            UPDATE n SET ZeusEstado='PENDIENTE',AprobadoPor=@Approver,AprobadoEnUtc=SYSUTCDATETIME(),ZeusActualizadoEnUtc=SYSUTCDATETIME()
-            OUTPUT inserted.FacturaVentaId
-            FROM ven.RefinanciacionCartera n WITH(UPDLOCK,HOLDLOCK)
-            JOIN ven.FacturaVenta f WITH(UPDLOCK,HOLDLOCK) ON f.EmpresaId=n.EmpresaId AND f.FacturaVentaId=n.FacturaVentaId
-            WHERE n.EmpresaId=@E AND n.RefinanciacionCarteraId=@Id AND n.ZeusEstado='POR_APROBAR'
-                AND n.CreadoPor<>@Approver AND f.RefinanciacionEstado='PENDIENTE'
-                AND f.SaldoPendiente=n.SaldoAnterior
-            """,company,tx);
-        ZeusRepository.Add(q,"@Id",noteId);ZeusRepository.Add(q,"@Approver",approver);
-        var invoice=await q.ExecuteScalarAsync(ct);
-        if(invoice is null)throw new ArgumentException("Esta nota ya no está pendiente, la cartera cambió o quien la preparó intenta aprobarla. Debe aprobarla otro usuario autorizado.");
-        q.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,AplicacionOrigen) VALUES(@E,@Approver,'APROBAR_NOTA_CARTERA','ven.RefinanciacionCartera',CONVERT(varchar(30),@Id),'ERP')";
-        await q.ExecuteNonQueryAsync(ct);await tx.CommitAsync(ct);
-    }
     public async Task CancelUnsentAsync(long company,long invoiceId,long noteId,long user,CancellationToken ct)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
-        await using var q=ZeusRepository.Command(c,"UPDATE ven.RefinanciacionCartera SET ZeusEstado='CANCELADO',ZeusActualizadoEnUtc=SYSUTCDATETIME() WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND RefinanciacionCarteraId=@Id AND ZeusEstado IN('POR_APROBAR','RECHAZADO') AND ZeusDocumento IS NULL AND CreadoPor=@User",company,tx);
+        await using var q=ZeusRepository.Command(c,"UPDATE ven.RefinanciacionCartera SET ZeusEstado='CANCELADO',ZeusActualizadoEnUtc=SYSUTCDATETIME() WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND RefinanciacionCarteraId=@Id AND (ZeusEstado IN('POR_APROBAR','RECHAZADO') OR ZeusEstado='PENDIENTE' AND ZeusIntentos=0) AND ZeusDocumento IS NULL AND CreadoPor=@User",company,tx);
         ZeusRepository.Add(q,"@Invoice",invoiceId);ZeusRepository.Add(q,"@Id",noteId);ZeusRepository.Add(q,"@User",user);
-        if(await q.ExecuteNonQueryAsync(ct)!=1)throw new ArgumentException("Solo quien creó la nota puede descartar una nota sin enviar o rechazada. Las inciertas deben conciliarse.");
+        if(await q.ExecuteNonQueryAsync(ct)!=1)throw new ArgumentException("Solo quien creó la nota puede descartar una nota aún no enviada. Si ya empezó el envío, espera su resultado o concíliala.");
         q.CommandText="UPDATE ven.FacturaVenta SET RefinanciacionEstado='LIBRE' WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND RefinanciacionEstado='PENDIENTE'";
         if(await q.ExecuteNonQueryAsync(ct)!=1)throw new ArgumentException("La factura cambió; actualiza antes de descartar la nota.");
         q.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,AplicacionOrigen) VALUES(@E,@User,'CANCELAR_NOTA_CARTERA_SIN_ENVIO','ven.RefinanciacionCartera',CONVERT(varchar(30),@Id),'ERP')";
@@ -49,13 +30,13 @@ public sealed class PortfolioRefinancingRepository(TenantConnectionFactory conne
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=ZeusRepository.Command(c,"""
             SELECT RefinanciacionCarteraId,FechaContable,SaldoAnterior,NuevoSaldo,Incremento,Motivo,
-                ZeusEstado,ZeusFuente,ZeusDocumento,ZeusError,PlanAnterior,PlanNuevo,CreadoPor,AprobadoPor,CuentaIngresoZeus,CentroCostoZeus
+                ZeusEstado,ZeusFuente,ZeusDocumento,ZeusError,PlanAnterior,PlanNuevo,CreadoPor,AprobadoPor,CuentaIngresoZeus,CentroCostoZeus,ZeusIntentos
             FROM ven.RefinanciacionCartera WHERE EmpresaId=@E AND FacturaVentaId=@Invoice
             ORDER BY RefinanciacionCarteraId DESC
             """,company);
         ZeusRepository.Add(q,"@Invoice",invoiceId);
         var items=new List<object>();await using var r=await q.ExecuteReaderAsync(ct);
-        while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),saldoAnterior=r.GetDecimal(2),nuevoSaldo=r.GetDecimal(3),incremento=r.GetDecimal(4),motivo=r.GetString(5),zeusEstado=r.GetString(6),fuente=r.IsDBNull(7)?null:r.GetString(7),documento=r.IsDBNull(8)?null:r.GetString(8),error=r.IsDBNull(9)?null:r.GetString(9),planAnterior=JsonSerializer.Deserialize<PortfolioOldInstallment[]>(r.GetString(10)),planNuevo=JsonSerializer.Deserialize<PortfolioInstallment[]>(r.GetString(11)),creadoPor=r.GetInt64(12),aprobadoPor=r.IsDBNull(13)?(long?)null:r.GetInt64(13),cuentaIngreso=r.IsDBNull(14)?null:r.GetString(14),centroCosto=r.IsDBNull(15)?null:r.GetString(15)});
+        while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),saldoAnterior=r.GetDecimal(2),nuevoSaldo=r.GetDecimal(3),incremento=r.GetDecimal(4),motivo=r.GetString(5),zeusEstado=r.GetString(6),fuente=r.IsDBNull(7)?null:r.GetString(7),documento=r.IsDBNull(8)?null:r.GetString(8),error=r.IsDBNull(9)?null:r.GetString(9),planAnterior=JsonSerializer.Deserialize<PortfolioOldInstallment[]>(r.GetString(10)),planNuevo=JsonSerializer.Deserialize<PortfolioInstallment[]>(r.GetString(11)),creadoPor=r.GetInt64(12),aprobadoPor=r.IsDBNull(13)?(long?)null:r.GetInt64(13),cuentaIngreso=r.IsDBNull(14)?null:r.GetString(14),centroCosto=r.IsDBNull(15)?null:r.GetString(15),intentos=r.GetInt32(16)});
         return new{items};
     }
 
@@ -177,9 +158,9 @@ public sealed class PortfolioRefinancingRepository(TenantConnectionFactory conne
         ZeusRepository.Add(q,"@User",user);
         q.CommandText="""
             INSERT ven.RefinanciacionCartera(EmpresaId,FacturaVentaId,OperacionGuid,SucursalId,FechaContable,
-                SaldoAnterior,NuevoSaldo,Incremento,CuentaIngresoZeus,CentroCostoZeus,Motivo,PlanAnterior,PlanNuevo,Snapshot,CreadoPor)
+                SaldoAnterior,NuevoSaldo,Incremento,CuentaIngresoZeus,CentroCostoZeus,Motivo,PlanAnterior,PlanNuevo,Snapshot,CreadoPor,ZeusEstado)
             OUTPUT inserted.RefinanciacionCarteraId
-            VALUES(@E,@Invoice,@Key,@Branch,@Date,@Old,@New,@Increase,@Account,@Center,@Reason,@OldPlan,@NewPlan,@Snapshot,@User)
+            VALUES(@E,@Invoice,@Key,@Branch,@Date,@Old,@New,@Increase,@Account,@Center,@Reason,@OldPlan,@NewPlan,@Snapshot,@User,'PENDIENTE')
             """;
         var id=Convert.ToInt64(await q.ExecuteScalarAsync(ct));
         q.CommandText="UPDATE ven.FacturaVenta SET RefinanciacionEstado='PENDIENTE' WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND RefinanciacionEstado='LIBRE'";
@@ -187,6 +168,6 @@ public sealed class PortfolioRefinancingRepository(TenantConnectionFactory conne
         q.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@E,@User,'REFINANCIAR_CARTERA','ven.RefinanciacionCartera',CONVERT(varchar(30),@Id),@NewPlan,'ERP')";
         ZeusRepository.Add(q,"@Id",id);await q.ExecuteNonQueryAsync(ct);
         await tx.CommitAsync(ct);
-        return new{id,zeusEstado="POR_APROBAR",saldoAnterior=balance,nuevoSaldo=newBalance,incremento=increment,repetido=false};
+        return new{id,zeusEstado="PENDIENTE",saldoAnterior=balance,nuevoSaldo=newBalance,incremento=increment,repetido=false};
     }
 }

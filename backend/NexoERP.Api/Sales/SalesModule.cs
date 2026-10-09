@@ -248,11 +248,6 @@ public static class SalesModule
         }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapPost("/portfolio-notes/{noteId:long}/reconcile",async(long empresaId,long noteId,CustomerPostingQueue queue,ZeusTransport zeus,CancellationToken ct)=>
             Results.Ok(await queue.ReconcileAsync(empresaId,"NOTA",noteId,zeus,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
-        group.MapPost("/portfolio-notes/{noteId:long}/approve",async(long empresaId,long noteId,HttpContext http,PortfolioRefinancingRepository portfolio,CancellationToken ct)=>
-        {
-            try{await portfolio.ApproveAsync(empresaId,noteId,Convert.ToInt64(http.Items["UsuarioId"]),ct);return Results.Ok(new{estado="PENDIENTE"});}
-            catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
-        }).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
         group.MapPost("/sales-invoices/{id:long}/refinancings/{noteId:long}/cancel",async(long empresaId,long id,long noteId,HttpContext http,PortfolioRefinancingRepository portfolio,CancellationToken ct)=>
         {
             try{await portfolio.CancelUnsentAsync(empresaId,id,noteId,Convert.ToInt64(http.Items["UsuarioId"]),ct);return Results.NoContent();}
