@@ -70,7 +70,8 @@
 .customer-documents-dialog .customer-installment-settings h3{margin:0 0 11px;font-size:14px}
 .customer-documents-dialog .customer-installment-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}
 .customer-documents-dialog .customer-installment-settings>small{margin-top:8px}
-.customer-documents-dialog .customer-extra-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:15px 0 8px;padding-top:12px;border-top:1px solid #dce7e1;font-size:12px}
+.customer-documents-dialog .customer-extra-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 8px;font-size:12px}
+.customer-documents-dialog .customer-installment-settings .customer-regular-heading{margin:15px 0 11px;padding-top:12px;border-top:1px solid #dce7e1}
 .customer-documents-dialog .customer-extra-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:9px;align-items:end;margin-top:8px}
 .customer-documents-dialog .customer-extra-row .button{height:35px}
 .customer-documents-dialog [data-document]>.egreso-toolbar:last-child{justify-content:space-between;border-top:1px solid #dce7e1;padding-top:15px;gap:12px}
