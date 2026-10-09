@@ -34,42 +34,79 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         ZeusRepository.Add(q,"@User",user);ZeusRepository.Add(q,"@Before",JsonSerializer.Serialize(new{claseCartera=previous.Trim()}));ZeusRepository.Add(q,"@Detail",JsonSerializer.Serialize(new{claseCartera=category}));
         await q.ExecuteNonQueryAsync(ct);await tx.CommitAsync(ct);
     }
-    public async Task<object> ReceivablesAsync(long company,string? search,string? category,int page,CancellationToken ct)
+    public async Task<object> ReceivablesAsync(long company,string? search,string? category,string? status,int? band,DateOnly? from,DateOnly? to,int page,CancellationToken ct)
     {
-        search=search?.Trim()??"";category=category?.Trim().ToUpperInvariant()??"";
-        if(search.Length>100||category is not("" or "MOTO" or "OTROS" or "MIXTA" or "SIN_CLASIFICAR")||page is <1 or >10000)
-            throw new ArgumentException("Revisa la búsqueda, el tipo de cartera y la página solicitada.");
+        search=search?.Trim()??"";category=category?.Trim().ToUpperInvariant()??"";status=status?.Trim().ToUpperInvariant()??"ABIERTA";
+        if(search.Length>100||category is not("" or "MOTO" or "OTROS" or "MIXTA" or "SIN_CLASIFICAR")
+            ||status is not("ABIERTA" or "VENCIDA" or "AL_DIA" or "PAGADA" or "TODAS")||band is <0 or >4||page is <1 or >10000
+            ||from.HasValue&&to.HasValue&&from>to)
+            throw new ArgumentException("Revisa la búsqueda, el estado, las fechas y la página solicitada.");
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=ZeusRepository.Command(c,"""
-            SELECT f.FacturaVentaId,f.Numero,t.RazonSocial,t.NumeroIdentificacion,f.ClaseCartera,
-                c.NumeroCuota,COALESCE(c.FechaVencimiento,f.Vencimiento),
-                COALESCE(c.ValorOriginal,f.Total),COALESCE(c.SaldoPendiente,f.SaldoPendiente),f.ZeusEstado
+            SET NOCOUNT ON;
+            SELECT f.FacturaVentaId,f.Numero,f.ClienteId,t.RazonSocial AS Cliente,t.NumeroIdentificacion AS Identificacion,
+                f.ClaseCartera,c.NumeroCuota,v.Vence,v.Original,v.Saldo,f.ZeusEstado,f.FechaContable,
+                CASE WHEN v.Saldo<=0 THEN 'PAGADA' WHEN v.Vence<@Today THEN 'VENCIDA' ELSE 'AL_DIA' END AS Estado,
+                CASE WHEN v.Vence<@Today AND v.Saldo>0 THEN DATEDIFF(day,v.Vence,@Today) ELSE 0 END AS DiasVencida,
+                CASE WHEN v.Vence>=@Today OR v.Saldo<=0 THEN 0
+                     WHEN DATEDIFF(day,v.Vence,@Today)<=30 THEN 1 WHEN DATEDIFF(day,v.Vence,@Today)<=60 THEN 2
+                     WHEN DATEDIFF(day,v.Vence,@Today)<=90 THEN 3 ELSE 4 END AS Banda
+            INTO #Cartera
             FROM ven.FacturaVenta f
             JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
             LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId AND c.PlanVersion=f.PlanVersion AND c.EstadoPlan='ACTIVA'
-            WHERE f.EmpresaId=@E AND f.SaldoPendiente>0 AND (c.FacturaVentaCuotaId IS NULL OR c.SaldoPendiente>0)
+            CROSS APPLY (VALUES(COALESCE(c.FechaVencimiento,f.Vencimiento),COALESCE(c.ValorOriginal,f.Total),COALESCE(c.SaldoPendiente,f.SaldoPendiente))) v(Vence,Original,Saldo)
+            WHERE f.EmpresaId=@E
                 AND (@Category='' OR f.ClaseCartera=@Category)
                 AND (@Q='' OR f.Numero LIKE '%'+@Q+'%' OR t.RazonSocial LIKE '%'+@Q+'%' OR t.NumeroIdentificacion LIKE '%'+@Q+'%')
-            ORDER BY f.FacturaVentaId DESC,c.NumeroCuota
+                AND (@From IS NULL OR f.FechaContable>=@From) AND (@To IS NULL OR f.FechaContable<=@To);
+
+            SELECT * INTO #Seleccion FROM #Cartera
+            WHERE (@Status='TODAS' OR @Status='ABIERTA' AND Saldo>0 OR Estado=@Status)
+              AND (@Band IS NULL OR Saldo>0 AND Banda=@Band);
+            SELECT FacturaVentaId,Numero,Cliente,Identificacion,ClaseCartera,NumeroCuota,Vence,Original,Saldo,ZeusEstado,Estado,DiasVencida
+            FROM #Seleccion
+            ORDER BY FacturaVentaId DESC,NumeroCuota
             OFFSET @Offset ROWS FETCH NEXT 50 ROWS ONLY;
-            SELECT COUNT_BIG(*),COALESCE(SUM(COALESCE(c.SaldoPendiente,f.SaldoPendiente)),0)
-            FROM ven.FacturaVenta f
-            JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
-            LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId AND c.PlanVersion=f.PlanVersion AND c.EstadoPlan='ACTIVA'
-            WHERE f.EmpresaId=@E AND f.SaldoPendiente>0 AND (c.FacturaVentaCuotaId IS NULL OR c.SaldoPendiente>0)
-                AND (@Category='' OR f.ClaseCartera=@Category)
-                AND (@Q='' OR f.Numero LIKE '%'+@Q+'%' OR t.RazonSocial LIKE '%'+@Q+'%' OR t.NumeroIdentificacion LIKE '%'+@Q+'%');
+            SELECT COUNT_BIG(*),COALESCE(SUM(Saldo),0) FROM #Seleccion;
+            SELECT COALESCE(SUM(CASE WHEN Saldo>0 THEN Saldo ELSE 0 END),0),
+                   COALESCE(SUM(CASE WHEN Estado='VENCIDA' THEN Saldo ELSE 0 END),0),
+                   COUNT_BIG(DISTINCT CASE WHEN Saldo>0 THEN ClienteId END),
+                   COUNT_BIG(DISTINCT CASE WHEN Saldo>0 THEN FacturaVentaId END),
+                   COUNT_BIG(CASE WHEN Estado='VENCIDA' THEN 1 END),
+                   COUNT_BIG(CASE WHEN Estado='AL_DIA' THEN 1 END),
+                   COUNT_BIG(CASE WHEN Estado='PAGADA' THEN 1 END)
+            FROM #Seleccion;
+            SELECT Banda,COUNT_BIG(*),COALESCE(SUM(Saldo),0) FROM #Seleccion WHERE Saldo>0 GROUP BY Banda ORDER BY Banda;
+            SELECT TOP(5) ClienteId,Cliente,Identificacion,COALESCE(SUM(Saldo),0) AS Saldo,
+                   COALESCE(SUM(CASE WHEN Estado='VENCIDA' THEN Saldo ELSE 0 END),0) AS Vencido
+            FROM #Seleccion WHERE Saldo>0 GROUP BY ClienteId,Cliente,Identificacion ORDER BY SUM(Saldo) DESC,Cliente;
+            SELECT TOP(4) FacturaVentaId,Numero,Cliente,Vence,Saldo,DiasVencida
+            FROM #Seleccion WHERE Estado='VENCIDA' ORDER BY DiasVencida DESC,Saldo DESC,FacturaVentaId DESC;
             """,company);
         q.Parameters.Add("@Q",SqlDbType.NVarChar,100).Value=search;
         q.Parameters.Add("@Category",SqlDbType.VarChar,20).Value=category;
+        q.Parameters.Add("@Status",SqlDbType.VarChar,10).Value=status;
+        q.Parameters.Add("@Band",SqlDbType.Int).Value=(object?)band??DBNull.Value;
+        q.Parameters.Add("@Today",SqlDbType.Date).Value=DateTime.UtcNow.AddHours(-5).Date;
+        q.Parameters.Add("@From",SqlDbType.Date).Value=from.HasValue?from.Value.ToDateTime(TimeOnly.MinValue):DBNull.Value;
+        q.Parameters.Add("@To",SqlDbType.Date).Value=to.HasValue?to.Value.ToDateTime(TimeOnly.MinValue):DBNull.Value;
         q.Parameters.Add("@Offset",SqlDbType.Int).Value=checked((page-1)*50);
         var items=new List<object>();
         await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),numero=r.GetString(1),cliente=r.GetString(2),identificacion=r.GetString(3),claseCartera=r.GetString(4),
-            numeroCuota=r.IsDBNull(5)?(int?)null:r.GetInt32(5),vence=r.GetDateTime(6).ToString("yyyy-MM-dd"),original=r.GetDecimal(7),saldo=r.GetDecimal(8),zeusEstado=r.GetString(9)});
+            numeroCuota=r.IsDBNull(5)?(int?)null:r.GetInt32(5),vence=r.GetDateTime(6).ToString("yyyy-MM-dd"),original=r.GetDecimal(7),saldo=r.GetDecimal(8),zeusEstado=r.GetString(9),estado=r.GetString(10),diasVencida=r.GetInt32(11)});
         await r.NextResultAsync(ct);await r.ReadAsync(ct);
-        var count=r.GetInt64(0);
-        return new{items,pagina=page,totalRegistros=count,totalSaldo=r.GetDecimal(1),paginas=(int)Math.Ceiling(count/50m)};
+        var count=r.GetInt64(0);var selectedBalance=r.GetDecimal(1);
+        await r.NextResultAsync(ct);await r.ReadAsync(ct);
+        var summary=new{saldo=r.GetDecimal(0),vencido=r.GetDecimal(1),clientes=r.GetInt64(2),facturas=r.GetInt64(3),cuotasVencidas=r.GetInt64(4),cuotasAlDia=r.GetInt64(5),cuotasPagadas=r.GetInt64(6)};
+        var bands=new List<object>();await r.NextResultAsync(ct);
+        while(await r.ReadAsync(ct))bands.Add(new{indice=r.GetInt32(0),cuotas=r.GetInt64(1),saldo=r.GetDecimal(2)});
+        var clients=new List<object>();await r.NextResultAsync(ct);
+        while(await r.ReadAsync(ct))clients.Add(new{id=r.GetInt64(0),nombre=r.GetString(1),identificacion=r.GetString(2),saldo=r.GetDecimal(3),vencido=r.GetDecimal(4)});
+        var priority=new List<object>();await r.NextResultAsync(ct);
+        while(await r.ReadAsync(ct))priority.Add(new{id=r.GetInt64(0),numero=r.GetString(1),cliente=r.GetString(2),vence=r.GetDateTime(3).ToString("yyyy-MM-dd"),saldo=r.GetDecimal(4),diasVencida=r.GetInt32(5)});
+        return new{items,pagina=page,totalRegistros=count,totalSaldo=selectedBalance,paginas=(int)Math.Ceiling(count/50m),resumen=summary,bandas=bands,clientesPrincipales=clients,prioritarias=priority};
     }
     public async Task<object> MissingCostCentersAsync(long company,long id,ZeusSettings settings,CancellationToken ct)
     {
