@@ -19,12 +19,20 @@ Check(true,"artículo sin precio de lista puede venderse sobre costo");
 var priceExceptions=SalesPricing.Assess(80m,100m,5m,90m,19m,true,7,2);
 Check(priceExceptions.Length==2&&priceExceptions.Any(x=>x.Tipo=="DESCUENTO"&&x.Umbral==95m)
     &&priceExceptions.Any(x=>x.Tipo=="BAJO_COSTO"&&x.Umbral==107.10m),"solicitud separa exceso de descuento y venta bajo costo");
+Check(SalesPricing.Assess(95m,null,5m,60m,19m,true,7,2,"Artículo",100m,5m).Length==0,
+    "descuento explícito dentro del límite sin precio de lista");
+Check(SalesPricing.Assess(90m,null,5m,60m,19m,true,7,2,"Artículo",100m,10m)
+    .Any(x=>x.Tipo=="DESCUENTO"&&x.Umbral==95m),"descuento explícito excesivo requiere autorización sin precio de lista");
+try{SalesPricing.Assess(94m,null,5m,60m,19m,true,7,2,"Artículo",100m,5m);throw new Exception("Permitió un precio final distinto del descuento declarado.");}
+catch(ArgumentException){Console.WriteLine("OK: el precio final debe coincidir con el descuento declarado");}
 var approvalInvoice=new SalesInvoiceInput(Guid.NewGuid(),"FV-AUT-1",3,2,new DateOnly(2026,10,8),new DateOnly(2026,11,8),
     [new SaleItem(7,2,1m,80m,null)],[],1,SalesInstallments.SameDayMonthly,[],null,null,"MOTO",null,null);
 var originalHash=SalesPriceApprovalRepository.Hash(approvalInvoice);
 Check(originalHash==SalesPriceApprovalRepository.Hash(approvalInvoice with{AutorizacionVentaId=9}),"identificador de autorización no modifica la huella aprobada");
 Check(originalHash!=SalesPriceApprovalRepository.Hash(approvalInvoice with{Lineas=[new SaleItem(7,2,1m,79m,null)]}),
     "la aprobación no sirve para un precio alterado");
+Check(originalHash!=SalesPriceApprovalRepository.Hash(approvalInvoice with{Lineas=[new SaleItem(7,2,1m,80m,null,100m,20m)]}),
+    "la aprobación conserva la base y el porcentaje de descuento");
 
 var monthly=SalesInstallments.Build(new DateOnly(2026,10,3),12,SalesInstallments.SameDayMonthly,1200m);
 Check(monthly.Length==12&&monthly[0].Vencimiento==new DateOnly(2026,10,3)

@@ -49,7 +49,8 @@ public sealed class SalesPriceApprovalRepository(TenantConnectionFactory connect
             {
                 if(!await r.ReadAsync(ct)||r.IsDBNull(2))throw new ArgumentException("Un artículo no está activo en la sucursal o no tiene IVA configurado.");
                 issues.AddRange(SalesPricing.Assess(line.PrecioUnitarioConIva,r.IsDBNull(0)?null:r.GetDecimal(0),maxDiscount,
-                    r.GetDecimal(1),r.GetDecimal(2),r.GetBoolean(3),line.ArticuloId,line.BodegaId,r.GetString(4)+" · "+r.GetString(5)));
+                    r.GetDecimal(1),r.GetDecimal(2),r.GetBoolean(3),line.ArticuloId,line.BodegaId,r.GetString(4)+" · "+r.GetString(5),
+                    line.PrecioBaseConIva,line.DescuentoPorcentaje));
             }
             q.Parameters.RemoveAt("@Article");q.Parameters.RemoveAt("@Warehouse");
         }

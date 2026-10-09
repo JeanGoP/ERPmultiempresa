@@ -292,13 +292,12 @@
       <div class="customer-invoice-meta"><label>Tipo de cartera<select name="claseCartera" required><option value="">Selecciona…</option><option value="MOTO">Motos</option><option value="OTROS">Otros artículos</option><option value="MIXTA">Mixta</option></select></label><label>Observación de la venta o garantía<textarea name="observacion" maxlength="1000" rows="2" placeholder="Información que conviene conservar con la factura"></textarea></label></div>
       <div class="egreso-grid"><label data-concept-warehouse hidden>Bodega para cuenta de clientes<select name="bodegaCarteraId"><option value="">Selecciona bodega…</option></select></label></div>
       <div class="egreso-toolbar"><h3>Artículos y conceptos</h3><button type="button" class="button secondary" data-add-line>Agregar artículo</button><button type="button" class="button secondary" data-add-concept>Agregar concepto</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Artículo / bodega</th><th>Cantidad</th><th>Precio unitario con IVA</th><th>IVA</th><th>Seriales</th><th></th></tr></thead><tbody data-lines></tbody></table></div>
+      <div class="table-wrap customer-sale-lines"><table><thead><tr><th>Artículo / bodega</th><th>Cant.</th><th>Precio y descuento</th><th>IVA</th><th>Seriales</th><th>Acción</th></tr></thead><tbody data-lines></tbody></table></div>
       <div class="table-wrap"><table><thead><tr><th>Concepto de venta</th><th>Cuenta de ingreso Zeus</th><th>Valor</th><th>Centro de costo Zeus</th><th></th></tr></thead><tbody data-concept-lines></tbody></table></div>
       <div class="customer-profit-preview" data-profit-preview></div>
       <div data-allocations></div><div class="customer-invoice-settings"><label class="customer-center-field">Centro de costo de la factura<select name="centroCostoIngreso"><option value="">Sin centro de costo</option>${(dimensions?.centrosCosto||[]).map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select><small data-general-center-hint>Se aplica a los artículos cuando Zeus lo exige.</small></label>
       <section class="customer-installment-settings"><h3>Plan de cuotas</h3><div class="customer-installment-fields"><label>Primer vencimiento<input name="vencimiento" type="date" value="${today()}" required></label><label>Número de cuotas ordinarias<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label><label>Vencimiento de las siguientes cuotas<select name="frecuenciaCuotas" required><option value="DIA_FIJO_MES">Mismo día de cada mes</option><option value="CADA_30_DIAS">Cada 30 días</option></select></label></div><small>Mensual: conserva el día del primer vencimiento. También puedes elegir cada 30 días.</small><div class="customer-extra-heading"><strong>Cuotas extraordinarias</strong><button type="button" class="button secondary" data-add-extra>+ Agregar cuota extra</button></div><div data-extra-rows></div></section></div>
       <div data-installments></div>
-      <label class="customer-approval-reason">Motivo de excepción de precio o descuento <textarea name="motivoAutorizacion" maxlength="500" rows="2" placeholder="Solo cuando el precio supera el descuento libre o está bajo costo"></textarea></label>
       <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit" ${dimensionsError?'disabled':''}>Emitir factura o solicitar autorización</button></div></fieldset></form>`;
     $('[data-retry-dimensions]')?.addEventListener('click',()=>void retryDimensions());
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
@@ -321,7 +320,8 @@
     const branch=$('[data-document]')?.elements.sucursalId.value;
     return (options.articulos||[]).filter(a=>String(a.sucursalId)===branch);
   }
-  function addLine(markDirty=true){lines.push({articuloId:0,bodegaId:0,cantidad:1,precioUnitarioConIva:0,unidadesSerializadas:[]});renderLines();if(markDirty)dirty=true;}
+  function addLine(markDirty=true){lines.push({articuloId:0,bodegaId:0,cantidad:1,precioBaseConIva:0,descuentoPorcentaje:0,precioUnitarioConIva:0,unidadesSerializadas:[]});renderLines();if(markDirty)dirty=true;}
+  function updateLinePrice(line){line.precioUnitarioConIva=Math.round(Number(line.precioBaseConIva||0)*(1-Number(line.descuentoPorcentaje||0)/100)*100)/100;}
   function renderLines(){
     const area=$('[data-lines]');if(!area)return;const choices=articleChoices();
     const f=$('[data-document]'),warehouseWrap=$('[data-concept-warehouse]');warehouseWrap.hidden=lines.length>0;
@@ -333,17 +333,19 @@
       const item=choices.find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);
       return `<tr data-line="${index}"><td><select data-article required><option value="">Selecciona artículo y bodega…</option>${choices.map(a=>`<option value="${a.id}|${a.bodegaId}" ${a.id===line.articuloId&&a.bodegaId===line.bodegaId?'selected':''}>${esc(a.codigo+' · '+a.descripcion+' · '+a.bodegaCodigo+' · Disponible '+a.existencia)}</option>`).join('')}</select></td>
         <td><input data-qty type="number" min="0.000001" step="0.000001" value="${esc(line.cantidad)}" required></td>
-        <td><input data-price type="number" min="0.01" step="0.01" value="${esc(line.precioUnitarioConIva||'')}" required>${item?.precioListaConIva?`<small>Lista ${money(item.precioListaConIva)} · libre ${esc(options.maxDescuentoVentaPct)} %</small>`:'<small>Sin precio de lista</small>'}${item?.inventario&&item.costoPromedio>0&&item.iva!=null?`<button type="button" class="customer-cost-price" data-cost-price>Usar costo + IVA</button>`:''}</td>
+        <td class="customer-price-cell"><div class="customer-price-fields"><label>Con IVA<input data-base-price type="number" min="0.01" step="0.01" value="${esc(line.precioBaseConIva||'')}" required></label><label>Descuento %<input data-discount type="number" min="0" max="100" step="0.01" value="${esc(line.descuentoPorcentaje||0)}"></label></div><strong data-final-price>Final ${money(line.precioUnitarioConIva)}</strong><small>${item?.precioListaConIva?`Lista ${money(item.precioListaConIva)}`:'Sin precio de lista'} · libre ${esc(options.maxDescuentoVentaPct)} %</small>${item?.inventario&&item.costoPromedio>0&&item.iva!=null?`<button type="button" class="customer-cost-price" data-cost-price>Usar costo + IVA</button>`:''}</td>
         <td>${item?.iva==null?'IVA sin clasificar':esc(item.iva+' %')}</td>
         <td>${item?.serial?`<button type="button" class="button secondary customer-serial-trigger" data-choose-serial>Buscar seriales</button><small class="customer-serial-count">${line.unidadesSerializadas.length} de ${esc(line.cantidad)} seleccionada(s)</small>`:'—'}</td>
-        <td><button type="button" class="button secondary" data-remove>Quitar</button></td></tr>`;
+        <td class="customer-remove-cell"><button type="button" class="button secondary" data-remove aria-label="Quitar artículo">Quitar</button></td></tr>`;
     }).join('');
     area.querySelectorAll('[data-line]').forEach(row=>{
       const line=lines[Number(row.dataset.line)];
-      row.querySelector('[data-article]').onchange=event=>{const [id,warehouse]=event.target.value.split('|').map(Number);line.articuloId=id||0;line.bodegaId=warehouse||0;line.precioUnitarioConIva=choices.find(a=>a.id===id&&a.bodegaId===warehouse)?.precioListaConIva||0;line.unidadesSerializadas=[];renderLines();dirty=true;};
+      row.querySelector('[data-article]').onchange=event=>{const [id,warehouse]=event.target.value.split('|').map(Number);line.articuloId=id||0;line.bodegaId=warehouse||0;line.precioBaseConIva=choices.find(a=>a.id===id&&a.bodegaId===warehouse)?.precioListaConIva||0;line.descuentoPorcentaje=0;updateLinePrice(line);line.unidadesSerializadas=[];renderLines();dirty=true;};
       row.querySelector('[data-qty]').oninput=event=>{line.cantidad=Number(event.target.value);summary();dirty=true;};
-      row.querySelector('[data-price]').oninput=event=>{line.precioUnitarioConIva=Number(event.target.value);summary();dirty=true;};
-      row.querySelector('[data-cost-price]')?.addEventListener('click',()=>{const item=articleChoices().find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);if(!item||item.costoPromedio==null||item.iva==null)return;line.precioUnitarioConIva=Math.round(item.costoPromedio*(1+item.iva/100)*100)/100;renderLines();dirty=true;});
+      const refreshPrice=()=>{updateLinePrice(line);row.querySelector('[data-final-price]').textContent=`Final ${money(line.precioUnitarioConIva)}`;summary();dirty=true;};
+      row.querySelector('[data-base-price]').oninput=event=>{line.precioBaseConIva=Number(event.target.value);refreshPrice();};
+      row.querySelector('[data-discount]').oninput=event=>{line.descuentoPorcentaje=Number(event.target.value);refreshPrice();};
+      row.querySelector('[data-cost-price]')?.addEventListener('click',()=>{const item=articleChoices().find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);if(!item||item.costoPromedio==null||item.iva==null)return;line.precioBaseConIva=Math.round(item.costoPromedio*(1+item.iva/100)*100)/100;line.descuentoPorcentaje=0;updateLinePrice(line);renderLines();dirty=true;});
       row.querySelector('[data-choose-serial]')?.addEventListener('click',()=>openSerialPicker(Number(row.dataset.line)));
       row.querySelector('[data-remove]').onclick=()=>{lines.splice(Number(row.dataset.line),1);renderLines();dirty=true;};
     });updateGeneralCenterHint();summary();
@@ -468,12 +470,13 @@
     event.preventDefault();if(busy)return;const f=event.target;
     if(dimensionsError||!dimensions){notice('Consulta los centros de costo de Zeus antes de emitir la factura o solicitar autorización.',true);return;}
     if(!client){notice('Selecciona un cliente de los resultados.',true);return;}
-    if(lines.some(x=>!x.articuloId||!x.bodegaId||x.cantidad<=0||x.precioUnitarioConIva<=0)){notice('Completa artículos, cantidades y precios.',true);return;}
+    if(lines.some(x=>!x.articuloId||!x.bodegaId||x.cantidad<=0||x.precioBaseConIva<=0||x.descuentoPorcentaje<0||x.descuentoPorcentaje>=100||x.precioUnitarioConIva<=0)){notice('Completa artículos, cantidades, precio con IVA y descuento válido.',true);return;}
     if(!lines.length&&!conceptLines.length){notice('Agrega al menos un artículo o un concepto.',true);return;}
     const priceIssues=[];
     for(const line of lines){const a=options.articulos.find(x=>x.id===line.articuloId&&x.bodegaId===line.bodegaId);
       if(a?.iva==null||a.inventario&&line.cantidad>a.existencia||a?.serial&&line.unidadesSerializadas.length!==line.cantidad){notice('Revisa el IVA, las existencias y los seriales seleccionados.',true);return;}
       if(a.precioListaConIva&&line.precioUnitarioConIva<Math.round(a.precioListaConIva*(1-options.maxDescuentoVentaPct/100)*100)/100)priceIssues.push(`${a.codigo}: descuento superior a ${options.maxDescuentoVentaPct} %`);
+      if(line.descuentoPorcentaje>options.maxDescuentoVentaPct&&!priceIssues.some(issue=>issue.startsWith(`${a.codigo}: descuento`)))priceIssues.push(`${a.codigo}: descuento ${line.descuentoPorcentaje} % superior al permitido`);
       if(a.inventario&&a.costoPromedio>0&&line.precioUnitarioConIva<Math.round(a.costoPromedio*(1+a.iva/100)*100)/100)priceIssues.push(`${a.codigo}: precio bajo costo`);}
     if(conceptLines.some(x=>!x.conceptoVentaId||!Number.isFinite(x.valor)||x.valor<=0)){notice('Completa los conceptos y sus valores.',true);return;}
     const required=dimensions?.cuentasRequierenCentroCosto||[];
@@ -485,8 +488,7 @@
     if(financedCents>0&&financedCents-extraCents<Number(f.elements.cuotas.value)){notice('Las cuotas extras deben dejar al menos $0,01 para cada cuota ordinaria.',true);return;}
     const body={operacionGuid:operation,numero:f.elements.numero.value,clienteId:client.id,sucursalId:Number(f.elements.sucursalId.value),fechaContable:f.elements.fechaContable.value,vencimiento:f.elements.vencimiento.value,lineas:lines,conceptos:conceptLines,cuotas:Number(f.elements.cuotas.value),frecuenciaCuotas:f.elements.frecuenciaCuotas.value,anticipos:advances,bodegaCarteraId:lines.length?null:Number(f.elements.bodegaCarteraId.value),centroCostoIngreso:f.elements.centroCostoIngreso.value||null,claseCartera:f.elements.claseCartera.value,observacion:f.elements.observacion.value.trim()||null,cuotasExtras:extraInstallments};
     if(priceIssues.length){
-      const reason=f.elements.motivoAutorizacion.value.trim();
-      if(reason.length<10){notice(`Esta factura requiere autorización (${priceIssues.join('; ')}). Escribe un motivo de al menos 10 caracteres.`,true);return;}
+      const reason=`Autorización de venta: ${priceIssues.join('; ')}`.slice(0,500);
       busy=true;const submit=f.querySelector('[type="submit"]');submit.disabled=true;notice('Guardando solicitud de autorización…');
       try{const result=await apiRequest(`/api/v1/companies/${company}/sales-price-approvals`,{method:'POST',body:JSON.stringify({factura:body,motivo:reason})});dirty=false;await approvalListing();notice(`Solicitud #${result.id} pendiente. Otro usuario autorizado debe aprobarla; aún no se emitió ni contabilizó la factura.`);}
       catch(error){notice(error.message,true);}finally{busy=false;if(submit.isConnected)submit.disabled=false;}

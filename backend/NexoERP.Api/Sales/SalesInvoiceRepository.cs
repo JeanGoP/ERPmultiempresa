@@ -6,7 +6,8 @@ using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.Sales;
 
-public sealed record SaleItem(long ArticuloId,long BodegaId,decimal Cantidad,decimal PrecioUnitarioConIva,long[]? UnidadesSerializadas);
+public sealed record SaleItem(long ArticuloId,long BodegaId,decimal Cantidad,decimal PrecioUnitarioConIva,long[]? UnidadesSerializadas,
+    decimal? PrecioBaseConIva=null,decimal DescuentoPorcentaje=0);
 public sealed record SaleAdvance(long ReciboCajaId,decimal Valor);
 public sealed record SaleConceptLine(long ConceptoVentaId,decimal Valor,string? CentroCosto);
 public sealed record SalesCostCenterCorrection(string CentroCosto);
@@ -391,7 +392,8 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             }
             q.Parameters.RemoveAt("@Article");q.Parameters.RemoveAt("@Warehouse");
             if(inventory&&stock<line.Cantidad)throw new ArgumentException("No hay existencias suficientes en la bodega seleccionada.");
-            priceExceptions.AddRange(SalesPricing.Assess(line.PrecioUnitarioConIva,listPrice,maxDiscount,cost,rate,inventory,line.ArticuloId,line.BodegaId,articleLabel));
+            priceExceptions.AddRange(SalesPricing.Assess(line.PrecioUnitarioConIva,listPrice,maxDiscount,cost,rate,inventory,line.ArticuloId,line.BodegaId,articleLabel,
+                line.PrecioBaseConIva,line.DescuentoPorcentaje));
             if(serial&&(line.UnidadesSerializadas?.Length!=line.Cantidad||line.UnidadesSerializadas.Distinct().Count()!=line.UnidadesSerializadas.Length))
                 throw new ArgumentException("Selecciona una unidad serializada distinta por cada artículo vendido.");
             if(!serial&&(line.UnidadesSerializadas?.Length??0)>0)throw new ArgumentException("Este artículo no maneja seriales.");
