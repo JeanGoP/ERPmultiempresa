@@ -87,7 +87,14 @@
 .customer-documents-dialog .customer-refinancing{margin:18px 0 4px;padding:14px;border:1px solid #dce7e1;border-radius:8px;background:#fbfdfb}
 .customer-documents-dialog .customer-refinancing .customer-list-heading{margin:0 0 10px}
 .customer-documents-dialog .customer-refinancing [data-refinancing-form]:not(:empty){margin-top:14px;padding-top:14px;border-top:1px solid #dce7e1}
-.customer-documents-dialog .customer-refinancing [data-new-dues] input,.customer-documents-dialog .customer-refinancing [data-new-dues] select{min-width:120px;width:100%;box-sizing:border-box}
+.customer-documents-dialog .customer-refinance-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+.customer-documents-dialog .customer-refinance-fields label,.customer-documents-dialog .customer-refinance-counterpart label{display:grid;gap:5px;min-width:0;font-size:12px;font-weight:600}
+.customer-documents-dialog .customer-refinance-preview{margin:10px 0 14px}
+.customer-documents-dialog .customer-refinance-preview .table-wrap{max-height:230px;overflow:auto;margin-top:8px}
+.customer-documents-dialog .customer-refinance-counterpart{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px;margin:12px 0;padding:12px;background:#f3f8f5;border:1px solid #d9e6dd;border-radius:8px}
+.customer-documents-dialog .customer-refinance-counterpart[hidden],.customer-documents-dialog .customer-refinance-counterpart [hidden]{display:none}
+.customer-documents-dialog .customer-refinance-counterpart strong{grid-column:1/-1;font-size:12px;color:#14513e}
+@media(max-width:720px){.customer-documents-dialog .customer-refinance-fields,.customer-documents-dialog .customer-refinance-counterpart{grid-template-columns:minmax(0,1fr)}}
 .customer-documents-dialog .customer-refinancing [data-refinance-total]{font-weight:700;color:#135a45}
 .customer-documents-dialog .customer-refinancing details{max-height:180px;overflow:auto;margin-top:5px;font-size:11px}
 .customer-documents-dialog .customer-refinancing details summary{cursor:pointer;color:#13634d}

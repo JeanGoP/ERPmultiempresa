@@ -224,7 +224,8 @@ public static class SalesModule
         group.MapGet("/sales-invoices/refinancing-options",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
         {
             var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus para esta empresa.")).Configuracion;
-            return Results.Ok(new{cuentas=(await zeus.ChartAsync(empresaId,config,ct)).Where(x=>x.Codigo.StartsWith("4",StringComparison.Ordinal)).ToArray(),centrosCosto=(await zeus.AccountingDimensionsAsync(empresaId,config,ct)).CentrosCosto});
+            var dimensions=await zeus.AccountingDimensionsAsync(empresaId,config,ct);
+            return Results.Ok(new{cuentas=(await zeus.ChartAsync(empresaId,config,ct)).Where(x=>x.Codigo.StartsWith("4",StringComparison.Ordinal)).ToArray(),centrosCosto=dimensions.CentrosCosto,cuentasRequierenCentroCosto=dimensions.CuentasRequierenCentroCosto});
         }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapPost("/sales-invoices/{id:long}/refinancings",async(long empresaId,long id,PortfolioRefinancingInput input,HttpContext http,PortfolioRefinancingRepository portfolio,CancellationToken ct)=>
         {
