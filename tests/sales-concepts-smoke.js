@@ -64,6 +64,8 @@ assert.match(receivablesUi,/data-invoice/);
 assert.match(receivablesUi,/openSavedSalesInvoice/);
 assert.match(receivablesUi,/totalSaldo/);
 assert.match(receivablesUi,/data-kpis/);
+assert.match(receivablesUi,/<article class="\$\{tone\}">/);
+assert.doesNotMatch(receivablesUi,/class="receivable-kpi|data-state=/);
 assert.match(receivablesUi,/data-band/);
 assert.match(receivablesUi,/name="estado"/);
 assert.match(receivablesUi,/name="clase"/);

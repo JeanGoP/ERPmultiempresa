@@ -107,16 +107,6 @@
 .sales-receivables-dialog .dialog-heading{align-items:start}
 .sales-receivables-dialog .dialog-heading h2{font-size:26px}
 .sales-receivables-dialog .receivables-kpis{margin:14px 0 16px}
-.sales-receivables-dialog .receivable-kpi{display:block;width:100%;min-width:0;padding:18px 20px;border:1px solid #dce7df;border-radius:12px;background:#fff;text-align:left;cursor:pointer}
-.sales-receivables-dialog .receivable-kpi span,.sales-receivables-dialog .receivable-kpi strong,.sales-receivables-dialog .receivable-kpi small{display:block}
-.sales-receivables-dialog .receivable-kpi span{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#62746a}
-.sales-receivables-dialog .receivable-kpi strong{margin:10px 0 7px;font-size:clamp(17px,1.55vw,24px);color:#17513f;overflow-wrap:anywhere}
-.sales-receivables-dialog .receivable-kpi small{font-size:11px;color:#71827a}
-.sales-receivables-dialog .receivable-kpi.primary{background:#193f3b;border-color:#193f3b}
-.sales-receivables-dialog .receivable-kpi.primary span,.sales-receivables-dialog .receivable-kpi.primary strong,.sales-receivables-dialog .receivable-kpi.primary small{color:#fff}
-.sales-receivables-dialog .receivable-kpi.alert{background:#fff7f2;border-color:#efddd0}
-.sales-receivables-dialog .receivable-kpi.alert strong{color:#ad5138}
-.sales-receivables-dialog .receivable-kpi:hover,.sales-receivables-dialog .receivable-kpi.selected{outline:2px solid #2f8a70;outline-offset:1px}
 .receivables-workspace{border:1px solid #dae5de;border-radius:12px;overflow:hidden;background:#fff}
 .sales-receivables-filters{display:grid;grid-template-columns:minmax(180px,1.7fr) repeat(2,minmax(135px,1fr)) repeat(2,minmax(150px,1fr)) auto;gap:10px;align-items:end;padding:16px;background:#fff}
 .sales-receivables-filters label{display:grid;gap:5px;min-width:0;font-size:11px;font-weight:700}

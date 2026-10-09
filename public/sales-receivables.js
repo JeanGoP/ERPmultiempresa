@@ -41,12 +41,12 @@
   function render(result){
     const summary=result.resumen,open=Number(summary.saldo),overdue=Number(summary.vencido),inTime=open-overdue;
     const cards=[
-      ['Saldo por cobrar',money(open),`${summary.clientes} cliente(s) con saldo`,'primary','ABIERTA'],
-      ['Cartera vencida',money(overdue),`${open?Math.round(overdue/open*100):0}% del saldo requiere atención`,'alert','VENCIDA'],
-      ['Por vencer',money(inTime),`${summary.cuotasAlDia} cuota(s) al día`,'','AL_DIA'],
-      [status==='PAGADA'?'Cuotas saldadas':'Facturas abiertas',status==='PAGADA'?summary.cuotasPagadas:summary.facturas,`${summary.cuotasVencidas} cuota(s) vencida(s)`,'',status==='PAGADA'?'PAGADA':'ABIERTA']
+      ['Saldo por cobrar',money(open),`${summary.clientes} cliente(s) con saldo`,'primary'],
+      ['Cartera vencida',money(overdue),`${open?Math.round(overdue/open*100):0}% del saldo requiere atención`,'alert'],
+      ['Por vencer',money(inTime),`${summary.cuotasAlDia} cuota(s) al día`,''],
+      [status==='PAGADA'?'Cuotas saldadas':'Facturas abiertas',status==='PAGADA'?summary.cuotasPagadas:summary.facturas,`${summary.cuotasVencidas} cuota(s) vencida(s)`,'']
     ];
-    $('[data-kpis]').innerHTML=cards.map(([title,value,note,tone,target],index)=>`<button type="button" class="receivable-kpi ${tone} ${status===target&&band===null&&index<3?'selected':''}" data-state="${target}"><span>${esc(title)}</span><strong>${esc(value)}</strong><small>${esc(note)}</small></button>`).join('');
+    $('[data-kpis]').innerHTML=cards.map(([title,value,note,tone])=>`<article class="${tone}"><span>${esc(title)}</span><strong>${esc(value)}</strong><small>${esc(note)}</small></article>`).join('');
     const buckets=bands.map((b,i)=>({...b,...(result.bandas.find(x=>x.indice===i)||{cuotas:0,saldo:0})}));
     const highest=Number(result.clientesPrincipales[0]?.saldo)||1;
     $('[data-dashboard]').innerHTML=`<section class="payable-aging"><header><div><span class="payable-overline">DISTRIBUCIÓN DEL SALDO</span><h2>¿Qué edad tiene la cartera?</h2><p>Días transcurridos desde el vencimiento de cada cuota abierta.</p></div><button type="button" class="button secondary" data-band="all">Ver todas</button></header>
@@ -57,7 +57,6 @@
     $('[data-scope]').textContent=`${band===null?'Todas las edades':bands[band].name} · ${result.totalRegistros} cuota(s) · ${money(result.totalSaldo)}. Indicadores sujetos a todos los filtros.`;
     $('[data-table]').innerHTML=`<table><thead><tr><th>Cliente / factura</th><th>Cartera</th><th>Vencimiento</th><th>Edad</th><th>Valor original</th><th>Saldo</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>${result.items.map(x=>`<tr><td><strong>${esc(x.cliente)}</strong><small>${esc(x.identificacion)} · ${esc(x.numero)}${x.numeroCuota?` · cuota ${x.numeroCuota}`:''}</small></td><td>${esc(typeLabel(x.claseCartera))}</td><td>${esc(x.vence)}</td><td>${x.diasVencida?`${x.diasVencida} días vencida`:'Al día'}</td><td>${money(x.original)}</td><td class="receivable-balance">${money(x.saldo)}</td><td><span class="receivable-state state-${x.estado.toLowerCase()}">${stateLabel(x.estado)}</span><small>Zeus: ${esc(x.zeusEstado)}</small></td><td><button type="button" class="button secondary" data-invoice="${x.id}">Abrir factura</button></td></tr>`).join('')||'<tr><td colspan="8">No hay cuotas con estos filtros.</td></tr>'}</tbody></table>`;
     $('[data-pages]').innerHTML=`<button type="button" class="button secondary" data-prev ${page>1?'':'disabled'}>Anterior</button><span>Página ${page} de ${Math.max(1,result.paginas)}</span><button type="button" class="button secondary" data-next ${page<result.paginas?'':'disabled'}>Siguiente</button>`;
-    dialog.querySelectorAll('[data-state]').forEach(button=>button.onclick=()=>{status=button.dataset.state;band=null;page=1;void load();});
     dialog.querySelectorAll('[data-band]').forEach(button=>button.onclick=()=>{band=button.dataset.band==='all'?null:Number(button.dataset.band);status='ABIERTA';page=1;void load();});
     dialog.querySelectorAll('[data-client]').forEach(button=>button.onclick=()=>{query=button.dataset.client;status='ABIERTA';band=null;page=1;void load();});
     dialog.querySelectorAll('[data-invoice]').forEach(button=>button.onclick=()=>{const id=Number(button.dataset.invoice);close();void window.openSavedSalesInvoice(id);});
