@@ -12,10 +12,10 @@
     {name:'Más de 90 días',note:'Prioridad crítica',color:'#8a3f59'}
   ];
   const dialog=document.createElement('dialog');dialog.className='erp-dialog egreso-dialog sales-receivables-dialog';document.body.append(dialog);
-  let company=0,generation=0,page=1,query='',category='',status='ABIERTA',band=null,from='',to='';
+  let company=0,generation=0,page=1,query='',category='',status='ABIERTA',band=null,from='',to='',searchTimer=null,requestController=null;
   const $=selector=>dialog.querySelector(selector);
   const current=token=>token===generation&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
-  function close(){generation++;if(dialog.open)dialog.close();company=0;}
+  function close(){generation++;clearTimeout(searchTimer);requestController?.abort();requestController=null;if(dialog.open)dialog.close();company=0;}
   window.resetSalesReceivables=close;
   dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
   function shell(){
@@ -27,16 +27,22 @@
         <label>Estado<select name="estado"><option value="ABIERTA" ${status==='ABIERTA'?'selected':''}>Cartera abierta</option><option value="VENCIDA" ${status==='VENCIDA'?'selected':''}>Vencida</option><option value="AL_DIA" ${status==='AL_DIA'?'selected':''}>Al día</option><option value="PAGADA" ${status==='PAGADA'?'selected':''}>Saldada</option><option value="TODAS" ${status==='TODAS'?'selected':''}>Todos los estados</option></select></label>
         <label>Desde contabilización<input name="desde" type="date" value="${esc(from)}"></label>
         <label>Hasta contabilización<input name="hasta" type="date" value="${esc(to)}"></label>
-        <button class="button primary" type="submit">Actualizar</button>
       </form><p data-status role="status" aria-live="polite"></p><div data-dashboard class="payable-dashboard"></div>
       <div class="payable-table-heading"><div><h2>Detalle de cuotas</h2><p data-scope></p></div></div>
       <div class="table-wrap receivables-table" data-table></div><div class="sales-receivables-pages" data-pages></div></section>`;
     $('[data-close]').onclick=close;
-    $('[data-filters]').onsubmit=event=>{
-      event.preventDefault();const fields=event.target.elements;
-      if(fields.desde.value&&fields.hasta.value&&fields.desde.value>fields.hasta.value){$('[data-status]').textContent='La fecha inicial no puede ser posterior a la final.';return;}
-      query=fields.q.value.trim();category=fields.clase.value;status=fields.estado.value;from=fields.desde.value;to=fields.hasta.value;band=null;page=1;void load();
+    const form=$('[data-filters]');
+    const updateFilters=delay=>{
+      clearTimeout(searchTimer);generation++;requestController?.abort();requestController=null;
+      const fields=form.elements;query=fields.q.value.trim();category=fields.clase.value;status=fields.estado.value;from=fields.desde.value;to=fields.hasta.value;band=null;page=1;
+      const message=$('[data-status]');
+      if(from&&to&&from>to){message.classList.remove('loading');message.textContent='La fecha inicial no puede ser posterior a la final.';return;}
+      message.classList.add('loading');message.textContent='Actualizando cartera…';
+      searchTimer=setTimeout(()=>void load(),delay);
     };
+    form.onsubmit=event=>{event.preventDefault();updateFilters(0);};
+    form.elements.q.oninput=()=>updateFilters(300);
+    for(const name of ['clase','estado','desde','hasta'])form.elements[name].onchange=()=>updateFilters(0);
   }
   function render(result){
     const summary=result.resumen,open=Number(summary.saldo),overdue=Number(summary.vencido),inTime=open-overdue;
@@ -57,22 +63,25 @@
     $('[data-scope]').textContent=`${band===null?'Todas las edades':bands[band].name} · ${result.totalRegistros} cuota(s) · ${money(result.totalSaldo)}. Indicadores sujetos a todos los filtros.`;
     $('[data-table]').innerHTML=`<table><thead><tr><th>Cliente / factura</th><th>Cartera</th><th>Vencimiento</th><th>Edad</th><th>Valor original</th><th>Saldo</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>${result.items.map(x=>`<tr><td><strong>${esc(x.cliente)}</strong><small>${esc(x.identificacion)} · ${esc(x.numero)}${x.numeroCuota?` · cuota ${x.numeroCuota}`:''}</small></td><td>${esc(typeLabel(x.claseCartera))}</td><td>${esc(x.vence)}</td><td>${x.diasVencida?`${x.diasVencida} días vencida`:'Al día'}</td><td>${money(x.original)}</td><td class="receivable-balance">${money(x.saldo)}</td><td><span class="receivable-state state-${x.estado.toLowerCase()}">${stateLabel(x.estado)}</span><small>Zeus: ${esc(x.zeusEstado)}</small></td><td><button type="button" class="button secondary" data-invoice="${x.id}">Abrir factura</button></td></tr>`).join('')||'<tr><td colspan="8">No hay cuotas con estos filtros.</td></tr>'}</tbody></table>`;
     $('[data-pages]').innerHTML=`<button type="button" class="button secondary" data-prev ${page>1?'':'disabled'}>Anterior</button><span>Página ${page} de ${Math.max(1,result.paginas)}</span><button type="button" class="button secondary" data-next ${page<result.paginas?'':'disabled'}>Siguiente</button>`;
-    dialog.querySelectorAll('[data-band]').forEach(button=>button.onclick=()=>{band=button.dataset.band==='all'?null:Number(button.dataset.band);status='ABIERTA';page=1;void load();});
-    dialog.querySelectorAll('[data-client]').forEach(button=>button.onclick=()=>{query=button.dataset.client;status='ABIERTA';band=null;page=1;void load();});
+    dialog.querySelectorAll('[data-band]').forEach(button=>button.onclick=()=>{band=button.dataset.band==='all'?null:Number(button.dataset.band);status='ABIERTA';$('[data-filters]').elements.estado.value=status;page=1;void load();});
+    dialog.querySelectorAll('[data-client]').forEach(button=>button.onclick=()=>{query=button.dataset.client;$('[data-filters]').elements.q.value=query;status='ABIERTA';$('[data-filters]').elements.estado.value=status;band=null;page=1;void load();});
     dialog.querySelectorAll('[data-invoice]').forEach(button=>button.onclick=()=>{const id=Number(button.dataset.invoice);close();void window.openSavedSalesInvoice(id);});
     $('[data-prev]').onclick=()=>{page--;void load();};$('[data-next]').onclick=()=>{page++;void load();};
   }
   async function load(){
-    const token=++generation;shell();$('[data-status]').textContent='Consultando cartera…';
+    clearTimeout(searchTimer);searchTimer=null;
+    const token=++generation;requestController?.abort();const controller=new AbortController();requestController=controller;
+    const message=$('[data-status]');message.classList.add('loading');message.textContent='Actualizando cartera…';
     try{
       const params=new URLSearchParams({q:query,clase:category,estado:status,pagina:String(page)});
       if(band!==null)params.set('banda',String(band));if(from)params.set('desde',from);if(to)params.set('hasta',to);
-      const result=await apiRequest(`/api/v1/companies/${company}/sales-receivables?${params}`);
-      if(!current(token))return;render(result);$('[data-status]').textContent='';
-    }catch(error){if(current(token))$('[data-status]').textContent=error.message;}
+      const result=await apiRequest(`/api/v1/companies/${company}/sales-receivables?${params}`,{signal:controller.signal});
+      if(!current(token))return;render(result);message.textContent='';message.classList.remove('loading');
+    }catch(error){if(current(token)&&error.name!=='AbortError'){message.textContent=error.message;message.classList.remove('loading');}}
+    finally{if(requestController===controller)requestController=null;}
   }
   document.querySelector('#salesReceivablesNav').addEventListener('click',()=>{
     if(!state.erpSession?.api||!hasPermission('VENTAS.FACTURA.CONTABILIZAR')){showError('Requiere acceso a ventas y conexión al ERP.');return;}
-    if(dialog.open)return;company=state.erpSession.company.id;page=1;query='';category='';status='ABIERTA';band=null;from='';to='';dialog.showModal();void load();
+    if(dialog.open)return;company=state.erpSession.company.id;page=1;query='';category='';status='ABIERTA';band=null;from='';to='';shell();dialog.showModal();void load();
   });
 })();

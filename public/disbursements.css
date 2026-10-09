@@ -108,10 +108,10 @@
 .sales-receivables-dialog .dialog-heading h2{font-size:26px}
 .sales-receivables-dialog .receivables-kpis{margin:14px 0 16px}
 .receivables-workspace{border:1px solid #dae5de;border-radius:12px;overflow:hidden;background:#fff}
-.sales-receivables-filters{display:grid;grid-template-columns:minmax(180px,1.7fr) repeat(2,minmax(135px,1fr)) repeat(2,minmax(150px,1fr)) auto;gap:10px;align-items:end;padding:16px;background:#fff}
+.sales-receivables-filters{display:grid;grid-template-columns:minmax(180px,1.7fr) repeat(2,minmax(135px,1fr)) repeat(2,minmax(150px,1fr));gap:10px;align-items:end;padding:16px;background:#fff}
 .sales-receivables-filters label{display:grid;gap:5px;min-width:0;font-size:11px;font-weight:700}
-.sales-receivables-dialog [data-status]{margin:0;padding:0 16px;color:#a02c22;font-size:12px}
-.sales-receivables-dialog [data-status]:not(:empty){padding:9px 16px}
+.sales-receivables-dialog [data-status]{display:flex;align-items:center;min-height:32px;box-sizing:border-box;margin:0;padding:0 16px;color:#a02c22;font-size:12px}
+.sales-receivables-dialog [data-status].loading{color:#496d60}
 .sales-receivables-dialog .payable-dashboard{padding:16px}
 .sales-receivables-dialog .payable-aging,.sales-receivables-dialog .payable-insights>section{padding:18px}
 .sales-receivables-dialog .payable-bands button{padding:11px 9px}
@@ -131,8 +131,6 @@
 .sales-receivables-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0;padding:14px 18px;font-size:12px}
 .sales-receivables-dialog :focus-visible{outline:2px solid #18745a;outline-offset:2px}
 @media(max-width:1150px){.sales-receivables-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.sales-receivables-filters label:first-child{grid-column:span 2}}
-.sales-receivables-dialog [data-status]:empty{display:none}
-.sales-receivables-dialog [data-status]{color:#a02c22;font-size:12px}
 .egreso-document-reader{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:0 0 16px;padding:12px;border:1px solid #d5e0da;border-radius:8px;background:#f7faf8}
 .egreso-document-reader label{display:grid;gap:5px;min-width:min(100%,270px);font-size:12px;font-weight:600}
 .egreso-document-reader input[type=file]{max-width:100%;font-size:12px}
@@ -174,8 +172,7 @@
   .customer-documents-dialog .customer-invoice-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .customer-documents-dialog .customer-invoice-meta{grid-template-columns:1fr}
   .sales-receivables-filters{grid-template-columns:1fr 1fr}
-  .sales-receivables-filters label:first-child,.sales-receivables-filters .button{grid-column:1/-1}
-  .sales-receivables-filters .button{width:100%}
+  .sales-receivables-filters label:first-child{grid-column:1/-1}
   .sales-receivables-dialog{padding:12px}
   .customer-documents-dialog .customer-list-heading{align-items:stretch;flex-direction:column}
   .customer-documents-dialog .customer-document-search{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
