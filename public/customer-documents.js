@@ -333,7 +333,7 @@
       const item=choices.find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);
       return `<tr data-line="${index}"><td><select data-article required><option value="">Selecciona artículo y bodega…</option>${choices.map(a=>`<option value="${a.id}|${a.bodegaId}" ${a.id===line.articuloId&&a.bodegaId===line.bodegaId?'selected':''}>${esc(a.codigo+' · '+a.descripcion+' · '+a.bodegaCodigo+' · Disponible '+a.existencia)}</option>`).join('')}</select></td>
         <td><input data-qty type="number" min="0.000001" step="0.000001" value="${esc(line.cantidad)}" required></td>
-        <td class="customer-price-cell"><div class="customer-price-fields"><label>Con IVA<input data-base-price type="number" min="0.01" step="0.01" value="${esc(line.precioBaseConIva||'')}" required></label><label>Descuento %<input data-discount type="number" min="0" max="100" step="0.01" value="${esc(line.descuentoPorcentaje||0)}"></label></div><strong data-final-price>Final ${money(line.precioUnitarioConIva)}</strong><small>${item?.precioListaConIva?`Lista ${money(item.precioListaConIva)}`:'Sin precio de lista'} · libre ${esc(options.maxDescuentoVentaPct)} %</small>${item?.inventario&&item.costoPromedio>0&&item.iva!=null?`<button type="button" class="customer-cost-price" data-cost-price>Usar costo + IVA</button>`:''}</td>
+        <td class="customer-price-cell"><div class="customer-price-fields"><label>Con IVA<input data-base-price type="number" min="0.01" step="0.01" value="${esc(line.precioBaseConIva||'')}" required></label><label>Descuento %<input data-discount type="number" min="0" max="100" step="0.01" value="${esc(line.descuentoPorcentaje||0)}"></label></div></td>
         <td>${item?.iva==null?'IVA sin clasificar':esc(item.iva+' %')}</td>
         <td>${item?.serial?`<button type="button" class="button secondary customer-serial-trigger" data-choose-serial>Buscar seriales</button><small class="customer-serial-count">${line.unidadesSerializadas.length} de ${esc(line.cantidad)} seleccionada(s)</small>`:'—'}</td>
         <td class="customer-remove-cell"><button type="button" class="button secondary" data-remove aria-label="Quitar artículo">Quitar</button></td></tr>`;
@@ -342,10 +342,9 @@
       const line=lines[Number(row.dataset.line)];
       row.querySelector('[data-article]').onchange=event=>{const [id,warehouse]=event.target.value.split('|').map(Number);line.articuloId=id||0;line.bodegaId=warehouse||0;line.precioBaseConIva=choices.find(a=>a.id===id&&a.bodegaId===warehouse)?.precioListaConIva||0;line.descuentoPorcentaje=0;updateLinePrice(line);line.unidadesSerializadas=[];renderLines();dirty=true;};
       row.querySelector('[data-qty]').oninput=event=>{line.cantidad=Number(event.target.value);summary();dirty=true;};
-      const refreshPrice=()=>{updateLinePrice(line);row.querySelector('[data-final-price]').textContent=`Final ${money(line.precioUnitarioConIva)}`;summary();dirty=true;};
+      const refreshPrice=()=>{updateLinePrice(line);summary();dirty=true;};
       row.querySelector('[data-base-price]').oninput=event=>{line.precioBaseConIva=Number(event.target.value);refreshPrice();};
       row.querySelector('[data-discount]').oninput=event=>{line.descuentoPorcentaje=Number(event.target.value);refreshPrice();};
-      row.querySelector('[data-cost-price]')?.addEventListener('click',()=>{const item=articleChoices().find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);if(!item||item.costoPromedio==null||item.iva==null)return;line.precioBaseConIva=Math.round(item.costoPromedio*(1+item.iva/100)*100)/100;line.descuentoPorcentaje=0;updateLinePrice(line);renderLines();dirty=true;});
       row.querySelector('[data-choose-serial]')?.addEventListener('click',()=>openSerialPicker(Number(row.dataset.line)));
       row.querySelector('[data-remove]').onclick=()=>{lines.splice(Number(row.dataset.line),1);renderLines();dirty=true;};
     });updateGeneralCenterHint();summary();
