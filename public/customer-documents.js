@@ -6,7 +6,7 @@
   const dialog=document.createElement('dialog');dialog.className='erp-dialog egreso-dialog customer-documents-dialog';document.body.append(dialog);
   const serialDialog=document.createElement('dialog');serialDialog.className='erp-dialog customer-serial-dialog';document.body.append(serialDialog);
   const $=selector=>dialog.querySelector(selector);
-  let mode='',view='create',company=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,search='',receiptFilter='',next=null;
+  let mode='',view='create',company=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null;
   let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[],extraInstallments=[];
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='invoice'?'sales-invoices':'cash-receipts'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
@@ -175,12 +175,25 @@
     if(dialog.open)return;mode='invoice';company=state.erpSession.company.id;search='';receiptFilter='';dialog.showModal();shell();await viewInvoice(id,null);
   };
   async function create(){
-    const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];extraInstallments=[];dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
+    const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];extraInstallments=[];dimensions=null;dimensionsError='';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
     try{
-      const [opts,chart,dims]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions'):Promise.resolve(null)]);
-      if(!current(t))return;options=opts;accounts=chart;dimensions=dims;
-      if(mode==='invoice')invoiceForm();else receiptForm();notice('');
+      const [opts,chart,dims]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions').catch(error=>({error:error.message})):Promise.resolve(null)]);
+      if(!current(t))return;options=opts;accounts=chart;dimensions=dims?.error?null:dims;dimensionsError=dims?.error||'';
+      if(mode==='invoice')invoiceForm();else receiptForm();notice(dimensionsError?`No se pudieron consultar los centros de costo de Zeus: ${dimensionsError}`:'',Boolean(dimensionsError));
     }catch(error){if(current(t))notice(error.message,true);}
+  }
+  async function retryDimensions(){
+    const t=token,button=$('[data-retry-dimensions]');if(!button||busy)return;
+    button.disabled=true;notice('Consultando centros de costo de Zeus…');
+    try{
+      const result=await apiRequest(endpoint()+'/accounting-dimensions');if(!current(t)||view!=='create')return;
+      dimensions=result;dimensionsError='';
+      const select=$('[name="centroCostoIngreso"]');
+      select.innerHTML='<option value="">Sin centro de costo</option>'+result.centrosCosto.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('');
+      $('[data-dimensions-warning]').remove();$('[data-document] button[type="submit"]').disabled=false;
+      renderConcepts();updateGeneralCenterHint();notice('Centros de costo de Zeus cargados.');
+    }catch(error){if(current(t))notice(`No se pudieron consultar los centros de costo de Zeus: ${error.message}`,true);}
+    finally{if(button.isConnected)button.disabled=false;}
   }
   function clientField(){return `<label class="egreso-wide">Cliente<input data-client list="customerDocumentClients" placeholder="Busca por nombre o identificación…" autocomplete="off" required><input name="clienteId" type="hidden"><datalist id="customerDocumentClients"></datalist></label><small class="egreso-help" data-client-hint></small>`;}
   function setClientOptions(){
@@ -271,7 +284,7 @@
     await send(body,'Recibo');
   }
   function invoiceForm(){
-    $('[data-content]').innerHTML=`<form data-document><fieldset><h3>Nueva factura de venta</h3><p class="egreso-help">Precio unitario con IVA incluido. Esta referencia ERP no reemplaza la facturación electrónica.</p><div class="egreso-grid">
+    $('[data-content]').innerHTML=`${dimensionsError?'<div class="workflow-notice error" data-dimensions-warning role="alert">No se pudieron consultar los centros de costo de Zeus. Puedes preparar la factura, pero no emitirla hasta cargar esos datos. <button type="button" class="button secondary" data-retry-dimensions>Reintentar centros de costo</button></div>':''}<form data-document><fieldset><h3>Nueva factura de venta</h3><p class="egreso-help">Precio unitario con IVA incluido. Esta referencia ERP no reemplaza la facturación electrónica.</p><div class="egreso-grid">
       <label>Sucursal<select name="sucursalId" required><option value="">Selecciona…</option>${options.sucursales.map(x=>`<option value="${x.id}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label>
       <label>Referencia ERP<input name="numero" maxlength="15" value="FV-${Date.now().toString(36).toUpperCase()}" required></label>
       <label>Fecha contable<input name="fechaContable" type="date" value="${today()}" required></label>
@@ -286,7 +299,8 @@
       <section class="customer-installment-settings"><h3>Plan de cuotas</h3><div class="customer-installment-fields"><label>Primer vencimiento<input name="vencimiento" type="date" value="${today()}" required></label><label>Número de cuotas ordinarias<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label><label>Vencimiento de las siguientes cuotas<select name="frecuenciaCuotas" required><option value="DIA_FIJO_MES">Mismo día de cada mes</option><option value="CADA_30_DIAS">Cada 30 días</option></select></label></div><small>Mensual: conserva el día del primer vencimiento. También puedes elegir cada 30 días.</small><div class="customer-extra-heading"><strong>Cuotas extraordinarias</strong><button type="button" class="button secondary" data-add-extra>+ Agregar cuota extra</button></div><div data-extra-rows></div></section></div>
       <div data-installments></div>
       <label class="customer-approval-reason">Motivo de excepción de precio o descuento <textarea name="motivoAutorizacion" maxlength="500" rows="2" placeholder="Solo cuando el precio supera el descuento libre o está bajo costo"></textarea></label>
-      <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Emitir factura o solicitar autorización</button></div></fieldset></form>`;
+      <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit" ${dimensionsError?'disabled':''}>Emitir factura o solicitar autorización</button></div></fieldset></form>`;
+    $('[data-retry-dimensions]')?.addEventListener('click',()=>void retryDimensions());
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
     f.elements.frecuenciaCuotas.onchange=()=>{dirty=true;summary();};f.elements.vencimiento.onchange=()=>{dirty=true;summary();};
     f.elements.sucursalId.onchange=()=>{lines=[];f.elements.bodegaCarteraId.value='';addLine();};
@@ -452,6 +466,7 @@
   }
   async function submitInvoice(event){
     event.preventDefault();if(busy)return;const f=event.target;
+    if(dimensionsError||!dimensions){notice('Consulta los centros de costo de Zeus antes de emitir la factura o solicitar autorización.',true);return;}
     if(!client){notice('Selecciona un cliente de los resultados.',true);return;}
     if(lines.some(x=>!x.articuloId||!x.bodegaId||x.cantidad<=0||x.precioUnitarioConIva<=0)){notice('Completa artículos, cantidades y precios.',true);return;}
     if(!lines.length&&!conceptLines.length){notice('Agrega al menos un artículo o un concepto.',true);return;}

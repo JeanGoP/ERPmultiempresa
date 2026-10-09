@@ -108,10 +108,19 @@ public static class SalesModule
         }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/sales-invoices/options",async(long empresaId,long? clienteId,SalesInvoiceRepository sales,CancellationToken ct)=>
             Results.Ok(await sales.OptionsAsync(empresaId,clienteId,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
-        group.MapGet("/sales-invoices/accounting-dimensions",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
+        group.MapGet("/sales-invoices/accounting-dimensions",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,ILogger<SalesInvoiceRepository> logger,HttpContext http,CancellationToken ct)=>
         {
-            var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus para esta empresa.")).Configuracion;
-            return Results.Ok(await zeus.AccountingDimensionsAsync(empresaId,config,ct));
+            try
+            {
+                var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus para esta empresa.")).Configuracion;
+                return Results.Ok(await zeus.AccountingDimensionsAsync(empresaId,config,ct));
+            }
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+            catch(Exception e) when(e is not OperationCanceledException)
+            {
+                logger.LogError(e,"Falló la consulta de dimensiones contables Zeus para la empresa {EmpresaId}; correlación {CorrelationId}.",empresaId,http.TraceIdentifier);
+                return Results.Problem(detail:$"Zeus no pudo entregar los centros de costo. Reporta el código {http.TraceIdentifier} a soporte.",statusCode:503);
+            }
         }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/master-data/sales-concepts",async(long empresaId,SalesConceptRepository concepts,CancellationToken ct)=>
             Results.Ok(await concepts.ListAsync(empresaId,ct))).RequireErpPermission("MAESTROS.CONCEPTO_VENTA.ADMINISTRAR","VENTAS.FACTURA.CONTABILIZAR");
