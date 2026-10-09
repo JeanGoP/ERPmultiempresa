@@ -50,9 +50,9 @@
     }catch(error){if(current(t))notice(error.message,true);}
   }
   async function listing(before=null){
-    const t=++token;view='list';dirty=false;shell();notice('Consultando documentos…');
-    $('[data-content]').innerHTML=`<div class="egreso-toolbar"><button type="button" class="button secondary" data-return-create>← Volver a ${mode==='invoice'?'facturación':'recibos'}</button></div>`;
-    $('[data-return-create]').onclick=()=>void create();
+    const sameList=view==='list'&&Boolean($('[data-return-create]'));
+    const t=++token;view='list';dirty=false;if(!sameList){shell();$('[data-content]').innerHTML=`<div class="egreso-toolbar"><button type="button" class="button secondary" data-return-create>← Volver a ${mode==='invoice'?'facturación':'recibos'}</button></div>`;$('[data-return-create]').onclick=()=>void create();}
+    notice('Consultando documentos…');
     try{
       const response=await apiRequest(endpoint()+`?q=${encodeURIComponent(search)}${before?`&antes=${before}`:''}${mode==='receipt'&&receiptFilter?`&tipo=${encodeURIComponent(receiptFilter)}`:''}`);
       if(!current(t))return;next=response.siguiente;

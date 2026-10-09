@@ -17,7 +17,7 @@ function renderPayableDashboard(){
   const previous=select.value;
   const currencies=[...new Set(all.map(x=>x.moneda.trim()))].sort();
   if(!currencies.length)currencies.push(state.erpSession?.company?.currency||'COP');
-  select.replaceChildren(...currencies.map(x=>new Option(x,x)));
+  if(currencies.join('|')!==[...select.options].map(x=>x.value).join('|'))select.replaceChildren(...currencies.map(x=>new Option(x,x)));
   select.value=currencies.includes(previous)?previous:currencies[0];
   const currency=select.value,money=value=>payableMoney(value,currency);
   const rows=all.filter(x=>x.moneda.trim()===currency);

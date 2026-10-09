@@ -23,14 +23,15 @@
     $e('[data-create]').onclick=()=>{if(!busy&&(!dirty||confirm('¿Descartar los datos sin contabilizar?')))void edit();};
   }
   async function listing(before=null){
-    const token=++generation;current=null;dirty=false;shell();notice('Consultando egresos…');
-    if(!searchTerm){notice('Busca por comprobante, proveedor o identificación.');return;}
+    const sameList=Boolean($e('[data-results-list]'));
+    const token=++generation;current=null;dirty=false;if(!sameList)shell();notice('Consultando egresos…');
+    if(!searchTerm){$e('[data-content]').innerHTML='<div data-results-list></div>';notice('Busca por comprobante, proveedor o identificación.');return;}
     try{
       const data=await apiRequest(url()+'?q='+encodeURIComponent(searchTerm)+(before?'&antes='+before:''));if(!valid(token))return;
       next=data.siguiente;
-      $e('[data-content]').innerHTML=`<div class="egreso-toolbar"><button type="button" class="button primary" data-new>Nuevo egreso</button><button type="button" class="button secondary" data-refresh>Actualizar</button></div>
+      $e('[data-content]').innerHTML=`<div data-results-list><div class="egreso-toolbar"><button type="button" class="button primary" data-new>Nuevo egreso</button><button type="button" class="button secondary" data-refresh>Actualizar</button></div>
         <div class="table-wrap"><table><thead><tr><th>Comprobante</th><th>Fecha contable</th><th>Beneficiario</th><th>Total</th><th>ERP / Zeus</th><th>Detalle / acción</th></tr></thead><tbody>${data.items.map(x=>`<tr><td>CE-${x.id}</td><td>${esc(x.fecha)}</td><td>${esc(x.beneficiario)}</td><td>${esc(money(x.total,x.moneda))}</td><td>ERP contabilizado<br>Zeus: ${esc(x.zeusEstado)} ${esc(x.fuente||'')} ${esc(x.documento||'')}</td><td>${esc(x.error||'')}<button type="button" class="button secondary" data-open="${x.id}">Ver</button>${x.zeusEstado==='RECHAZADO'?`<button class="button secondary" data-retry="${x.id}">Reintentar solo Zeus</button>`:''}${x.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button class="button secondary" data-reconcile="${x.id}">Conciliar Zeus</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6">No hay egresos contabilizados.</td></tr>'}</tbody></table></div>
-        <div class="egreso-toolbar"><button type="button" class="button secondary" data-first>Primera página</button><button type="button" class="button secondary" data-next ${next?'':'disabled'}>Siguientes</button></div>`;
+        <div class="egreso-toolbar"><button type="button" class="button secondary" data-first>Primera página</button><button type="button" class="button secondary" data-next ${next?'':'disabled'}>Siguientes</button></div></div>`;
       notice('');$e('[data-new]').onclick=()=>edit();$e('[data-refresh]').onclick=()=>listing(before);$e('[data-first]').onclick=()=>listing();$e('[data-next]').onclick=()=>listing(next);
       dialog.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>view(Number(b.dataset.open)));
       for(const action of ['retry','reconcile'])dialog.querySelectorAll(`[data-${action}]`).forEach(b=>b.onclick=async()=>{if(busy)return;busy=true;b.disabled=true;try{const result=await apiRequest(url()+`/${b.dataset[action]}/${action}`,{method:'POST'});if(valid(token)){await listing(before);if(result?.error)notice(result.error,true);}}catch(e){if(valid(token))notice(e.message,true);}finally{busy=false;if(valid(token))b.disabled=false;}});
