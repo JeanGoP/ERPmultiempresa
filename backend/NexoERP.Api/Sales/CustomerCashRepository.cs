@@ -1,5 +1,6 @@
 using System.Data;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
 using NexoERP.Api.Zeus;
@@ -9,10 +10,31 @@ namespace NexoERP.Api.Sales;
 public sealed record CashReceiptApplication(long FacturaVentaId,decimal Valor,long? FacturaVentaCuotaId=null);
 public sealed record CashReceiptInput(Guid OperacionGuid,long SucursalId,long ClienteId,DateOnly FechaContable,
     string Tipo,string MedioPago,string? Referencia,string Concepto,decimal Total,string? CuentaContrapartida,
-    CashReceiptApplication[] Aplicaciones);
+    CashReceiptApplication[] Aplicaciones,[property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] bool PagoExtraordinarioRefinanciacion=false);
+
+public sealed record ExtraordinaryRefinancingPaymentInput(Guid OperacionGuid,DateOnly FechaContable,
+    string MedioPago,string? Referencia,string Concepto,decimal Valor);
 
 public sealed class CustomerCashRepository(TenantConnectionFactory connections)
 {
+    public async Task<object> RefinancingPaymentsAsync(long company,long invoiceId,CancellationToken ct)
+    {
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=ZeusRepository.Command(c,"""
+            SELECT r.ReciboCajaId,r.FechaContable,r.Total,r.ZeusEstado,r.ZeusFuente,r.ZeusDocumento,r.ZeusError,r.MedioPago
+            FROM cxc.ReciboCaja r
+            WHERE r.EmpresaId=@E AND r.Tipo='CARTERA'
+                AND JSON_VALUE(r.Contenido,'$.PagoExtraordinarioRefinanciacion')='true'
+                AND EXISTS(SELECT 1 FROM cxc.ReciboCajaAplicacion a WHERE a.EmpresaId=r.EmpresaId
+                    AND a.ReciboCajaId=r.ReciboCajaId AND a.FacturaVentaId=@Invoice)
+            ORDER BY r.ReciboCajaId DESC
+            """,company);
+        ZeusRepository.Add(q,"@Invoice",invoiceId);
+        var items=new List<object>();await using var r=await q.ExecuteReaderAsync(ct);
+        while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),valor=r.GetDecimal(2),zeusEstado=r.GetString(3),fuente=r.IsDBNull(4)?null:r.GetString(4),documento=r.IsDBNull(5)?null:r.GetString(5),error=r.IsDBNull(6)?null:r.GetString(6),medioPago=r.GetString(7)});
+        return new{items};
+    }
+
     public async Task<object> ListAsync(long company,string? search,long? before,string? type,CancellationToken ct)
     {
         search=search?.Trim()??"";if(search.Length>100)throw new ArgumentException("Búsqueda demasiado larga.");
@@ -75,8 +97,72 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         return new{sucursales=branches,clientes=clients,facturas=invoices,anticipos=advances,cuentas=accounts};
     }
 
-    public async Task<object> PostAsync(long company,CashReceiptInput input,long user,CancellationToken ct)
+    public async Task<object> PostExtraordinaryRefinancingAsync(long company,long invoiceId,ExtraordinaryRefinancingPaymentInput payment,long user,CancellationToken ct)
     {
+        if(payment.Valor<=0||decimal.Round(payment.Valor,2)!=payment.Valor)
+            throw new ArgumentException("El pago extraordinario debe ser positivo y tener máximo dos decimales.");
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=ZeusRepository.Command(c,"""
+            SELECT r.ReciboCajaId,r.Contenido,r.ZeusEstado,
+                (SELECT COUNT(DISTINCT a.FacturaVentaId) FROM cxc.ReciboCajaAplicacion a WHERE a.EmpresaId=r.EmpresaId AND a.ReciboCajaId=r.ReciboCajaId),
+                (SELECT MIN(a.FacturaVentaId) FROM cxc.ReciboCajaAplicacion a WHERE a.EmpresaId=r.EmpresaId AND a.ReciboCajaId=r.ReciboCajaId)
+            FROM cxc.ReciboCaja r WHERE r.EmpresaId=@E AND r.OperacionGuid=@Key;
+            """,company);
+        ZeusRepository.Add(q,"@Key",payment.OperacionGuid);
+        await using(var previous=await q.ExecuteReaderAsync(ct))if(await previous.ReadAsync(ct))
+        {
+            var prior=JsonSerializer.Deserialize<CashReceiptInput>(previous.GetString(1));
+            if(prior?.PagoExtraordinarioRefinanciacion!=true||prior.FechaContable!=payment.FechaContable||
+               prior.MedioPago!=payment.MedioPago||prior.Referencia?.Trim()!=payment.Referencia?.Trim()||
+               prior.Concepto!=payment.Concepto||prior.Total!=payment.Valor||previous.GetInt32(3)!=1||previous.GetInt64(4)!=invoiceId)
+                throw new ArgumentException("La clave de operación ya corresponde a otro recibo.");
+            return new{id=previous.GetInt64(0),zeusEstado=previous.GetString(2),repetido=true};
+        }
+        q.CommandText="""
+            SELECT SucursalId,ClienteId,SaldoPendiente,ZeusEstado,RefinanciacionEstado
+            FROM ven.FacturaVenta WHERE EmpresaId=@E AND FacturaVentaId=@Invoice;
+            SELECT c.FacturaVentaCuotaId,c.SaldoPendiente
+            FROM ven.FacturaVentaCuota c JOIN ven.FacturaVenta f ON f.EmpresaId=c.EmpresaId AND f.FacturaVentaId=c.FacturaVentaId
+            WHERE c.EmpresaId=@E AND c.FacturaVentaId=@Invoice AND c.PlanVersion=f.PlanVersion
+                AND c.EstadoPlan='ACTIVA' AND c.SaldoPendiente>0
+            ORDER BY c.FechaVencimiento,c.NumeroCuota;
+            """;
+        ZeusRepository.Add(q,"@Invoice",invoiceId);
+        long branch,client;decimal balance;var installments=new List<(long Id,decimal Balance)>();
+        await using(var r=await q.ExecuteReaderAsync(ct))
+        {
+            if(!await r.ReadAsync(ct)||r.GetString(3)!="CONTABILIZADO"||r.GetString(4)!="LIBRE")
+                throw new ArgumentException("La factura debe estar confirmada en Zeus y libre para refinanciar.");
+            branch=r.GetInt64(0);client=r.GetInt64(1);balance=r.GetDecimal(2);
+            await r.NextResultAsync(ct);
+            while(await r.ReadAsync(ct))installments.Add((r.GetInt64(0),r.GetDecimal(1)));
+        }
+        if(payment.Valor>=balance||installments.Sum(x=>x.Balance)!=balance||installments.Count>120)
+            throw new ArgumentException("El abono debe dejar saldo positivo y coincidir con las cuotas vigentes.");
+        q.CommandText="""
+            SELECT TOP(1) r.ZeusEstado FROM cxc.ReciboCajaAplicacion a
+            JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
+            WHERE a.EmpresaId=@E AND a.FacturaVentaId=@Invoice AND r.ZeusEstado<>'CONTABILIZADO'
+            ORDER BY r.ReciboCajaId DESC
+            """;
+        if(await q.ExecuteScalarAsync(ct) is string pending)
+            throw new ArgumentException($"Hay un recibo de esta factura pendiente en Zeus ({pending}). Confírmalo o concílialo antes de otro abono.");
+        var remaining=payment.Valor;var applications=new List<CashReceiptApplication>();
+        foreach(var installment in installments)
+        {
+            if(remaining==0)break;
+            var applied=Math.Min(remaining,installment.Balance);
+            applications.Add(new(invoiceId,applied,installment.Id));remaining-=applied;
+        }
+        var receipt=new CashReceiptInput(payment.OperacionGuid,branch,client,payment.FechaContable,"CARTERA",
+            payment.MedioPago,payment.Referencia,payment.Concepto,payment.Valor,null,applications.ToArray(),true);
+        return await PostAsync(company,receipt,user,ct,true);
+    }
+
+    public async Task<object> PostAsync(long company,CashReceiptInput input,long user,CancellationToken ct,bool allowExtraordinaryRefinancing=false)
+    {
+        if(input.PagoExtraordinarioRefinanciacion&&!allowExtraordinaryRefinancing)
+            throw new ArgumentException("El pago extraordinario solo se registra desde la refinanciación.");
         if(input.OperacionGuid==Guid.Empty||input.SucursalId<=0||input.ClienteId<=0||input.FechaContable.Year<2000)
             throw new ArgumentException("Selecciona sucursal, cliente y fecha contable.");
         if(input.Tipo is not("ANTICIPO" or "CARTERA" or "NORMAL")||input.MedioPago is not("EFECTIVO" or "TRANSFERENCIA" or "CHEQUE"))
@@ -170,7 +256,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                 if(original.Configuracion.ServidorEsperado!=settings.ServidorEsperado||original.Configuracion.BaseEsperada!=settings.BaseEsperada)
                     throw new ArgumentException("La factura pertenece a otro destino Zeus. Concíliala antes de recaudar.");
                 var dueDate=line.FacturaVentaCuotaId.HasValue?reader.GetDateTime(6):reader.GetDateTime(3);
-                CustomerPaymentPolicy.ValidateDueDate(dueDate,input.FechaContable);
+                if(!input.PagoExtraordinarioRefinanciacion)CustomerPaymentPolicy.ValidateDueDate(dueDate,input.FechaContable);
                 var account=original.ClienteDocumento?.CuentaCliente??throw new ArgumentException("La factura no tiene cuenta de cartera de cliente.");
                 var invoiceNumber=reader.GetString(2);
                 if(original.ClienteDocumento?.FacturaUsaConsecutivoZeus==true)

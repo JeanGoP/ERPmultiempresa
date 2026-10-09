@@ -221,6 +221,14 @@ public static class SalesModule
             Results.Ok(await queue.ReconcileAsync(empresaId,"FACTURA",id,zeus,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
         group.MapGet("/sales-invoices/{id:long}/refinancings",async(long empresaId,long id,PortfolioRefinancingRepository portfolio,CancellationToken ct)=>
             Results.Ok(await portfolio.ListAsync(empresaId,id,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapGet("/sales-invoices/{id:long}/refinancing-payments",async(long empresaId,long id,CustomerCashRepository receipts,CancellationToken ct)=>
+            Results.Ok(await receipts.RefinancingPaymentsAsync(empresaId,id,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapPost("/sales-invoices/{id:long}/refinancing-payment",async(long empresaId,long id,ExtraordinaryRefinancingPaymentInput input,HttpContext http,CustomerCashRepository receipts,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await receipts.PostExtraordinaryRefinancingAsync(empresaId,id,input,Convert.ToInt64(http.Items["UsuarioId"]),ct));}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+            catch(SqlException e) when(e.Number is 2601 or 2627 or 52310){return Results.Conflict(new{error="La cartera cambió durante el abono. Actualiza la factura y vuelve a intentarlo."});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR").RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
         group.MapGet("/sales-invoices/refinancing-options",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
         {
             var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus para esta empresa.")).Configuracion;

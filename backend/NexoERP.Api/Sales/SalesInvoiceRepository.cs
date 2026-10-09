@@ -197,7 +197,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             SELECT f.Numero,f.FechaContable,f.Vencimiento,f.Cuotas,f.FrecuenciaCuotas,f.Total,
                 f.AnticipoAplicado,f.SaldoPendiente,f.ZeusEstado,f.ZeusFuente,f.ZeusDocumento,f.ZeusError,
                 t.NumeroIdentificacion,t.RazonSocial,s.Codigo,s.Nombre,f.CentroCostoIngresoZeus,
-                f.ClaseCartera,f.Observacion
+                f.ClaseCartera,f.Observacion,f.SucursalId,f.ClienteId
             FROM ven.FacturaVenta f
             JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
             JOIN core.Sucursal s ON s.EmpresaId=f.EmpresaId AND s.SucursalId=f.SucursalId
@@ -225,7 +225,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             zeusEstado=r.GetString(8),fuente=r.IsDBNull(9)?null:r.GetString(9),documento=r.IsDBNull(10)?null:r.GetString(10),
             error=r.IsDBNull(11)?null:r.GetString(11),identificacion=r.GetString(12),cliente=r.GetString(13),
             sucursalCodigo=r.GetString(14),sucursal=r.GetString(15),centroCosto=r.IsDBNull(16)?null:r.GetString(16),
-            claseCartera=r.GetString(17),observacion=r.IsDBNull(18)?null:r.GetString(18)
+            claseCartera=r.GetString(17),observacion=r.IsDBNull(18)?null:r.GetString(18),sucursalId=r.GetInt64(19),clienteId=r.GetInt64(20)
         };
         var items=new List<object>();
         await r.NextResultAsync(ct);
