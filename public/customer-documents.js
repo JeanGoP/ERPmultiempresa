@@ -292,7 +292,7 @@
       <div class="customer-invoice-meta"><label>Tipo de cartera<select name="claseCartera" required><option value="">Selecciona…</option><option value="MOTO">Motos</option><option value="OTROS">Otros artículos</option><option value="MIXTA">Mixta</option></select></label><label>Observación de la venta o garantía<textarea name="observacion" maxlength="1000" rows="2" placeholder="Información que conviene conservar con la factura"></textarea></label></div>
       <div class="egreso-grid"><label data-concept-warehouse hidden>Bodega para cuenta de clientes<select name="bodegaCarteraId"><option value="">Selecciona bodega…</option></select></label></div>
       <div class="egreso-toolbar"><h3>Artículos y conceptos</h3><button type="button" class="button secondary" data-add-line>Agregar artículo</button><button type="button" class="button secondary" data-add-concept>Agregar concepto</button></div>
-      <div class="table-wrap customer-sale-lines"><table><thead><tr><th>Artículo / bodega</th><th>Cant.</th><th>Precio y descuento</th><th>IVA</th><th>Seriales</th><th>Acción</th></tr></thead><tbody data-lines></tbody></table></div>
+      <div class="table-wrap customer-sale-lines"><table><thead><tr><th>Artículo / bodega</th><th>Cant.</th><th>Precio con IVA</th><th>Descuento %</th><th>IVA</th><th>Seriales</th><th>Acción</th></tr></thead><tbody data-lines></tbody></table></div>
       <div class="table-wrap"><table><thead><tr><th>Concepto de venta</th><th>Cuenta de ingreso Zeus</th><th>Valor</th><th>Centro de costo Zeus</th><th></th></tr></thead><tbody data-concept-lines></tbody></table></div>
       <div class="customer-profit-preview" data-profit-preview></div>
       <div data-allocations></div><div class="customer-invoice-settings"><label class="customer-center-field">Centro de costo de la factura<select name="centroCostoIngreso"><option value="">Sin centro de costo</option>${(dimensions?.centrosCosto||[]).map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select><small data-general-center-hint>Se aplica a los artículos cuando Zeus lo exige.</small></label>
@@ -333,8 +333,9 @@
       const item=choices.find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);
       return `<tr data-line="${index}"><td><select data-article required><option value="">Selecciona artículo y bodega…</option>${choices.map(a=>`<option value="${a.id}|${a.bodegaId}" ${a.id===line.articuloId&&a.bodegaId===line.bodegaId?'selected':''}>${esc(a.codigo+' · '+a.descripcion+' · '+a.bodegaCodigo+' · Disponible '+a.existencia)}</option>`).join('')}</select></td>
         <td><input data-qty type="number" min="0.000001" step="0.000001" value="${esc(line.cantidad)}" required></td>
-        <td class="customer-price-cell"><div class="customer-price-fields"><label>Con IVA<input data-base-price type="number" min="0.01" step="0.01" value="${esc(line.precioBaseConIva||'')}" required></label><label>Descuento %<input data-discount type="number" min="0" max="100" step="0.01" value="${esc(line.descuentoPorcentaje||0)}"></label></div></td>
-        <td>${item?.iva==null?'IVA sin clasificar':esc(item.iva+' %')}</td>
+        <td><input data-base-price type="number" min="0.01" step="0.01" value="${esc(line.precioBaseConIva||'')}" aria-label="Precio con IVA" required></td>
+        <td><input data-discount type="number" min="0" max="100" step="0.01" value="${esc(line.descuentoPorcentaje||0)}" aria-label="Descuento porcentual"></td>
+        <td class="customer-vat-cell" ${item?.iva==null?'title="IVA pendiente de clasificar"':''}>${item?.iva==null?'—':esc(item.iva+' %')}</td>
         <td>${item?.serial?`<button type="button" class="button secondary customer-serial-trigger" data-choose-serial>Buscar seriales</button><small class="customer-serial-count">${line.unidadesSerializadas.length} de ${esc(line.cantidad)} seleccionada(s)</small>`:'—'}</td>
         <td class="customer-remove-cell"><button type="button" class="button secondary" data-remove aria-label="Quitar artículo">Quitar</button></td></tr>`;
     }).join('');
