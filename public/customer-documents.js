@@ -443,7 +443,7 @@
     const estimatedCost=inventoryLines.reduce((sum,x)=>sum+x.line.cantidad*(x.item.costoPromedio||0),0);
     const margin=netRevenue-estimatedCost;
     const preview=$('[data-profit-preview]');
-    if(preview)preview.innerHTML=inventoryLines.length?`<strong>Rentabilidad estimada de artículos inventariables</strong><span>Venta sin IVA: ${unknownCost?'pendiente':money(netRevenue)} · Costo promedio actual: ${unknownCost?'no disponible':money(estimatedCost)} · Margen: ${unknownCost?'no calculable':money(margin)}</span><small>Es una estimación: el costo definitivo se registra al emitir la factura y puede diferir para unidades serializadas.</small>`:'';
+    if(preview)preview.innerHTML=inventoryLines.length?`<strong>Rentabilidad estimada de artículos inventariables</strong><span>Venta sin IVA: ${unknownCost?'pendiente':money(netRevenue)} · Margen: ${unknownCost?'no calculable':money(margin)}</span><small>Es una estimación: el costo definitivo se registra al emitir la factura y puede diferir para unidades serializadas.</small>`:'';
     const concepts=Math.round(conceptLines.reduce((s,x)=>s+Math.round(x.valor*100),0))/100;
     const advance=Math.round(advances.reduce((s,x)=>s+Math.round(x.valor*100),0))/100;
     const total=goods+concepts,balance=Math.round((total-advance)*100)/100,terms=Number(f.elements.cuotas.value);
