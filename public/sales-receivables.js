@@ -2,7 +2,8 @@
 (() => {
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money=value=>new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',minimumFractionDigits:2,maximumFractionDigits:2}).format(value||0);
-  const typeLabel=value=>({MOTO:'Motos',OTROS:'Otros artículos',MIXTA:'Mixta',SIN_CLASIFICAR:'Sin clasificar'})[value]||'Sin clasificar';
+  let portfolioTypes=[];
+  const typeLabel=value=>portfolioTypes.find(x=>x.codigo===value)?.nombre||value||'Sin clasificar';
   const stateLabel=value=>({AL_DIA:'Al día',VENCIDA:'Vencida',PAGADA:'Saldada'})[value]||value;
   const bands=[
     {name:'Por vencer',note:'Al día',color:'#208573'},
@@ -23,7 +24,7 @@
       <div class="inventory-stats payable-kpis receivables-kpis" data-kpis></div>
       <section class="receivables-workspace"><form data-filters class="sales-receivables-filters">
         <label>Buscar<input name="q" type="search" maxlength="100" placeholder="Factura, cliente o identificación" value="${esc(query)}"></label>
-        <label>Tipo de cartera<select name="clase"><option value="">Todos los tipos</option><option value="MOTO" ${category==='MOTO'?'selected':''}>Motos</option><option value="OTROS" ${category==='OTROS'?'selected':''}>Otros artículos</option><option value="MIXTA" ${category==='MIXTA'?'selected':''}>Mixta</option><option value="SIN_CLASIFICAR" ${category==='SIN_CLASIFICAR'?'selected':''}>Sin clasificar</option></select></label>
+        <label>Tipo de cartera<select name="clase"><option value="">Todos los tipos</option></select></label>
         <label>Estado<select name="estado"><option value="ABIERTA" ${status==='ABIERTA'?'selected':''}>Cartera abierta</option><option value="VENCIDA" ${status==='VENCIDA'?'selected':''}>Vencida</option><option value="AL_DIA" ${status==='AL_DIA'?'selected':''}>Al día</option><option value="PAGADA" ${status==='PAGADA'?'selected':''}>Saldada</option><option value="TODAS" ${status==='TODAS'?'selected':''}>Todos los estados</option></select></label>
         <label>Desde contabilización<input name="desde" type="date" value="${esc(from)}"></label>
         <label>Hasta contabilización<input name="hasta" type="date" value="${esc(to)}"></label>
@@ -80,8 +81,17 @@
     }catch(error){if(current(token)&&error.name!=='AbortError'){message.textContent=error.message;message.classList.remove('loading');}}
     finally{if(requestController===controller)requestController=null;}
   }
-  document.querySelector('#salesReceivablesNav').addEventListener('click',()=>{
+  document.querySelector('#salesReceivablesNav').addEventListener('click',async()=>{
     if(!state.erpSession?.api||!hasPermission('VENTAS.FACTURA.CONTABILIZAR')){showError('Requiere acceso a ventas y conexión al ERP.');return;}
-    if(dialog.open)return;company=state.erpSession.company.id;page=1;query='';category='';status='ABIERTA';band=null;from='';to='';shell();dialog.showModal();void load();
+    if(dialog.open)return;company=state.erpSession.company.id;page=1;query='';category='';status='ABIERTA';band=null;from='';to='';portfolioTypes=[];shell();dialog.showModal();
+    const openingCompany=company;
+    try{
+      const types=await apiRequest(`/api/v1/companies/${company}/master-data/portfolio-types`);
+      if(!dialog.open||company!==openingCompany)return;
+      portfolioTypes=types;
+      const select=$('[data-filters]').elements.clase;
+      for(const type of types)select.add(new Option(`${type.nombre}${type.activo?'':' · inactivo'}`,type.codigo));
+    }catch(error){if(dialog.open&&company===openingCompany)$('[data-status]').textContent=`No se cargaron los tipos de cartera: ${error.message}`;return;}
+    if(dialog.open&&company===openingCompany)void load();
   });
 })();

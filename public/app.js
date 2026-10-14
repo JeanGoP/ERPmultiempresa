@@ -230,7 +230,7 @@ function applyAccessControls() {
   const canReceiving = canUseReceiving();
   const canInventory = canReceiving || canUseWarehouseHistory() || canUseInventoryReports() || canUseInventoryOperations();
   const canCosts = hasAnyPermission(ACCESS.costs);
-  const canMasters = hasAnyPermission(ACCESS.masters) || hasPermission('MAESTROS.CONCEPTO_VENTA.ADMINISTRAR');
+  const canMasters = hasAnyPermission(ACCESS.masters) || hasPermission('MAESTROS.CONCEPTO_VENTA.ADMINISTRAR') || hasPermission('MAESTROS.TIPO_CARTERA.ADMINISTRAR');
   const canSecurity = hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR');
   const setVisible = (selectorOrElement, visible) => {
     const element = typeof selectorOrElement === 'string' ? document.querySelector(selectorOrElement) : selectorOrElement;
@@ -254,6 +254,7 @@ function applyAccessControls() {
   setVisible('#cashReceiptsNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
   setVisible('#customerAdvancesNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
   setVisible('#salesConceptsNav',hasPermission('MAESTROS.CONCEPTO_VENTA.ADMINISTRAR'));
+  setVisible('#portfolioTypesNav',hasPermission('MAESTROS.TIPO_CARTERA.ADMINISTRAR'));
   setVisible(elements.savedPurchasesNav, canUseSavedPurchases());
   setVisible(elements.accountsPayableNav, canUseAccountsPayable());
   setVisible($('#supplierPaymentReportNav'), canUseAccountsPayable());

@@ -200,6 +200,20 @@ public sealed class AuthRepository(TenantConnectionFactory connections,NexoERP.A
             configuration.Parameters.Add(new SqlParameter("@EmpresaId",SqlDbType.BigInt){Value=companyId});
             await configuration.ExecuteNonQueryAsync(cancellationToken);
         }
+        await using(var portfolio=connection.CreateCommand())
+        {
+            portfolio.Transaction=(SqlTransaction)transaction;
+            portfolio.CommandText="""
+                INSERT ven.TipoCartera(EmpresaId,Codigo,Nombre,Activo)
+                SELECT @EmpresaId,Codigo,Nombre,Activo FROM (VALUES
+                    ('MOTO',N'Motos',CONVERT(bit,1)),
+                    ('OTROS',N'Otros artículos',CONVERT(bit,1)),
+                    ('MIXTA',N'Mixta',CONVERT(bit,1)),
+                    ('SIN_CLASIFICAR',N'Sin clasificar',CONVERT(bit,0))) v(Codigo,Nombre,Activo);
+                """;
+            portfolio.Parameters.Add(new SqlParameter("@EmpresaId",SqlDbType.BigInt){Value=companyId});
+            await portfolio.ExecuteNonQueryAsync(cancellationToken);
+        }
         await EnsureOperationalDefaultsAsync(connection,(SqlTransaction)transaction,companyId,userId,cancellationToken);
         if(input.Zeus is not null)
             await (zeusConnections??throw new ArgumentException("Servicio de conexión Zeus no disponible.")).SaveAsync(connection,(SqlTransaction)transaction,companyId,userId,input.Zeus,cancellationToken);

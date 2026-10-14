@@ -9,6 +9,20 @@ public static class SalesModule
     public static void MapSales(this WebApplication app)
     {
         var group=app.MapGroup("/api/v1/companies/{empresaId:long}");
+        group.MapGet("/master-data/portfolio-types",async(long empresaId,PortfolioTypeRepository types,CancellationToken ct)=>
+            Results.Ok(await types.ListAsync(empresaId,ct)))
+            .RequireErpPermission("MAESTROS.TIPO_CARTERA.ADMINISTRAR","VENTAS.FACTURA.CONTABILIZAR","TESORERIA.RECIBO.CONTABILIZAR");
+        group.MapPost("/master-data/portfolio-types",async(long empresaId,PortfolioTypeInput input,PortfolioTypeRepository types,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await types.SaveAsync(empresaId,null,input,ct));}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+            catch(SqlException e) when(e.Number is 2601 or 2627){return Results.Conflict(new{error="Ya existe un tipo de cartera con ese código."});}
+        }).RequireErpPermission("MAESTROS.TIPO_CARTERA.ADMINISTRAR");
+        group.MapPut("/master-data/portfolio-types/{id:long}",async(long empresaId,long id,PortfolioTypeInput input,PortfolioTypeRepository types,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await types.SaveAsync(empresaId,id,input,ct));}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+        }).RequireErpPermission("MAESTROS.TIPO_CARTERA.ADMINISTRAR");
         group.MapGet("/master-data/clients",async(long empresaId,CustomerRepository customers,CancellationToken ct)=>
             Results.Ok(await customers.ListAsync(empresaId,ct))).RequireErpPermission("MAESTROS.CLIENTE.ADMINISTRAR");
         group.MapPost("/master-data/clients",async(long empresaId,CustomerInput input,HttpContext http,CustomerRepository customers,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>

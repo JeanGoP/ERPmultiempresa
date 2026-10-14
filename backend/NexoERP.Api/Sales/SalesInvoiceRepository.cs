@@ -22,12 +22,13 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
     public async Task ClassifyAsync(long company,long id,string category,long user,CancellationToken ct)
     {
         category=category?.Trim().ToUpperInvariant()??"";
-        if(category is not("MOTO" or "OTROS" or "MIXTA"))
-            throw new ArgumentException("Selecciona motos, otros artículos o cartera mixta.");
+        if(category.Length is <1 or >20)throw new ArgumentException("Selecciona un tipo de cartera válido.");
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(ct);
-        await using var q=ZeusRepository.Command(c,"UPDATE ven.FacturaVenta SET ClaseCartera=@Class OUTPUT deleted.ClaseCartera WHERE EmpresaId=@E AND FacturaVentaId=@Id",company,tx);
+        await using var q=ZeusRepository.Command(c,"SELECT Activo FROM ven.TipoCartera WHERE EmpresaId=@E AND Codigo=@Class",company,tx);
         ZeusRepository.Add(q,"@Class",category);ZeusRepository.Add(q,"@Id",id);
+        if(await q.ExecuteScalarAsync(ct) is not true)throw new ArgumentException("El tipo de cartera no existe o está inactivo.");
+        q.CommandText="UPDATE ven.FacturaVenta SET ClaseCartera=@Class OUTPUT deleted.ClaseCartera WHERE EmpresaId=@E AND FacturaVentaId=@Id";
         var previous=await q.ExecuteScalarAsync(ct) as string;
         if(previous is null)throw new ArgumentException("No se encontró la factura en esta empresa.");
         if(previous.Trim().Equals(category,StringComparison.OrdinalIgnoreCase)){await tx.CommitAsync(ct);return;}
@@ -38,7 +39,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
     public async Task<object> ReceivablesAsync(long company,string? search,string? category,string? status,int? band,DateOnly? from,DateOnly? to,int page,CancellationToken ct)
     {
         search=search?.Trim()??"";category=category?.Trim().ToUpperInvariant()??"";status=status?.Trim().ToUpperInvariant()??"ABIERTA";
-        if(search.Length>100||category is not("" or "MOTO" or "OTROS" or "MIXTA" or "SIN_CLASIFICAR")
+        if(search.Length>100||category.Length>20
             ||status is not("ABIERTA" or "VENCIDA" or "AL_DIA" or "PAGADA" or "TODAS")||band is <0 or >4||page is <1 or >10000
             ||from.HasValue&&to.HasValue&&from>to)
             throw new ArgumentException("Revisa la búsqueda, el estado, las fechas y la página solicitada.");
@@ -295,8 +296,8 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             throw new ArgumentException("La factura admite hasta 100 artículos y entre 1 y 120 cuotas.");
         if(input.FrecuenciaCuotas is not(SalesInstallments.EveryThirtyDays or SalesInstallments.SameDayMonthly))
             throw new ArgumentException("Selecciona la periodicidad de las cuotas.");
-        if(input.ClaseCartera is not("MOTO" or "OTROS" or "MIXTA"))
-            throw new ArgumentException("Clasifica la cartera como motos, otros artículos o mixta.");
+        if(string.IsNullOrWhiteSpace(input.ClaseCartera)||input.ClaseCartera.Length>20)
+            throw new ArgumentException("Selecciona un tipo de cartera.");
         if(input.Observacion?.Trim().Length>1000)
             throw new ArgumentException("La observación admite máximo 1000 caracteres.");
         var conceptLines=input.Conceptos??[];
@@ -323,6 +324,9 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
                 return new{id=priorId,estado="CONTABILIZADO",repetido=true};
             }
         ZeusRepository.Add(q,"@B",input.SucursalId);ZeusRepository.Add(q,"@C",input.ClienteId);ZeusRepository.Add(q,"@Date",input.FechaContable.ToDateTime(TimeOnly.MinValue));
+        ZeusRepository.Add(q,"@PortfolioClass",input.ClaseCartera);
+        q.CommandText="SELECT Activo FROM ven.TipoCartera WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND Codigo=@PortfolioClass";
+        if(await q.ExecuteScalarAsync(ct) is not true)throw new ArgumentException("El tipo de cartera no existe o está inactivo.");
         q.CommandText="SELECT PeriodoInventarioId FROM core.PeriodoInventario WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND Estado IN('ABIERTO','REABIERTO') AND @Date BETWEEN FechaInicio AND FechaFin";
         var period=await q.ExecuteScalarAsync(ct);
         if(period is null)throw new ArgumentException("Abre el período de la fecha contable antes de facturar.");

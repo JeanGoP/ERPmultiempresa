@@ -6,13 +6,15 @@
   const dialog=document.createElement('dialog');dialog.className='erp-dialog egreso-dialog customer-documents-dialog';document.body.append(dialog);
   const serialDialog=document.createElement('dialog');serialDialog.className='erp-dialog customer-serial-dialog';document.body.append(serialDialog);
   const $=selector=>dialog.querySelector(selector);
-  let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='';
+  let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='',portfolioTypes=[];
   let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[],extraInstallments=[];
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='receipt'?'cash-receipts':'sales-invoices'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
   const clientLabel=c=>c?`${c.identificacion} · ${c.nombre}`:'';
-  const portfolioLabel=value=>({MOTO:'Motos',OTROS:'Otros artículos',MIXTA:'Mixta',SIN_CLASIFICAR:'Sin clasificar'})[value]||'Sin clasificar';
+  const portfolioLabel=value=>portfolioTypes.find(x=>x.codigo===value)?.nombre||value||'Sin clasificar';
+  const portfolioOptions=(selected='',activeOnly=false)=>portfolioTypes.filter(x=>!activeOnly||x.activo||x.codigo===selected).map(x=>`<option value="${esc(x.codigo)}" ${x.codigo===selected?'selected':''}>${esc(x.nombre)}${x.activo?'':' · inactivo'}</option>`).join('');
+  const loadPortfolioTypes=()=>apiRequest(`/api/v1/companies/${company}/master-data/portfolio-types`);
   function close(force=false){if(!force&&mode==='invoice'&&view!=='create'&&view!=='approvals'&&hasPermission('VENTAS.FACTURA.CONTABILIZAR')){void create();return;}if(!force&&(busy||dirty&&!confirm('¿Salir sin contabilizar el documento?')))return;token++;dirty=false;if(serialDialog.open)serialDialog.close();dialog.close();mode='';company=0;shellMode='';}
   window.resetCustomerDocuments=()=>close(true);
   dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
@@ -56,8 +58,8 @@
     if(!$('[data-content]').firstElementChild)$('[data-content]').innerHTML='<p>Consultando documentos…</p>';
     notice('Consultando documentos…');
     try{
-      const response=await apiRequest(endpoint()+`?q=${encodeURIComponent(search)}${before?`&antes=${before}`:''}${mode==='receipt'&&receiptFilter?`&tipo=${encodeURIComponent(receiptFilter)}`:''}`);
-      if(!current(t))return;next=response.siguiente;
+      const [response,types]=await Promise.all([apiRequest(endpoint()+`?q=${encodeURIComponent(search)}${before?`&antes=${before}`:''}${mode==='receipt'&&receiptFilter?`&tipo=${encodeURIComponent(receiptFilter)}`:''}`),loadPortfolioTypes()]);
+      if(!current(t))return;portfolioTypes=types;next=response.siguiente;
       $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Documentos guardados</strong><button type="button" class="button secondary" data-return-create>← Volver a ${mode==='invoice'?'facturación':'recibos'}</button></div><div class="table-wrap"><table><thead><tr><th>Documento</th><th>Fecha</th><th>Cliente</th><th>Total</th><th>Saldo / tipo</th><th>Zeus</th></tr></thead><tbody>${response.items.map(row=>`<tr><td>${mode==='invoice'?`<button type="button" class="customer-document-link" data-view-invoice="${row.id}" aria-label="Ver factura ${esc(row.numero)}">${esc(row.numero)}</button>`:esc(row.numero||'RC-'+row.id)}</td><td>${esc(row.fecha)}</td><td>${esc(row.cliente)}</td><td>${money(row.total)}</td><td>${mode==='invoice'?money(row.saldo)+' · anticipo '+money(row.anticipo)+'<br><small>'+esc(portfolioLabel(row.claseCartera))+'</small>':esc(row.tipo)+(row.tipo==='ANTICIPO'?` · disponible ${money(row.saldoAnticipo)}`:'')+(row.concepto?`<br><small>${esc(row.concepto)}</small>`:'')}</td><td>${esc(row.zeusEstado)} ${esc([row.fuente,row.documento].filter(Boolean).join(' · '))}<br><small>${esc(row.error||'')}</small>${row.zeusEstado==='RECHAZADO'?(mode==='invoice'?`<button type="button" class="button secondary" data-cost-center="${row.id}">Corregir centro de costo</button>`:'')+`<button type="button" class="button secondary" data-retry="${row.id}">Reintentar Zeus</button>`:''}${row.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button type="button" class="button secondary" data-reconcile="${row.id}">Conciliar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6">No se encontraron documentos.</td></tr>'}</tbody></table></div>
         <div class="egreso-toolbar"><button type="button" class="button secondary" data-first>Primera página</button><button type="button" class="button secondary" data-next ${next?'':'disabled'}>Siguientes</button></div>`;
       notice('');$('[data-return-create]').onclick=()=>void create();$('[data-first]').onclick=()=>listing();$('[data-next]').onclick=()=>listing(next);
@@ -73,12 +75,12 @@
   async function viewInvoice(id,before){
     const t=++token;view='detail';notice('Cargando factura…');
     try{
-      const [data,notes,payments]=await Promise.all([apiRequest(endpoint()+`/${id}`),apiRequest(endpoint()+`/${id}/refinancings`),apiRequest(endpoint()+`/${id}/refinancing-payments`)]);if(!current(t))return;
+      const [data,notes,payments,types]=await Promise.all([apiRequest(endpoint()+`/${id}`),apiRequest(endpoint()+`/${id}/refinancings`),apiRequest(endpoint()+`/${id}/refinancing-payments`),loadPortfolioTypes()]);if(!current(t))return;portfolioTypes=types;
       const h=data.header;
       const table=(headers,rows,empty)=>`<div class="table-wrap"><table><thead><tr>${headers.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows||`<tr><td colspan="${headers.length}">${empty}</td></tr>`}</tbody></table></div>`;
       $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Factura ${esc(h.numero)}</strong><button type="button" class="button secondary" data-back-results>← Volver a resultados</button></div>
         <div class="customer-invoice-detail-grid"><div><small>Cliente</small><strong>${esc(h.cliente)}</strong><span>${esc(h.identificacion)}</span></div><div><small>Sucursal</small><strong>${esc(h.sucursalCodigo+' · '+h.sucursal)}</strong></div><div><small>Cartera / fecha</small><strong>${esc(portfolioLabel(h.claseCartera))}</strong><span>${esc(h.fecha)}</span></div><div><small>Zeus</small><strong>${esc(h.zeusEstado)}</strong><span>${esc([h.fuente,h.documento].filter(Boolean).join(' · '))}</span></div></div>
-        <form class="customer-reclassify" data-reclassify><label>Clasificar esta factura<select name="claseCartera" required><option value="">Sin clasificar</option><option value="MOTO" ${h.claseCartera==='MOTO'?'selected':''}>Motos</option><option value="OTROS" ${h.claseCartera==='OTROS'?'selected':''}>Otros artículos</option><option value="MIXTA" ${h.claseCartera==='MIXTA'?'selected':''}>Mixta</option></select></label><button type="submit" class="button secondary">Guardar clasificación</button><small>No cambia valores ni movimientos en Zeus.</small></form>
+        <form class="customer-reclassify" data-reclassify><label>Clasificar esta factura<select name="claseCartera" required><option value="">Selecciona…</option>${portfolioOptions(h.claseCartera,true)}</select></label><button type="submit" class="button secondary">Guardar clasificación</button><small>No cambia valores ni movimientos en Zeus.</small></form>
         ${h.observacion?`<p class="customer-invoice-observation"><strong>Observación:</strong> ${esc(h.observacion)}</p>`:''}
         ${h.error?`<p class="error">${esc(h.error)}</p>`:''}
         <h3>Artículos</h3>${table(['Artículo','Bodega','Cantidad','Precio con IVA','IVA','Total'],data.articulos.map(x=>`<tr><td>${esc(x.codigo+' · '+x.descripcion)}</td><td>${esc(x.bodegaCodigo+' · '+x.bodega)}</td><td>${esc(x.cantidad)}</td><td>${money(x.precio)}</td><td>${esc(x.ivaTarifa)} %</td><td>${money(x.base+x.iva)}</td></tr>`).join(''),'Sin artículos.')}
@@ -283,8 +285,8 @@
   async function create(){
     const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];extraInstallments=[];dimensions=null;dimensionsError='';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
     try{
-      const [opts,chart,dims]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions').catch(error=>({error:error.message})):Promise.resolve(null)]);
-      if(!current(t))return;options=opts;accounts=chart;dimensions=dims?.error?null:dims;dimensionsError=dims?.error||'';
+      const [opts,chart,dims,types]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions').catch(error=>({error:error.message})):Promise.resolve(null),loadPortfolioTypes()]);
+      if(!current(t))return;options=opts;accounts=chart;dimensions=dims?.error?null:dims;dimensionsError=dims?.error||'';portfolioTypes=types;
       if(mode==='invoice')invoiceForm();else receiptForm();notice(dimensionsError?`No se pudieron consultar los centros de costo de Zeus: ${dimensionsError}`:'',Boolean(dimensionsError));
     }catch(error){if(current(t))notice(error.message,true);}
   }
@@ -335,7 +337,7 @@
       <p class="egreso-help" data-account-hint></p><label class="egreso-wide">Concepto<input name="concepto" maxlength="300" required></label>
       <label data-contra-wrap class="egreso-wide" hidden>Cuenta de contrapartida en Zeus<select name="cuentaContrapartida"><option value="">Selecciona cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label>
       <label>Valor recibido<input name="total" type="number" min="0.01" step="0.01" required></label></div>
-      <label class="customer-portfolio-filter" data-portfolio-filter-wrap hidden>Mostrar cartera de<select name="claseCarteraFiltro"><option value="">Todas las facturas</option><option value="MOTO">Motos</option><option value="OTROS">Otros artículos</option><option value="MIXTA">Mixta</option><option value="SIN_CLASIFICAR">Sin clasificar</option></select></label>
+      <label class="customer-portfolio-filter" data-portfolio-filter-wrap hidden>Mostrar cartera de<select name="claseCarteraFiltro"><option value="">Todas las facturas</option>${portfolioOptions()}</select></label>
       <div data-allocations></div><div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Contabilizar recibo</button></div></fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
     f.elements.tipo.onchange=()=>{applications=[];renderAllocations();};
@@ -393,7 +395,7 @@
       <label>Referencia ERP<input name="numero" maxlength="15" value="FV-${Date.now().toString(36).toUpperCase()}" required></label>
       <label>Fecha contable<input name="fechaContable" type="date" value="${today()}" required></label>
       ${clientField()}</div>
-      <div class="customer-invoice-meta"><label>Tipo de cartera<select name="claseCartera" required><option value="">Selecciona…</option><option value="MOTO">Motos</option><option value="OTROS">Otros artículos</option><option value="MIXTA">Mixta</option></select></label><label>Observación de la venta o garantía<textarea name="observacion" maxlength="1000" rows="2" placeholder="Información que conviene conservar con la factura"></textarea></label></div>
+      <div class="customer-invoice-meta"><label>Tipo de cartera<select name="claseCartera" required><option value="">Selecciona…</option>${portfolioOptions('',true)}</select></label><label>Observación de la venta o garantía<textarea name="observacion" maxlength="1000" rows="2" placeholder="Información que conviene conservar con la factura"></textarea></label></div>
       <div class="egreso-grid"><label data-concept-warehouse hidden>Bodega para cuenta de clientes<select name="bodegaCarteraId"><option value="">Selecciona bodega…</option></select></label></div>
       <div class="egreso-toolbar"><h3>Artículos y conceptos</h3><button type="button" class="button secondary" data-add-line>Agregar artículo</button><button type="button" class="button secondary" data-add-concept>Agregar concepto</button></div>
       <div class="table-wrap customer-sale-lines"><table><thead><tr><th>Artículo / bodega</th><th>Cant.</th><th>Precio con IVA</th><th>Descuento %</th><th>IVA</th><th>Seriales</th><th>Acción</th></tr></thead><tbody data-lines></tbody></table></div>

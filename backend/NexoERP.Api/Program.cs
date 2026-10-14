@@ -34,6 +34,7 @@ builder.Services.AddScoped<SalesInvoiceRepository>();
 builder.Services.AddScoped<SalesPriceApprovalRepository>();
 builder.Services.AddScoped<PortfolioRefinancingRepository>();
 builder.Services.AddScoped<SalesConceptRepository>();
+builder.Services.AddScoped<PortfolioTypeRepository>();
 builder.Services.AddScoped<CustomerPostingQueue>();
 builder.Services.AddHostedService<CustomerPostingWorker>();
 builder.Services.AddHostedService<CustomerZeusWorker>();
