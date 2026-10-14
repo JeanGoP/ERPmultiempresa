@@ -139,7 +139,7 @@ public sealed record SupplierDocumentLineDetailResponse(
     long DocumentoProveedorLineaId,int NumeroLinea,long? ArticuloId,string? CodigoArticulo,string? CodigoExterno,
     string Descripcion,string Clasificacion,decimal Cantidad,string? Unidad,decimal PrecioUnitario,decimal SubtotalBruto,
     decimal Descuento,decimal Impuesto,decimal Retencion,decimal Cargo,decimal TotalNeto,
-    IReadOnlyList<SupplierDocumentSerialDetailResponse> Seriales);
+    IReadOnlyList<SupplierDocumentSerialDetailResponse> Seriales,string? BodegaCodigo,string? Bodega);
 
 public sealed record SupplierDocumentDetailResponse(
     SupplierDocumentWorkflowResponse Documento,IReadOnlyList<SupplierDocumentLineDetailResponse> Lineas);
@@ -152,7 +152,7 @@ public sealed record SupplierDocumentWorkflowResponse(
     string? CufeCude,string? HashXml,bool XmlOriginalGuardado,decimal SubtotalBruto,decimal DescuentoTotal,
     decimal ImpuestoTotal,decimal CargoTotal,decimal TotalPagar,int Lineas,int UnidadesSerializadas,
     long? RecepcionMercanciaId,string? RecepcionNumero,string? RecepcionEstado,
-    long? CausacionServicioId,string? CausacionNumero,string? CausacionEstado);
+    long? CausacionServicioId,string? CausacionNumero,string? CausacionEstado,DateOnly? RecepcionFechaContable);
 
 public sealed record PrepareSupplierDocumentRequest(
     long? BodegaId,

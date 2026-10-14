@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const path=require('node:path');
+
+const context={window:{},Intl};
+vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../public/purchase-entry-print.js'),'utf8'),context);
+const detail={documento:{numeroDocumento:'FAC-15',tipoDocumento:'FACTURA',proveedor:'Proveedor <uno>',proveedorIdentificacion:'900123',fechaDocumento:'2026-10-14',recepcionNumero:'ENT-FAC-15',recepcionFechaContable:'2026-10-14',recepcionEstado:'CONTABILIZADA',moneda:'COP',totalPagar:130000},lineas:[{numeroLinea:1,codigoArticulo:'M1',descripcion:'Moto',clasificacion:'INVENTARIO',bodegaCodigo:'01',bodega:'CENTRO',cantidad:1,unidad:'UND',totalNeto:120000,seriales:[{numeroUnidad:1,serial:'<S-1>',motor:'M-1',chasis:'C-1',vin:'V-1',color:'Rojo',modelo:'2027'}]},{numeroLinea:2,descripcion:'Servicio',clasificacion:'SERVICIO_GASTO',totalNeto:10000,seriales:[]}]};
+const company={name:'MOTOCENTRO',nit:'NIT 900006537-4'};
+const html=context.window.purchaseEntryPrint.html(detail,company);
+assert.match(html,/ENTRADA CONTABILIZADA/);
+assert.match(html,/ENT-FAC-15/);
+assert.match(html,/01 · CENTRO/);
+assert.match(html,/2026-10-14/);
+assert.match(html,/&lt;S-1&gt;/);
+assert.match(html,/Proveedor &lt;uno&gt;/);
+assert.doesNotMatch(html,/Servicio/);
+assert.match(html,/incluye líneas que no son mercancía/);
+detail.documento.recepcionEstado='BORRADOR';
+assert.match(context.window.purchaseEntryPrint.html(detail,company),/BORRADOR \/ PENDIENTE DE CONTABILIZAR/);
+console.log('Impresión de entrada de mercancía: OK');

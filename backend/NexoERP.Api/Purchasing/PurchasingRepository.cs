@@ -376,10 +376,18 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         await using var command=connection.CreateCommand();
         command.CommandText="""
             SELECT l.DocumentoProveedorLineaId,l.NumeroLinea,l.ArticuloId,a.Codigo,l.CodigoExterno,l.Descripcion,l.Clasificacion,l.Cantidad,u.Codigo,
-                   l.PrecioUnitario,l.SubtotalBruto,l.Descuento,l.Impuesto,l.Retencion,l.Cargo,l.TotalNeto
+                   l.PrecioUnitario,l.SubtotalBruto,l.Descuento,l.Impuesto,l.Retencion,l.Cargo,l.TotalNeto,destino.Codigo,destino.Nombre
             FROM comp.DocumentoProveedorLinea l
             LEFT JOIN inv.Articulo a ON a.EmpresaId=l.EmpresaId AND a.ArticuloId=l.ArticuloId
             LEFT JOIN inv.UnidadMedida u ON u.EmpresaId=l.EmpresaId AND u.UnidadMedidaId=l.UnidadMedidaId
+            OUTER APPLY (
+                SELECT TOP (1) b.Codigo,b.Nombre
+                FROM inv.RecepcionMercancia h
+                JOIN inv.RecepcionMercanciaLinea rl ON rl.EmpresaId=h.EmpresaId AND rl.RecepcionMercanciaId=h.RecepcionMercanciaId AND rl.DocumentoProveedorLineaId=l.DocumentoProveedorLineaId
+                JOIN inv.Bodega b ON b.EmpresaId=h.EmpresaId AND b.BodegaId=COALESCE(rl.BodegaId,h.BodegaId)
+                WHERE h.EmpresaId=l.EmpresaId AND h.DocumentoProveedorId=l.DocumentoProveedorId
+                ORDER BY rl.RecepcionMercanciaLineaId DESC
+            ) destino
             WHERE l.EmpresaId=@EmpresaId AND l.DocumentoProveedorId=@DocumentoProveedorId
             ORDER BY l.NumeroLinea;
             SELECT u.DocumentoProveedorLineaId,u.NumeroUnidad,u.Serial,u.Motor,u.Chasis,u.Vin,u.Color,u.Modelo,u.InformacionOriginal
@@ -396,7 +404,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         while(await reader.ReadAsync(cancellationToken))
         {
             var lineId=reader.GetInt64(0);var serials=new List<SupplierDocumentSerialDetailResponse>();serialsByLine[lineId]=serials;
-            lines.Add(new(lineId,reader.GetInt32(1),reader.IsDBNull(2)?null:reader.GetInt64(2),reader.IsDBNull(3)?null:reader.GetString(3),reader.IsDBNull(4)?null:reader.GetString(4),reader.GetString(5),reader.GetString(6),reader.GetDecimal(7),reader.IsDBNull(8)?null:reader.GetString(8),reader.GetDecimal(9),reader.GetDecimal(10),reader.GetDecimal(11),reader.GetDecimal(12),reader.GetDecimal(13),reader.GetDecimal(14),reader.GetDecimal(15),serials));
+            lines.Add(new(lineId,reader.GetInt32(1),reader.IsDBNull(2)?null:reader.GetInt64(2),reader.IsDBNull(3)?null:reader.GetString(3),reader.IsDBNull(4)?null:reader.GetString(4),reader.GetString(5),reader.GetString(6),reader.GetDecimal(7),reader.IsDBNull(8)?null:reader.GetString(8),reader.GetDecimal(9),reader.GetDecimal(10),reader.GetDecimal(11),reader.GetDecimal(12),reader.GetDecimal(13),reader.GetDecimal(14),reader.GetDecimal(15),serials,reader.IsDBNull(16)?null:reader.GetString(16),reader.IsDBNull(17)?null:reader.GetString(17)));
         }
         if(await reader.NextResultAsync(cancellationToken)) while(await reader.ReadAsync(cancellationToken))
         {
@@ -440,7 +448,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
                    CONVERT(bit,IIF(d.XmlOriginal IS NULL,0,1)),d.SubtotalBruto,d.DescuentoTotal,d.ImpuestoTotal,d.CargoTotal,d.TotalPagar,
                    (SELECT COUNT(*) FROM comp.DocumentoProveedorLinea l WHERE l.EmpresaId=d.EmpresaId AND l.DocumentoProveedorId=d.DocumentoProveedorId),
                    (SELECT COUNT(*) FROM comp.DocumentoProveedorLineaUnidad u JOIN comp.DocumentoProveedorLinea l ON l.EmpresaId=u.EmpresaId AND l.DocumentoProveedorLineaId=u.DocumentoProveedorLineaId WHERE l.EmpresaId=d.EmpresaId AND l.DocumentoProveedorId=d.DocumentoProveedorId),
-                   r.RecepcionMercanciaId,r.Numero,r.Estado,c.CausacionServicioId,c.Numero,c.Estado
+                   r.RecepcionMercanciaId,r.Numero,r.Estado,c.CausacionServicioId,c.Numero,c.Estado,r.FechaContable
             FROM comp.DocumentoProveedor d
             JOIN ter.Tercero t ON t.EmpresaId=d.EmpresaId AND t.TerceroId=d.TerceroId
             LEFT JOIN inv.RecepcionMercancia r ON r.EmpresaId=d.EmpresaId AND r.DocumentoProveedorId=d.DocumentoProveedorId
@@ -457,7 +465,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             reader.IsDBNull(11)?null:reader.GetString(11),reader.IsDBNull(12)?null:reader.GetString(12),reader.GetBoolean(13),
             reader.GetDecimal(14),reader.GetDecimal(15),reader.GetDecimal(16),reader.GetDecimal(17),reader.GetDecimal(18),reader.GetInt32(19),reader.GetInt32(20),
             reader.IsDBNull(21)?null:reader.GetInt64(21),reader.IsDBNull(22)?null:reader.GetString(22),reader.IsDBNull(23)?null:reader.GetString(23),
-            reader.IsDBNull(24)?null:reader.GetInt64(24),reader.IsDBNull(25)?null:reader.GetString(25),reader.IsDBNull(26)?null:reader.GetString(26));
+            reader.IsDBNull(24)?null:reader.GetInt64(24),reader.IsDBNull(25)?null:reader.GetString(25),reader.IsDBNull(26)?null:reader.GetString(26),reader.IsDBNull(27)?null:DateOnly.FromDateTime(reader.GetDateTime(27)));
     }
 
     public async Task<IReadOnlyList<ReceiptMovementResponse>> GetReceiptMovementsAsync(long empresaId,long recepcionId,CancellationToken cancellationToken)
