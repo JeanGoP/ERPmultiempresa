@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const path=require('node:path');
+
+const context={window:{},Intl};
+vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../public/sales-invoice-print.js'),'utf8'),context);
+const data={header:{numero:'FV-7',fecha:'2026-10-14',sucursalCodigo:'01',sucursal:'CENTRO',cliente:'Ana <script>',identificacion:'123',total:119000,anticipo:19000,observacion:'Garantía <especial>'},articulos:[{codigo:'M1',descripcion:'Moto',bodegaCodigo:'B1',bodega:'Principal',cantidad:1,precio:119000,base:100000,iva:19000,ivaTarifa:19}],conceptos:[],anticipos:[{reciboId:2,fecha:'2026-10-10',concepto:'Cuota inicial',valor:19000}],cuotas:[{numero:1,tipo:'ORDINARIA',vence:'2026-11-14',valor:100000}]};
+const report=context.window.salesInvoicePrint.html(data,{name:'MOTOCENTRO',nit:'NIT 900006537-4'});
+assert.match(report,/Comprobante interno de venta/);
+assert.match(report,/No válido como factura electrónica DIAN/);
+assert.match(report,/FV-7/);
+assert.match(report,/MOTOCENTRO/);
+assert.match(report,/2026-11-14/);
+assert.match(report,/Cuota inicial/);
+assert.match(report,/IVA artículos/);
+assert.match(report,/Ana &lt;script&gt;/);
+assert.doesNotMatch(report,/<script>/);
+assert.match(report,/No contiene resolución de numeración, CUFE, código QR/);
+console.log('Impresión interna de factura: OK');

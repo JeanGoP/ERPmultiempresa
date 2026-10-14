@@ -49,6 +49,7 @@
         try{
           const result=await apiRequest(`/api/v1/companies/${company}/sales-price-approvals/${id}/${action}`,{method:'POST',...(action==='issue'?{}:{body:JSON.stringify({respuesta:response})})});
           await approvalListing();notice(action==='issue'?`Factura ${result.id} contabilizada en ERP; revisa su estado en Zeus.`:`Solicitud ${action==='approve'?'aprobada':'rechazada'}.`);
+          if(action==='issue')await printSavedInvoice(result.id);
         }catch(error){if(current(t))notice(error.message,true);}finally{busy=false;if(button.isConnected)button.disabled=false;}
       });
     }catch(error){if(current(t))notice(error.message,true);}
@@ -78,7 +79,7 @@
       const [data,notes,payments,types]=await Promise.all([apiRequest(endpoint()+`/${id}`),apiRequest(endpoint()+`/${id}/refinancings`),apiRequest(endpoint()+`/${id}/refinancing-payments`),loadPortfolioTypes()]);if(!current(t))return;portfolioTypes=types;
       const h=data.header;
       const table=(headers,rows,empty)=>`<div class="table-wrap"><table><thead><tr>${headers.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows||`<tr><td colspan="${headers.length}">${empty}</td></tr>`}</tbody></table></div>`;
-      $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Factura ${esc(h.numero)}</strong><button type="button" class="button secondary" data-back-results>← Volver a resultados</button></div>
+      $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Factura ${esc(h.numero)}</strong><div><button type="button" class="button secondary" data-print-invoice>Imprimir comprobante</button> <button type="button" class="button secondary" data-back-results>← Volver a resultados</button></div></div>
         <div class="customer-invoice-detail-grid"><div><small>Cliente</small><strong>${esc(h.cliente)}</strong><span>${esc(h.identificacion)}</span></div><div><small>Sucursal</small><strong>${esc(h.sucursalCodigo+' · '+h.sucursal)}</strong></div><div><small>Cartera / fecha</small><strong>${esc(portfolioLabel(h.claseCartera))}</strong><span>${esc(h.fecha)}</span></div><div><small>Zeus</small><strong>${esc(h.zeusEstado)}</strong><span>${esc([h.fuente,h.documento].filter(Boolean).join(' · '))}</span></div></div>
         <form class="customer-reclassify" data-reclassify><label>Clasificar esta factura<select name="claseCartera" required><option value="">Selecciona…</option>${portfolioOptions(h.claseCartera,true)}</select></label><button type="submit" class="button secondary">Guardar clasificación</button><small>No cambia valores ni movimientos en Zeus.</small></form>
         ${h.observacion?`<p class="customer-invoice-observation"><strong>Observación:</strong> ${esc(h.observacion)}</p>`:''}
@@ -93,7 +94,9 @@
           ${payments.items.length?`<h4>Abonos extraordinarios de refinanciación</h4>${table(['Recibo','Fecha','Valor','Estado Zeus'],payments.items.map(x=>`<tr><td>RC-${esc(x.id)}</td><td>${esc(x.fecha)}</td><td>${money(x.valor)}</td><td>${esc(x.zeusEstado)} · ${esc([x.fuente,x.documento].filter(Boolean).join(' · '))}${x.error?`<small>${esc(x.error)}</small>`:''}</td></tr>`).join(''),'')}`:''}
           ${notes.items.length?table(['Fecha / plan','Saldo anterior','Nuevo saldo','Incremento','Estado Zeus','Acción'],notes.items.map(n=>`<tr><td>${esc(n.fecha)}<small>${esc(n.motivo)}</small><details><summary>Comparar cuotas</summary><strong>Anteriores</strong>${(n.planAnterior||[]).map(x=>`<small>${esc(x.vencimiento)} · ${money(x.saldo)}</small>`).join('')}<strong>Nuevas</strong>${(n.planNuevo||[]).map(x=>`<small>${esc(x.vencimiento)} · ${money(x.valor)}</small>`).join('')}</details></td><td>${money(n.saldoAnterior)}</td><td>${money(n.nuevoSaldo)}</td><td>${money(n.incremento)}${n.cuentaIngreso?`<small>Ingreso ${esc(n.cuentaIngreso)}${n.centroCosto?` · CC ${esc(n.centroCosto)}`:''}</small>`:''}</td><td>${esc(n.zeusEstado)}<small>${esc([n.fuente,n.documento].filter(Boolean).join(' · '))}</small><small>${esc(n.error||'')}</small></td><td>${n.zeusEstado==='RECHAZADO'?`<button type="button" class="button secondary" data-note-retry="${n.id}">Reintentar</button>`:''}${(n.zeusEstado==='PENDIENTE'&&n.intentos===0||['POR_APROBAR','RECHAZADO'].includes(n.zeusEstado))?` <button type="button" class="button secondary" data-note-cancel="${n.id}">Descartar</button>`:''}${n.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button type="button" class="button secondary" data-note-reconcile="${n.id}">Conciliar</button>`:''}</td></tr>`).join(''),'Sin notas.'):''}
           <div data-refinancing-form></div></section>`;
-      $('[data-back-results]').onclick=()=>void listing(before);notice('');
+      $('[data-back-results]').onclick=()=>void listing(before);
+      $('[data-print-invoice]').onclick=()=>{try{window.salesInvoicePrint.print(data,state.erpSession.company);}catch(error){notice(error.message,true);}};
+      notice('');
       $('[data-reclassify]').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;
         try{await apiRequest(endpoint()+`/${id}/portfolio-class`,{method:'PUT',body:JSON.stringify({claseCartera:event.target.elements.claseCartera.value})});if(current(t)){await viewInvoice(id,before);notice('Clasificación guardada.');}}
         catch(error){if(current(t))notice(error.message,true);}finally{if(button.isConnected)button.disabled=false;}
@@ -602,9 +605,16 @@
     }
     await send(body,'Factura');
   }
+  async function printSavedInvoice(id){
+    if(!id)return;
+    try{
+      const data=await apiRequest(`/api/v1/companies/${company}/sales-invoices/${id}`);
+      window.salesInvoicePrint.print(data,state.erpSession.company);
+    }catch(error){notice(`La factura quedó guardada, pero no se pudo abrir la impresión: ${error.message}. Ábrela desde documentos guardados para reimprimir.`,true);}
+  }
   async function send(body,title){
     busy=true;const submit=$('[data-document] button[type="submit"]');submit.disabled=true;notice('Contabilizando en ERP…');
-    try{const result=await apiRequest(endpoint(),{method:'POST',body:JSON.stringify(body)});dirty=false;await listing();notice(`${title} ${result.numero||result.id} contabilizado en ERP. Zeus: ${result.zeusEstado||'PENDIENTE'}. Consulta el seguimiento para confirmar el comprobante.`);}
+    try{const result=await apiRequest(endpoint(),{method:'POST',body:JSON.stringify(body)});dirty=false;await listing();notice(`${title} ${result.numero||result.id} contabilizado en ERP. Zeus: ${result.zeusEstado||'PENDIENTE'}. Consulta el seguimiento para confirmar el comprobante.`);if(mode==='invoice')await printSavedInvoice(result.id);}
     catch(error){notice(error.message,true);}
     finally{busy=false;if(submit.isConnected)submit.disabled=false;}
   }
