@@ -62,6 +62,18 @@
 .customer-documents-dialog .customer-advance-list input[type="number"]{height:30px;max-width:120px;padding:4px 7px}
 .customer-documents-dialog .customer-advance-list [data-advance-summary]{display:block;margin-top:9px;padding:8px 10px;background:#edf5f0;border-radius:6px;color:#14513e;font-size:12px}
 .customer-documents-dialog .customer-advance-list .table-wrap{max-height:280px;overflow:auto}
+.customer-documents-dialog [data-reference-wrap][hidden]{display:none}
+.customer-documents-dialog .customer-receipt-dues{max-height:280px;overflow:auto;border:1px solid #dce7e1;border-radius:7px}
+.customer-documents-dialog .customer-receipt-dues table{width:100%;min-width:560px;font-size:11px;table-layout:fixed}
+.customer-documents-dialog .customer-receipt-dues th,.customer-documents-dialog .customer-receipt-dues td{padding:5px 7px;vertical-align:middle}
+.customer-documents-dialog .customer-receipt-dues th:first-child{width:54px}
+.customer-documents-dialog .customer-receipt-dues th:nth-child(2){width:44%}
+.customer-documents-dialog .customer-receipt-dues th:nth-child(3){width:24%}
+.customer-documents-dialog .customer-receipt-dues td:first-child{text-align:center}
+.customer-documents-dialog .customer-receipt-dues input[type="checkbox"]{display:inline-block;width:16px;height:16px;min-height:16px;margin:0;padding:0;accent-color:#166c50}
+.customer-documents-dialog .customer-receipt-dues input[type="number"]{width:100%;max-width:115px;height:30px;min-height:30px;box-sizing:border-box;padding:4px 6px}
+.customer-documents-dialog .customer-receipt-dues td strong,.customer-documents-dialog .customer-receipt-dues td small{display:block}
+.customer-documents-dialog .customer-receipt-dues td small{color:#657970;font-size:10px}
 .customer-documents-dialog .customer-invoice-settings{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,3fr);gap:18px;align-items:start;margin:18px 0;padding:15px;border:1px solid #d9e5de;border-radius:10px;background:#fbfdfb}
 .customer-documents-dialog .customer-invoice-settings label{display:grid;align-content:start;gap:6px;min-width:0;font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-invoice-settings small{display:block;color:#63766d;font-size:11px;font-weight:400;line-height:1.4}
@@ -96,6 +108,7 @@
 .customer-documents-dialog .customer-refinance-counterpart strong{grid-column:1/-1;font-size:12px;color:#14513e}
 .customer-documents-dialog .customer-refinance-payment{margin:12px 0;padding:14px;background:#fff9ef;border:1px solid #ead6a8;border-radius:8px}
 .customer-documents-dialog .customer-refinance-payment[hidden]{display:none}
+.customer-documents-dialog .customer-refinance-payment [data-payment-reference][hidden]{display:none}
 .customer-documents-dialog .customer-refinance-payment>strong{color:#704c16}
 .customer-documents-dialog .customer-refinance-payment p{margin:6px 0 10px;font-size:12px;line-height:1.45}
 .customer-documents-dialog .customer-refinance-payment small{display:block;margin:2px 0 8px;color:#5d675f}

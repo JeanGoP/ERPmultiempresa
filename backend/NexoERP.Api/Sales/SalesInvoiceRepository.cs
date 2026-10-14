@@ -208,7 +208,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             JOIN inv.Articulo a ON a.EmpresaId=l.EmpresaId AND a.ArticuloId=l.ArticuloId
             JOIN inv.Bodega b ON b.EmpresaId=l.EmpresaId AND b.BodegaId=l.BodegaId
             WHERE l.EmpresaId=@E AND l.FacturaVentaId=@Id ORDER BY l.FacturaVentaLineaId;
-            SELECT Codigo,Nombre,CuentaIngresoZeus,CentroCostoZeus,Valor
+            SELECT Codigo,Nombre,CuentaIngresoZeus,CentroCostoZeus,Valor,UbicacionFormato
             FROM ven.FacturaVentaConcepto WHERE EmpresaId=@E AND FacturaVentaId=@Id ORDER BY FacturaVentaConceptoId;
             SELECT r.ReciboCajaId,r.FechaContable,r.Concepto,a.Valor
             FROM ven.FacturaAnticipo a JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
@@ -233,7 +233,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         while(await r.ReadAsync(ct))items.Add(new{codigo=r.GetString(0),descripcion=r.GetString(1),bodegaCodigo=r.GetString(2),bodega=r.GetString(3),cantidad=r.GetDecimal(4),precio=r.GetDecimal(5),ivaTarifa=r.GetDecimal(6),@base=r.GetDecimal(7),iva=r.GetDecimal(8)});
         var concepts=new List<object>();
         await r.NextResultAsync(ct);
-        while(await r.ReadAsync(ct))concepts.Add(new{codigo=r.GetString(0),nombre=r.GetString(1),cuenta=r.GetString(2),centroCosto=r.IsDBNull(3)?null:r.GetString(3),valor=r.GetDecimal(4)});
+        while(await r.ReadAsync(ct))concepts.Add(new{codigo=r.GetString(0),nombre=r.GetString(1),cuenta=r.GetString(2),centroCosto=r.IsDBNull(3)?null:r.GetString(3),valor=r.GetDecimal(4),ubicacionFormato=r.GetString(5)});
         var receipts=new List<object>();
         await r.NextResultAsync(ct);
         while(await r.ReadAsync(ct))receipts.Add(new{reciboId=r.GetInt64(0),fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),concepto=r.GetString(2),valor=r.GetDecimal(3)});
@@ -262,7 +262,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             SELECT a.ReciboCajaId,a.Saldo,r.Concepto,r.FechaContable,r.ZeusEstado
             FROM cxc.AnticipoCliente a JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
             WHERE a.EmpresaId=@E AND a.ClienteId=@C AND a.Saldo>0 ORDER BY r.FechaContable,a.ReciboCajaId;
-            SELECT ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus FROM ven.ConceptoVenta WHERE EmpresaId=@E AND Activo=1 ORDER BY Codigo;
+            SELECT ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus,UbicacionFormato FROM ven.ConceptoVenta WHERE EmpresaId=@E AND Activo=1 ORDER BY Codigo;
             SELECT b.BodegaId,b.Codigo,b.Nombre,b.SucursalId,z.Configuracion
             FROM inv.Bodega b LEFT JOIN core.ZeusBodegaCuenta z ON z.EmpresaId=b.EmpresaId AND z.BodegaId=b.BodegaId
             WHERE b.EmpresaId=@E AND b.Activa=1 AND b.SucursalId IS NOT NULL ORDER BY b.Codigo;
@@ -276,7 +276,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))articles.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),descripcion=r.GetString(2),tipo=r.GetString(3),inventario=r.GetBoolean(4),serial=r.GetBoolean(5),iva=r.IsDBNull(6)?(decimal?)null:r.GetDecimal(6),bodegaId=r.GetInt64(7),bodegaCodigo=r.GetString(8),bodega=r.GetString(9),sucursalId=r.GetInt64(10),existencia=r.GetDecimal(11),costoPromedio=r.IsDBNull(12)?(decimal?)null:r.GetDecimal(12),precioListaConIva=r.IsDBNull(13)?(decimal?)null:r.GetDecimal(13)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))serials.Add(new{id=r.GetInt64(0),articuloId=r.GetInt64(1),bodegaId=r.GetInt64(2),estado=r.GetString(3),tipo=r.IsDBNull(4)?null:r.GetString(4),valor=r.IsDBNull(5)?null:r.GetString(5)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))advances.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1),concepto=r.GetString(2),fecha=r.GetDateTime(3).ToString("yyyy-MM-dd"),zeusEstado=r.GetString(4)});
-        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))concepts.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),cuentaIngresoZeus=r.GetString(3)});
+        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))concepts.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),cuentaIngresoZeus=r.GetString(3),ubicacionFormato=r.GetString(4)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))
         {
             var warehouseAccounts=r.IsDBNull(4)?null:JsonSerializer.Deserialize<ZeusWarehouseAccounts>(r.GetString(4));
@@ -351,11 +351,11 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         var activeCenters=dimensions.CentrosCosto.Select(x=>x.Codigo).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var requiredCenters=dimensions.CuentasRequierenCentroCosto.ToHashSet(StringComparer.OrdinalIgnoreCase);
         string generalCenter;
-        var validatedConcepts=new List<(SaleConceptLine Input,string Codigo,string Nombre,string Cuenta)>();
+        var validatedConcepts=new List<(SaleConceptLine Input,string Codigo,string Nombre,string Cuenta,string UbicacionFormato)>();
         foreach(var concept in conceptLines)
         {
             q.Parameters.Add("@Concept",SqlDbType.BigInt).Value=concept.ConceptoVentaId;
-            q.CommandText="SELECT Codigo,Nombre,CuentaIngresoZeus,ServidorZeus,BaseDatosZeus FROM ven.ConceptoVenta WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND ConceptoVentaId=@Concept AND Activo=1";
+            q.CommandText="SELECT Codigo,Nombre,CuentaIngresoZeus,ServidorZeus,BaseDatosZeus,UbicacionFormato FROM ven.ConceptoVenta WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND ConceptoVentaId=@Concept AND Activo=1";
             await using(var r=await q.ExecuteReaderAsync(ct))
             {
                 if(!await r.ReadAsync(ct))throw new ArgumentException("Un concepto de venta no existe o está inactivo.");
@@ -364,7 +364,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
                 var code=r.GetString(0);var account=r.GetString(2);
                 if(code=="FINANCIACION"&&!account.StartsWith("4135",StringComparison.Ordinal))
                     throw new ArgumentException("La financiación requiere una cuenta 4135.");
-                validatedConcepts.Add((concept,code,r.GetString(1),account));
+                validatedConcepts.Add((concept,code,r.GetString(1),account,r.GetString(5)));
             }
             q.Parameters.RemoveAt("@Concept");
         }
@@ -541,9 +541,10 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         }
         foreach(var concept in validatedConcepts)
         {
-            await using var conceptInsert=ZeusRepository.Command(c,"INSERT ven.FacturaVentaConcepto(EmpresaId,FacturaVentaId,ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus,CentroCostoZeus,Valor) VALUES(@E,@Invoice,@Concept,@Code,@Name,@Account,@Center,@Value)",company,tx);
+            await using var conceptInsert=ZeusRepository.Command(c,"INSERT ven.FacturaVentaConcepto(EmpresaId,FacturaVentaId,ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus,CentroCostoZeus,Valor,UbicacionFormato) VALUES(@E,@Invoice,@Concept,@Code,@Name,@Account,@Center,@Value,@Position)",company,tx);
             ZeusRepository.Add(conceptInsert,"@Invoice",id);ZeusRepository.Add(conceptInsert,"@Concept",concept.Input.ConceptoVentaId);
             ZeusRepository.Add(conceptInsert,"@Code",concept.Codigo);ZeusRepository.Add(conceptInsert,"@Name",concept.Nombre);
+            ZeusRepository.Add(conceptInsert,"@Position",concept.UbicacionFormato);
             ZeusRepository.Add(conceptInsert,"@Account",concept.Cuenta);ZeusRepository.Add(conceptInsert,"@Center",generalCenter.Length==0?DBNull.Value:generalCenter);ZeusRepository.Add(conceptInsert,"@Value",concept.Input.Valor);
             await conceptInsert.ExecuteNonQueryAsync(ct);
             movements.Add(new(new ZeusAccount("CONCEPTO_"+concept.Codigo,concept.Cuenta,CentroCosto:generalCenter),-concept.Input.Valor));

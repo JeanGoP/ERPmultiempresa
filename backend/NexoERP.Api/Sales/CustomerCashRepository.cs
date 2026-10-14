@@ -171,6 +171,8 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             throw new ArgumentException("El valor del recibo debe ser positivo y tener máximo dos decimales.");
         if(string.IsNullOrWhiteSpace(input.Concepto)||input.Concepto.Length>300||input.Referencia?.Length>20)
             throw new ArgumentException("Escribe un concepto y una referencia válida.");
+        if(input.MedioPago!="EFECTIVO"&&string.IsNullOrWhiteSpace(input.Referencia))
+            throw new ArgumentException("Indica la referencia de la transferencia o el número de cheque.");
         var applications=input.Aplicaciones??[];
         if(input.Tipo=="CARTERA")
         {
@@ -228,8 +230,30 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             throw new ArgumentException("Configura la cuenta general de anticipos de clientes en Zeus.");
         if(input.Tipo=="NORMAL"&&(input.CuentaContrapartida!.Length>16||input.CuentaContrapartida==cashAccount))
             throw new ArgumentException("Selecciona una cuenta de ingreso válida, diferente de caja/banco.");
+        var openInstallments=new List<CustomerPaymentPolicy.OpenInstallment>();
+        if(input.Tipo=="CARTERA")
+        {
+            foreach(var invoiceId in applications.Select(x=>x.FacturaVentaId).Distinct())
+            {
+                ZeusRepository.Add(q,"@Invoice",invoiceId);
+                q.CommandText="""
+                    SELECT c.FacturaVentaId,c.FacturaVentaCuotaId,c.FechaVencimiento,c.NumeroCuota,c.SaldoPendiente
+                    FROM ven.FacturaVentaCuota c WITH(UPDLOCK,HOLDLOCK)
+                    JOIN ven.FacturaVenta f ON f.EmpresaId=c.EmpresaId AND f.FacturaVentaId=c.FacturaVentaId
+                    WHERE c.EmpresaId=@E AND c.FacturaVentaId=@Invoice AND f.ClienteId=@C
+                        AND c.PlanVersion=f.PlanVersion AND c.EstadoPlan='ACTIVA' AND c.SaldoPendiente>0
+                    ORDER BY c.FechaVencimiento,c.NumeroCuota,c.FacturaVentaCuotaId
+                    """;
+                await using(var due=await q.ExecuteReaderAsync(ct))while(await due.ReadAsync(ct))
+                    openInstallments.Add(new(due.GetInt64(0),due.GetInt64(1),due.GetDateTime(2),due.GetInt32(3),due.GetDecimal(4)));
+                q.Parameters.RemoveAt("@Invoice");
+            }
+            CustomerPaymentPolicy.ValidateOrder(openInstallments,applications);
+        }
         var invoiceApplications=new List<ZeusCustomerInvoice>();
-        foreach(var line in applications.OrderBy(x=>x.FacturaVentaId).ThenBy(x=>x.FacturaVentaCuotaId))
+        foreach(var line in applications.OrderBy(x=>x.FacturaVentaId)
+            .ThenBy(x=>openInstallments.FirstOrDefault(d=>d.InvoiceId==x.FacturaVentaId&&d.InstallmentId==x.FacturaVentaCuotaId)?.DueDate??DateTime.MinValue)
+            .ThenBy(x=>x.FacturaVentaCuotaId))
         {
             ZeusRepository.Add(q,"@Invoice",line.FacturaVentaId);ZeusRepository.Add(q,"@Value",line.Valor);
             ZeusRepository.Add(q,"@Installment",(object?)line.FacturaVentaCuotaId??DBNull.Value);
@@ -256,7 +280,6 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                 if(original.Configuracion.ServidorEsperado!=settings.ServidorEsperado||original.Configuracion.BaseEsperada!=settings.BaseEsperada)
                     throw new ArgumentException("La factura pertenece a otro destino Zeus. Concíliala antes de recaudar.");
                 var dueDate=line.FacturaVentaCuotaId.HasValue?reader.GetDateTime(6):reader.GetDateTime(3);
-                if(!input.PagoExtraordinarioRefinanciacion)CustomerPaymentPolicy.ValidateDueDate(dueDate,input.FechaContable);
                 var account=original.ClienteDocumento?.CuentaCliente??throw new ArgumentException("La factura no tiene cuenta de cartera de cliente.");
                 var invoiceNumber=reader.GetString(2);
                 if(original.ClienteDocumento?.FacturaUsaConsecutivoZeus==true)

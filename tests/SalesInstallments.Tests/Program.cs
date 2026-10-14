@@ -103,7 +103,11 @@ try{SalesInstallments.BuildWithExtras(new DateOnly(2026,10,3),2,SalesInstallment
 catch(ArgumentException){Console.WriteLine("OK: extras no consumen el saldo de cuotas ordinarias");}
 try{SalesInstallments.Build(new DateOnly(2026,10,3),12,SalesInstallments.SameDayMonthly,0.10m);throw new Exception("No rechazó cuotas inferiores a un centavo.");}
 catch(ArgumentException){Console.WriteLine("OK: saldo insuficiente rechazado");}
-CustomerPaymentPolicy.ValidateDueDate(new DateTime(2026,10,3),new DateOnly(2026,10,3));
-CustomerPaymentPolicy.ValidateDueDate(new DateTime(2026,10,3),new DateOnly(2026,10,4));
-try{CustomerPaymentPolicy.ValidateDueDate(new DateTime(2026,10,4),new DateOnly(2026,10,3));throw new Exception("Permitió cobrar una cuota futura.");}
-catch(ArgumentException){Console.WriteLine("OK: no recauda cuotas antes del vencimiento");}
+var openDues=new CustomerPaymentPolicy.OpenInstallment[]{new(1,10,new DateTime(2026,11,3),1,100m),new(1,11,new DateTime(2026,12,3),2,100m),new(2,20,new DateTime(2026,10,1),1,80m)};
+CustomerPaymentPolicy.ValidateOrder(openDues,[new CashReceiptApplication(1,50m,10)]);
+CustomerPaymentPolicy.ValidateOrder(openDues,[new CashReceiptApplication(1,100m,10),new CashReceiptApplication(1,30m,11)]);
+CustomerPaymentPolicy.ValidateOrder(openDues,[new CashReceiptApplication(2,80m,20)]);
+try{CustomerPaymentPolicy.ValidateOrder(openDues,[new CashReceiptApplication(1,30m,11)]);throw new Exception("Permitió saltar la primera cuota.");}
+catch(ArgumentException){Console.WriteLine("OK: no salta la primera cuota");}
+try{CustomerPaymentPolicy.ValidateOrder(openDues,[new CashReceiptApplication(1,50m,10),new CashReceiptApplication(1,30m,11)]);throw new Exception("Permitió cobrar la siguiente con la anterior parcial.");}
+catch(ArgumentException){Console.WriteLine("OK: exige cubrir la cuota anterior");}

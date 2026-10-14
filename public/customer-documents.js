@@ -176,7 +176,7 @@
       host.innerHTML=`<form data-refinance><h3>Nueva nota de cartera</h3><p class="egreso-help">Indica la nueva cuota, cuándo vence la primera y cuántas cuotas tendrá. Las demás vencerán el mismo día de cada mes. La cartera actual sigue vigente hasta que Zeus confirme la nota.</p>
         <div class="egreso-grid"><label>Fecha contable<input type="date" name="fechaContable" value="${today()}" required></label><label class="egreso-wide">Motivo<input name="motivo" maxlength="300" placeholder="Motivo de la refinanciación" required></label></div>
         <div class="customer-refinance-fields"><label>Valor de la nueva cuota<input type="number" name="valorCuota" min="0.01" step="0.01" placeholder="Escribe el valor acordado" required></label><label>Primer vencimiento<input type="date" name="primerVencimiento" value="${firstDue}" required></label><label>Número de cuotas<input type="number" name="numeroCuotas" min="1" max="120" step="1" value="${old.length}" required></label></div>
-        <p data-refinance-total role="status"></p><section class="customer-refinance-payment" data-extra-payment hidden><strong>Abono extraordinario antes de refinanciar</strong><p>La diferencia se registra como recibo de caja contra esta factura, incluso si sus cuotas aún no vencen. Primero debe quedar confirmada en Zeus; después se solicita la nota por el saldo restante.</p><div class="customer-refinance-fields"><label>Valor que entrega el cliente<input name="valorAbono" type="number" step="0.01" min="0.01" readonly></label><label>Medio de pago<select name="medioPago"><option value="">Selecciona…</option>${['TRANSFERENCIA','EFECTIVO','CHEQUE'].map(x=>`<option value="${x}">${x}</option>`).join('')}</select></label><label>Referencia / cheque<input name="referenciaPago" maxlength="20"></label></div><small data-payment-account></small><div class="egreso-toolbar"><button type="button" class="button secondary" data-register-payment>Registrar abono extraordinario</button><button type="button" class="button secondary" data-check-payment hidden>Consultar confirmación en Zeus</button></div></section><details class="customer-refinance-preview"><summary>Ver vencimientos generados</summary><div class="table-wrap"><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Valor</th></tr></thead><tbody data-new-dues></tbody></table></div></details>
+        <p data-refinance-total role="status"></p><section class="customer-refinance-payment" data-extra-payment hidden><strong>Abono extraordinario antes de refinanciar</strong><p>La diferencia se registra como recibo de caja contra esta factura, incluso si sus cuotas aún no vencen. Primero debe quedar confirmada en Zeus; después se solicita la nota por el saldo restante.</p><div class="customer-refinance-fields"><label>Valor que entrega el cliente<input name="valorAbono" type="number" step="0.01" min="0.01" readonly></label><label>Medio de pago<select name="medioPago"><option value="">Selecciona…</option>${['TRANSFERENCIA','EFECTIVO','CHEQUE'].map(x=>`<option value="${x}">${x}</option>`).join('')}</select></label><label data-payment-reference>Referencia / cheque<input name="referenciaPago" maxlength="20"></label></div><small data-payment-account></small><div class="egreso-toolbar"><button type="button" class="button secondary" data-register-payment>Registrar abono extraordinario</button><button type="button" class="button secondary" data-check-payment hidden>Consultar confirmación en Zeus</button></div></section><details class="customer-refinance-preview"><summary>Ver vencimientos generados</summary><div class="table-wrap"><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Valor</th></tr></thead><tbody data-new-dues></tbody></table></div></details>
         <div class="customer-refinance-counterpart" data-counterpart hidden><strong data-counterpart-value></strong><label>Cuenta contable de la contrapartida<select name="cuentaIngresoZeus"><option value="">Selecciona cuenta de ingreso…</option>${options.cuentas.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label><label data-counterpart-center hidden>Centro de costo requerido por Zeus<select name="centroCostoZeus"><option value="">Selecciona centro…</option>${options.centrosCosto.map(x=>`<option value="${esc(x.codigo)}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label></div>
         <div class="egreso-toolbar"><button type="submit" class="button primary">Guardar y enviar nota a Zeus</button><button type="button" class="button secondary" data-cancel-refinance>Cancelar</button></div></form>`;
       const form=host.querySelector('form'),body=form.querySelector('[data-new-dues]');
@@ -192,6 +192,9 @@
         return Array.from({length:count},(_,index)=>{const target=month-1+index,last=new Date(Date.UTC(year,target+1,0)).getUTCDate();return {vencimiento:new Date(Date.UTC(year,target,Math.min(day,last))).toISOString().slice(0,10),valor:amount,tipo:'ORDINARIA'};});
       };
       const updateTotal=()=>{
+        const cash=form.elements.medioPago.value==='EFECTIVO';
+        form.querySelector('[data-payment-reference]').hidden=cash||!form.elements.medioPago.value;
+        if(cash)form.elements.referenciaPago.value='';
         const dues=buildDues(),cents=dues.reduce((sum,x)=>sum+Math.round(x.valor*100),0),delta=cents-Math.round(Number(data.header.saldo)*100);
         form.querySelector('[data-refinance-total]').textContent=dues.length?`Saldo actual ${money(data.header.saldo)} · Nuevo saldo ${money(cents/100)} · ${delta<0?'Abono extraordinario necesario':'Incremento'} ${money(Math.abs(delta)/100)}`:'Completa una cuota válida, entre 1 y 120 vencimientos y una fecha inicial no anterior a la fecha contable.';
         body.innerHTML=dues.map((due,index)=>`<tr><td>${index+1}</td><td>${esc(due.vencimiento)}</td><td>${money(due.valor)}</td></tr>`).join('');
@@ -213,6 +216,7 @@
         if(!dues.length||amount<=0||amount>=Math.round(Number(data.header.saldo)*100)){notice('El abono debe dejar un saldo positivo y un plan válido.',true);return;}
         if(!form.elements.motivo.value.trim()){notice('Escribe el motivo de la refinanciación antes de registrar el abono.',true);form.elements.motivo.focus();return;}
         if(!hasPermission('TESORERIA.RECIBO.CONTABILIZAR')){notice('Para registrar el abono se requiere permiso de recibos de caja.',true);return;}
+        if(form.elements.medioPago.value!=='EFECTIVO'&&!form.elements.referenciaPago.value.trim()){notice('Escribe la referencia de la transferencia o el número de cheque.',true);return;}
         if(!(cashOptions?.cuentas||[]).some(x=>Number(x.sucursalId)===Number(data.header.sucursalId)&&x.medioPago===form.elements.medioPago.value)){notice('Configura caja/banco de la sucursal para el medio de pago seleccionado.',true);return;}
         if(!confirm(`¿Registrar ${money(amount/100)} como pago extraordinario de esta factura? Se enviará un recibo de caja a Zeus antes de crear la nota.`))return;
         busy=true;const button=form.querySelector('[data-register-payment]');button.disabled=true;
@@ -337,7 +341,7 @@
       <label>Fecha contable<input name="fechaContable" type="date" value="${today()}" required></label>
       <label>Tipo de recibo<select name="tipo"><option value="ANTICIPO">Anticipo de cliente</option><option value="CARTERA">Recaudo de cartera</option><option value="NORMAL">Recibo normal</option></select></label>
       <label>Medio de pago<select name="medioPago"><option>TRANSFERENCIA</option><option>EFECTIVO</option><option>CHEQUE</option></select></label>
-      ${clientField()}<label>Referencia / cheque<input name="referencia" maxlength="20"></label>
+      ${clientField()}<label data-reference-wrap>Referencia / cheque<input name="referencia" maxlength="20"></label>
       <p class="egreso-help" data-account-hint></p><label class="egreso-wide">Concepto<input name="concepto" maxlength="300" required></label>
       <label data-contra-wrap class="egreso-wide" hidden>Cuenta de contrapartida en Zeus<select name="cuentaContrapartida"><option value="">Selecciona cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label>
       <label>Valor recibido<input name="total" type="number" min="0.01" step="0.01" required></label></div>
@@ -346,9 +350,16 @@
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
     f.elements.tipo.onchange=()=>{applications=[];renderAllocations();};
     f.elements.claseCarteraFiltro.onchange=()=>renderAllocations();
-    f.elements.sucursalId.onchange=accountHint;f.elements.medioPago.onchange=accountHint;
+    f.elements.sucursalId.onchange=accountHint;f.elements.medioPago.onchange=()=>{accountHint();syncReceiptReference();};
     f.elements.fechaContable.onchange=()=>{applications=[];renderAllocations();dirty=true;};
-    f.onsubmit=submitReceipt;renderAllocations();accountHint();
+    f.onsubmit=submitReceipt;renderAllocations();accountHint();syncReceiptReference();
+  }
+  function syncReceiptReference(){
+    const f=$('[data-document]');if(!f||mode!=='receipt')return;
+    const cash=f.elements.medioPago.value==='EFECTIVO';
+    $('[data-reference-wrap]').hidden=cash;
+    f.elements.referencia.required=!cash;
+    if(cash)f.elements.referencia.value='';
   }
   function accountHint(){
     const f=$('[data-document]');if(!f||mode!=='receipt')return;
@@ -364,8 +375,17 @@
     f.elements.total.readOnly=kind==='CARTERA';
     if(kind!=='CARTERA'){area.innerHTML=kind==='ANTICIPO'?'<p class="egreso-help">El saldo del anticipo quedará disponible para aplicarlo a una factura futura.</p>':'<p class="egreso-help">Selecciona la cuenta contable específica para este ingreso. No modifica cartera.</p>';summary();return;}
     const selected=x=>applications.find(a=>a.facturaVentaId===x.id&&(a.facturaVentaCuotaId??null)===(x.cuotaId??null));
+    const all=[...(options.facturas||[])].sort((a,b)=>a.id-b.id||a.vence.localeCompare(b.vence)||(a.numeroCuota||0)-(b.numeroCuota||0)||(a.cuotaId||0)-(b.cuotaId||0));
+    const blocked=new Map(),eligible=new Set();
+    for(const due of all){
+      const key=`${due.id}:${due.cuotaId??''}`,priorOpen=blocked.get(due.id)||false;
+      if(!priorOpen&&due.zeusEstado==='CONTABILIZADO')eligible.add(key);
+      if(priorOpen)applications=applications.filter(x=>!(x.facturaVentaId===due.id&&(x.facturaVentaCuotaId??null)===(due.cuotaId??null)));
+      const payment=selected(due);
+      blocked.set(due.id,priorOpen||due.zeusEstado!=='CONTABILIZADO'||!payment||Math.round(payment.valor*100)<Math.round(due.saldo*100));
+    }
     const shown=(options.facturas||[]).filter(x=>!f.elements.claseCarteraFiltro.value||x.claseCartera===f.elements.claseCarteraFiltro.value);
-    area.innerHTML=`<h3>Cuotas y facturas pendientes del cliente</h3><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Factura / cuota</th><th>Cartera</th><th>Vencimiento</th><th>Saldo</th><th>Valor a recaudar</th></tr></thead><tbody>${shown.map((x,i)=>{const future=x.vence>f.elements.fechaContable.value;return `<tr><td><input type="checkbox" data-pick="${i}" ${selected(x)?'checked':''} ${x.zeusEstado==='CONTABILIZADO'&&!future?'':'disabled'}></td><td>${esc(x.numero)}${x.numeroCuota?' · cuota '+x.numeroCuota:''}</td><td>${esc(portfolioLabel(x.claseCartera))}</td><td>${esc(x.vence)}${future?' · aún no vence':''}</td><td>${money(x.saldo)}</td><td><input type="number" data-amount="${i}" min="0.01" max="${x.saldo}" step="0.01" value="${selected(x)?.valor||x.saldo}" ${selected(x)?'':'disabled'}></td></tr>`;}).join('')||'<tr><td colspan="6">No hay cuotas pendientes en esta categoría.</td></tr>'}</tbody></table></div><small class="egreso-help">Solo se recaudan cuotas vencidas y confirmadas en Zeus. Los anticipos se registran por separado.</small>`;
+    area.innerHTML=`<h3>Cuotas pendientes</h3><div class="table-wrap customer-receipt-dues"><table><thead><tr><th>Aplicar</th><th>Factura / cuota</th><th>Saldo</th><th>Abono</th></tr></thead><tbody>${shown.map((x,i)=>`<tr><td><input type="checkbox" data-pick="${i}" ${selected(x)?'checked':''} ${eligible.has(`${x.id}:${x.cuotaId??''}`)?'':'disabled'}></td><td><strong>${esc(x.numero)}${x.numeroCuota?' · cuota '+x.numeroCuota:''}</strong><small>${esc(x.vence)} · ${esc(portfolioLabel(x.claseCartera))}</small></td><td>${money(x.saldo)}</td><td><input type="number" data-amount="${i}" min="0.01" max="${x.saldo}" step="0.01" value="${selected(x)?.valor||x.saldo}" ${selected(x)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="4">No hay cuotas pendientes en esta categoría.</td></tr>'}</tbody></table></div><small class="egreso-help">Puedes anticipar la primera cuota pendiente. Para pagar otra de la misma factura, cubre por completo las anteriores en orden de vencimiento.</small>`;
     area.querySelectorAll('[data-pick]').forEach(box=>box.onchange=()=>{
       const invoice=shown[Number(box.dataset.pick)];
       applications=applications.filter(a=>!(a.facturaVentaId===invoice.id&&(a.facturaVentaCuotaId??null)===(invoice.cuotaId??null)));
@@ -375,7 +395,7 @@
     area.querySelectorAll('[data-amount]').forEach(input=>input.oninput=()=>{
       const invoice=shown[Number(input.dataset.amount)],item=selected(invoice);if(item)item.valor=Number(input.value);
       summary();dirty=true;
-    });summary();
+    });area.querySelectorAll('[data-amount]').forEach(input=>input.onchange=()=>renderAllocations());summary();
   }
   function summary(){
     const f=$('[data-document]');if(!f)return;

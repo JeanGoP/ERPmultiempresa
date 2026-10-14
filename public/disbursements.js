@@ -65,7 +65,7 @@
       ${input('fechaContable','Fecha contable',10,true,'date')}${input('moneda','Moneda',3,true)}
       <label>Medio de pago<select name="medioPago"><option>TRANSFERENCIA</option><option>EFECTIVO</option><option>CHEQUE</option></select></label>
       <label class="egreso-wide">Beneficiario<input data-beneficiary list="egresoBeneficiarios" placeholder="Buscar por nombre o identificación…" autocomplete="off" required aria-describedby="egresoBeneficiaryStatus"><input type="hidden" name="terceroId"><datalist id="egresoBeneficiarios"></datalist></label>
-      ${input('referencia','Referencia del pago / cheque',20)}<p data-account class="egreso-help"></p>
+      <span data-payment-reference>${input('referencia','Referencia del pago / cheque',20)}</span><p data-account class="egreso-help"></p>
       <label class="egreso-wide">Concepto<input name="concepto" value="${esc(d.concepto)}" maxlength="300" required></label></div>
       <p data-options-note id="egresoBeneficiaryStatus" class="egreso-help" role="status" aria-live="polite"></p>
       <h3>Facturas pendientes del proveedor</h3><div class="table-wrap" data-pending></div>
@@ -81,13 +81,13 @@
     $e('[data-read-document]').onclick=()=>void readDocument();
     $e('[data-beneficiary]').oninput=beneficiaryInput;
     $e('[data-beneficiary]').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();beneficiaryInput();}};
-    for(const name of ['sucursalId','medioPago'])$e(`[name="${name}"]`).onchange=()=>{capture();accountHint();};
+    for(const name of ['sucursalId','medioPago'])$e(`[name="${name}"]`).onchange=()=>{capture();accountHint();paymentReference();};
     $e('[name="moneda"]').readOnly=true;
     $e('[name="moneda"]').onchange=()=>{capture();renderLines();};
     $e('[data-invoice]').onclick=()=>{capture();if(!d.terceroId){notice('Selecciona primero un beneficiario.',true);return;}d.lineas.push({tipo:'FACTURA',documentoPorPagarId:null,cuenta:'',concepto:'',valor:0});dirty=true;renderLines();};
     $e('[data-expense]').onclick=()=>{capture();d.lineas.push({tipo:'GASTO',documentoPorPagarId:null,cuenta:'',concepto:'',valor:0});dirty=true;renderLines();};
     $e('[data-back]').onclick=()=>{if(!dirty||confirm('¿Salir sin guardar los cambios?'))void listing();};
-    $e('[data-form]').onsubmit=save;renderLines();accountHint();
+    $e('[data-form]').onsubmit=save;renderLines();accountHint();paymentReference();
   }
   async function readDocument(){
     const file=$e('[name="soporte"]')?.files?.[0];if(!file){notice('Selecciona un PDF o una imagen.',true);return;}
@@ -198,6 +198,7 @@
     finally{busy=false;if(valid(token)&&$e('fieldset'))$e('fieldset').disabled=false;}
   }
   function accountHint(){const a=accounts.find(x=>x.sucursalId===Number(current?.datos.sucursalId)&&x.medioPago===current?.datos.medioPago);if($e('[data-account]'))$e('[data-account]').textContent=a?`Salida: ${a.cuenta} · ${a.nombre}`:'Falta configurar caja/banco de esta sucursal y medio de pago.';}
+  function paymentReference(){const field=$e('[name="referencia"]'),cash=$e('[name="medioPago"]')?.value==='EFECTIVO';if(!field)return;$e('[data-payment-reference]').hidden=cash;field.required=!cash;if(cash){field.value='';current.datos.referencia='';}}
   async function view(id){const token=++generation;shell();try{const result=await apiRequest(url()+'/'+id);if(!valid(token))return;const d=result.datos;$e('[data-content]').innerHTML=`<h3>CE-${id} · Contabilizado</h3><p>${esc(d.concepto)} · ${esc(d.fechaContable)} · ${money(result.asiento.origen.total)}</p><div class="table-wrap"><table><thead><tr><th>Cuenta</th><th>Concepto</th><th>Débito</th><th>Crédito</th></tr></thead><tbody>${result.asiento.movimientos.map(m=>`<tr><td>${esc(m.regla.cuenta)}</td><td>${esc(m.regla.concepto)}</td><td>${m.valor>0?money(m.valor):''}</td><td>${m.valor<0?money(-m.valor):''}</td></tr>`).join('')}</tbody></table></div><h3>Aplicaciones a facturas</h3><p>${result.asiento.egreso.facturas.map(f=>esc(f.numero)+' · '+money(f.valor)).join('<br>')||'Sin aplicaciones de cartera'}</p><button class="button secondary" data-back>Volver</button>`;$e('[data-back]').onclick=()=>listing();}catch(e){if(valid(token))notice(e.message,true);}}
   window.loadZeusCashAccounts=configure;
   async function configure(scope){
