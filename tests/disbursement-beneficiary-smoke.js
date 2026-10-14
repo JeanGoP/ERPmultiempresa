@@ -2,7 +2,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
 const source=fs.readFileSync('public/disbursements.js','utf8');
 assert.doesNotMatch(source,/data-search|data-search-button/);
 assert.match(source,/data-beneficiary list="egresoBeneficiarios"/);
-assert.match(source,/searchTerm='';dialog.showModal\(\);await edit\(\)/,'Tesorería abre nuevo egreso');
+assert.match(source,/searchTerm='';const opening=edit\(\);dialog.showModal\(\);await opening/,'Tesorería prepara el egreso antes de mostrar la ventana');
 assert.doesNotMatch(source,/data-config>Caja/,'No configura caja desde tesorería');
 assert.match(source,/\?q='\+encodeURIComponent\(searchTerm\)/,'Consulta filtrada en servidor');
 assert.match(source,/if\(!searchTerm\)/,'Sin búsqueda no descarga historial');

@@ -6,22 +6,24 @@
   const dialog=document.createElement('dialog');dialog.className='erp-dialog egreso-dialog customer-documents-dialog';document.body.append(dialog);
   const serialDialog=document.createElement('dialog');serialDialog.className='erp-dialog customer-serial-dialog';document.body.append(serialDialog);
   const $=selector=>dialog.querySelector(selector);
-  let mode='',view='create',company=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='';
+  let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='';
   let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[],extraInstallments=[];
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='receipt'?'cash-receipts':'sales-invoices'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
   const clientLabel=c=>c?`${c.identificacion} · ${c.nombre}`:'';
   const portfolioLabel=value=>({MOTO:'Motos',OTROS:'Otros artículos',MIXTA:'Mixta',SIN_CLASIFICAR:'Sin clasificar'})[value]||'Sin clasificar';
-  function close(force=false){if(!force&&mode==='invoice'&&view!=='create'&&view!=='approvals'&&hasPermission('VENTAS.FACTURA.CONTABILIZAR')){void create();return;}if(!force&&(busy||dirty&&!confirm('¿Salir sin contabilizar el documento?')))return;token++;dirty=false;if(serialDialog.open)serialDialog.close();dialog.close();mode='';company=0;}
+  function close(force=false){if(!force&&mode==='invoice'&&view!=='create'&&view!=='approvals'&&hasPermission('VENTAS.FACTURA.CONTABILIZAR')){void create();return;}if(!force&&(busy||dirty&&!confirm('¿Salir sin contabilizar el documento?')))return;token++;dirty=false;if(serialDialog.open)serialDialog.close();dialog.close();mode='';company=0;shellMode='';}
   window.resetCustomerDocuments=()=>close(true);
   dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
   function shell(){
+    if($('[data-content]')&&shellMode===mode&&shellCompany===company)return;
     const title=mode==='invoice'?'Facturas de venta':mode==='refinancing'?'Refinanciación de cartera':'Recibos de caja';
     dialog.innerHTML=`<div class="dialog-heading"><div><span class="dialog-kicker">${mode==='receipt'?'TESORERÍA':'VENTAS'} · ${esc(state.erpSession?.company?.name||'Empresa')}</span><h2>${title}</h2></div><button class="dialog-close" type="button" data-close aria-label="Cerrar">×</button></div>
       <form class="customer-document-search" data-search-form><label class="customer-search-query">Buscar documentos guardados<input name="buscar" maxlength="100" placeholder="Número, cliente, identificación o comprobante Zeus" value="${esc(search)}"></label>${mode==='receipt'?`<label class="customer-search-filter">Tipo<select name="tipo"><option value="" ${receiptFilter===''?'selected':''}>Todos</option><option value="ANTICIPO" ${receiptFilter==='ANTICIPO'?'selected':''}>Anticipos</option><option value="CARTERA" ${receiptFilter==='CARTERA'?'selected':''}>Recaudos de cartera</option><option value="NORMAL" ${receiptFilter==='NORMAL'?'selected':''}>Otros recibos</option></select></label>`:''}<button class="button secondary" type="submit">Buscar</button>${mode==='invoice'?'<button type="button" class="button secondary" data-approvals>Autorizaciones</button>':''}<button type="button" class="button primary" data-new>Nuevo</button></form>
       <div class="customer-create-nav" data-create-nav hidden><button type="button" class="button secondary" data-view-list>← Ver documentos guardados</button>${mode==='invoice'?'<button type="button" class="button secondary" data-approvals>Autorizaciones</button>':''}</div>
       <p data-message role="status" aria-live="polite"></p><div data-content></div>`;
+    shellMode=mode;shellCompany=company;
     $('[data-close]').onclick=()=>close();
     $('[data-new]').onclick=()=>{if(!busy&&(!dirty||confirm('¿Descartar los datos sin contabilizar?')))void create();};
     $('[data-view-list]').onclick=()=>{if(!busy&&(!dirty||confirm('¿Salir sin contabilizar el documento?')))void listing();};
@@ -30,7 +32,7 @@
   }
   async function approvalListing(){
     const t=++token;view='approvals';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=true;notice('Consultando autorizaciones…');
-    $('[data-content]').innerHTML='<p>Consultando solicitudes…</p>';
+    if(!$('[data-content]').firstElementChild)$('[data-content]').innerHTML='<p>Consultando solicitudes…</p>';
     try{
       const result=await apiRequest(`/api/v1/companies/${company}/sales-price-approvals`);if(!current(t))return;
       $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Autorizaciones de precio y descuento</strong>${hasPermission('VENTAS.FACTURA.CONTABILIZAR')?'<button type="button" class="button secondary" data-back-create>← Volver a facturación</button>':''}</div><p class="egreso-help">La aprobación corresponde a los valores exactos solicitados. Solo quien la solicitó puede emitir la factura; si cambia el costo o la política, debe hacer otra solicitud.</p><div class="table-wrap"><table><thead><tr><th>Solicitud / factura</th><th>Excepción</th><th>Motivo</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${result.items.map(x=>`<tr><td>#${x.id} · ${esc(x.numero)}<small>${esc(x.cliente)} · ${money(x.totalEstimado)}<br>${esc(x.cuotas)} cuota(s), primer vencimiento ${esc(x.primerVencimiento)} · solicitó usuario ${esc(x.solicitadoPor)}</small></td><td>${(x.excepciones||[]).map(e=>`<div>${e.tipo==='BAJO_COSTO'?'Bajo costo':'Descuento fuera de política'} · ${esc(e.articulo||e.articuloId)}<br><small>Precio ${money(e.precio)} · mínimo ${money(e.umbral)}</small></div>`).join('')}</td><td>${esc(x.motivo)}</td><td>${esc(x.estado)}${x.respuesta?`<small>${esc(x.respuesta)}</small>`:''}</td><td>${x.estado==='PENDIENTE'&&x.puedeResolver?`<button type="button" class="button secondary" data-approve="${x.id}">Aprobar</button> <button type="button" class="button secondary" data-reject="${x.id}">Rechazar</button>`:''}${x.estado==='APROBADA'&&x.propia?`<button type="button" class="button primary" data-issue="${x.id}">Emitir factura</button>`:''}${x.facturaId&&hasPermission('VENTAS.FACTURA.CONTABILIZAR')?`<button type="button" class="button secondary" data-issued="${x.facturaId}">Ver factura</button>`:''}</td></tr>`).join('')||'<tr><td colspan="5">No hay solicitudes de autorización.</td></tr>'}</tbody></table></div>`;
@@ -50,8 +52,8 @@
     }catch(error){if(current(t))notice(error.message,true);}
   }
   async function listing(before=null){
-    const sameList=view==='list'&&Boolean($('[data-return-create]'));
-    const t=++token;view='list';dirty=false;if(!sameList){shell();$('[data-content]').innerHTML=`<div class="egreso-toolbar"><button type="button" class="button secondary" data-return-create>← Volver a ${mode==='invoice'?'facturación':'recibos'}</button></div>`;$('[data-return-create]').onclick=()=>void create();}
+    const t=++token;view='list';dirty=false;shell();$('[data-search-form]').hidden=false;$('[data-create-nav]').hidden=true;$('[data-search-form]').elements.buscar.value=search;if(mode==='receipt')$('[data-search-form]').elements.tipo.value=receiptFilter;
+    if(!$('[data-content]').firstElementChild)$('[data-content]').innerHTML='<p>Consultando documentos…</p>';
     notice('Consultando documentos…');
     try{
       const response=await apiRequest(endpoint()+`?q=${encodeURIComponent(search)}${before?`&antes=${before}`:''}${mode==='receipt'&&receiptFilter?`&tipo=${encodeURIComponent(receiptFilter)}`:''}`);
@@ -108,7 +110,7 @@
     }catch(error){if(current(t))notice(error.message,true);}
   }
   async function refinancingHome(){
-    const t=++token;view='refinancing-home';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=true;
+    const t=++token;view='refinancing-home';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=true;$('[data-content]').removeAttribute('aria-busy');
     $('[data-content]').innerHTML=`<section class="customer-refinancing-home"><p class="egreso-help">Busca al cliente para consultar su saldo total y las cuotas pendientes. Después elige la factura cuyo saldo vas a refinanciar.</p><label>Cliente por nombre o identificación<input data-refinancing-search type="search" maxlength="100" autocomplete="off" placeholder="Escribe al menos dos caracteres…" value="${esc(refinancingSearch)}"></label><div data-refinancing-customers></div></section>`;
     const input=$('[data-refinancing-search]'),results=$('[data-refinancing-customers]');let sequence=0,timer=null;
     const find=async()=>{
@@ -128,7 +130,7 @@
   }
   async function refinancingCustomer(customerId){
     const t=++token;view='refinancing-customer';notice('Consultando cartera del cliente…');
-    $('[data-content]').innerHTML='<p>Cargando saldo y cuotas…</p>';
+    $('[data-content]').setAttribute('aria-busy','true');
     try{
       const result=await apiRequest(`/api/v1/companies/${company}/portfolio-refinancing/customers/${customerId}`);if(!current(t))return;
       const invoices=new Map();for(const due of result.cuotas){if(!invoices.has(due.facturaId))invoices.set(due.facturaId,due);}
@@ -136,10 +138,11 @@
       $('[data-back-customers]').onclick=()=>void refinancingHome();
       dialog.querySelectorAll('[data-refinancing-invoice]').forEach(button=>button.onclick=()=>void refinancingInvoice(Number(button.dataset.refinancingInvoice),customerId));
       notice('');
-    }catch(error){if(current(t))notice(error.message,true);}
+    }catch(error){if(current(t))notice(error.message,true);}finally{if(current(t))$('[data-content]')?.removeAttribute('aria-busy');}
   }
   async function refinancingInvoice(id,customerId){
     const t=++token;view='refinancing-detail';notice('Consultando saldo de la factura…');
+    $('[data-content]').setAttribute('aria-busy','true');
     try{
       const [data,notes,payments]=await Promise.all([apiRequest(endpoint()+`/${id}`),apiRequest(endpoint()+`/${id}/refinancings`),apiRequest(endpoint()+`/${id}/refinancing-payments`)]);if(!current(t))return;
       if(Number(data.header.clienteId)!==customerId){notice('La factura no corresponde al cliente seleccionado.',true);return;}
@@ -153,7 +156,7 @@
         try{const noteId=Number(button.dataset['note'+action[0].toUpperCase()+action.slice(1)]);const url=action==='cancel'?endpoint()+`/${id}/refinancings/${noteId}/cancel`:`/api/v1/companies/${company}/portfolio-notes/${noteId}/${action}`;await apiRequest(url,{method:'POST'});await refinancingInvoice(id,customerId);}
         catch(error){notice(error.message,true);}finally{busy=false;}
       });notice('');
-    }catch(error){if(current(t))notice(error.message,true);}
+    }catch(error){if(current(t))notice(error.message,true);}finally{if(current(t))$('[data-content]')?.removeAttribute('aria-busy');}
   }
   async function openRefinancing(id,before,t,data,saved=null){
     notice('Consultando cuentas de Zeus…');
@@ -263,19 +266,19 @@
   async function open(selected,showList=false,approvalsOnly=false){
     const permission=selected==='invoice'?'VENTAS.FACTURA.CONTABILIZAR':'TESORERIA.RECIBO.CONTABILIZAR';
     if(!state.erpSession?.api||!(hasPermission(permission)||approvalsOnly&&selected==='invoice'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR'))){showError('Requiere conexión al ERP y el permiso correspondiente.');return;}
-    if(dialog.open)return;mode=selected;company=state.erpSession.company.id;search='';receiptFilter=showList&&selected==='receipt'?'ANTICIPO':'';dialog.showModal();if(approvalsOnly)await approvalListing();else if(showList)await listing();else await create();
+    if(dialog.open)return;mode=selected;company=state.erpSession.company.id;search='';receiptFilter=showList&&selected==='receipt'?'ANTICIPO':'';const opening=approvalsOnly?approvalListing():showList?listing():create();dialog.showModal();await opening;
   }
   document.querySelector('#cashReceiptsNav').addEventListener('click',()=>void open('receipt'));
   document.querySelector('#customerAdvancesNav').addEventListener('click',()=>void open('receipt',true));
   document.querySelector('#salesInvoicesNav').addEventListener('click',()=>void open('invoice'));
   document.querySelector('#salesRefinancingNav').addEventListener('click',()=>{
     if(!state.erpSession?.api||!hasPermission('VENTAS.FACTURA.CONTABILIZAR')){showError('Requiere acceso a ventas y conexión al ERP.');return;}
-    if(dialog.open)return;mode='refinancing';company=state.erpSession.company.id;refinancingSearch='';dialog.showModal();void refinancingHome();
+    if(dialog.open)return;mode='refinancing';company=state.erpSession.company.id;refinancingSearch='';void refinancingHome();dialog.showModal();$('[data-refinancing-search]')?.focus();
   });
   document.querySelector('#salesApprovalsNav').addEventListener('click',()=>void open('invoice',false,true));
   window.openSavedSalesInvoice=async id=>{
     if(!state.erpSession?.api||!hasPermission('VENTAS.FACTURA.CONTABILIZAR'))return;
-    if(dialog.open)return;mode='invoice';company=state.erpSession.company.id;search='';receiptFilter='';dialog.showModal();shell();await viewInvoice(id,null);
+    if(dialog.open)return;mode='invoice';company=state.erpSession.company.id;search='';receiptFilter='';shell();dialog.showModal();await viewInvoice(id,null);
   };
   async function create(){
     const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];extraInstallments=[];dimensions=null;dimensionsError='';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');

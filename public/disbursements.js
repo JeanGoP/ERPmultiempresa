@@ -3,7 +3,7 @@
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const dialog=document.createElement('dialog');dialog.id='disbursementDialog';dialog.className='erp-dialog egreso-dialog';
   dialog.setAttribute('aria-label','Comprobantes de egreso');document.body.append(dialog);
-  let generation=0,company=null,current=null,options=null,dirty=false,busy=false,next=null,accounts=[];
+  let generation=0,company=null,shellCompany=null,current=null,options=null,dirty=false,busy=false,next=null,accounts=[];
   let beneficiaryTimer=null,beneficiaryRequest=0;
   let searchTerm='';
   const beneficiaryLabel=x=>x?`${x.identificacion} · ${x.nombre}`:'';
@@ -12,12 +12,14 @@
   const valid=token=>token===generation&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const money=(n,c)=>new Intl.NumberFormat('es-CO',{style:'currency',currency:c||'COP',minimumFractionDigits:2,maximumFractionDigits:2}).format(n||0);
   const notice=(text,error=false)=>{const e=$e('[data-notice]');if(e){e.textContent=text;e.classList.toggle('error',error);}};
-  function close(force=false){if(!force&&(busy||dirty&&!confirm('¿Descartar los datos sin contabilizar?')))return;generation++;dirty=false;dialog.close();current=null;company=null;}
+  function close(force=false){if(!force&&(busy||dirty&&!confirm('¿Descartar los datos sin contabilizar?')))return;generation++;dirty=false;dialog.close();current=null;company=null;shellCompany=null;}
   window.resetEgresos=()=>close(true);
   dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
   function shell(){
+    if($e('[data-content]')&&shellCompany===company)return;
     dialog.innerHTML=`<div class="dialog-heading"><div><span class="dialog-kicker">TESORERÍA · ${esc(state.erpSession?.company?.name||'Empresa activa')}</span><h2>Comprobantes de egreso</h2></div><button type="button" class="dialog-close" data-close aria-label="Cerrar">×</button></div>
       <form data-find-form class="egreso-toolbar"><label>Buscar egresos guardados<input data-find maxlength="120" placeholder="CE, proveedor, identificación o comprobante Zeus" value="${esc(searchTerm)}" required></label><button class="button secondary">Buscar</button><button type="button" class="button secondary" data-create>Nuevo egreso</button></form><p data-notice role="status" aria-live="polite"></p><div data-content></div>`;
+    shellCompany=company;
     $e('[data-close]').onclick=()=>close();
     $e('[data-find-form]').onsubmit=e=>{e.preventDefault();if(busy||dirty&&!confirm('¿Descartar los datos sin contabilizar para buscar?'))return;searchTerm=$e('[data-find]').value.trim();void listing();};
     $e('[data-create]').onclick=()=>{if(!busy&&(!dirty||confirm('¿Descartar los datos sin contabilizar?')))void edit();};
@@ -40,7 +42,7 @@
   window.openEgresos=async()=>{
     if(!state.erpSession?.api||!hasPermission('TESORERIA.EGRESO.CONTABILIZAR')){showError('Requiere conexión al ERP y permiso para contabilizar egresos.');return;}
     if(dialog.open)return;
-    company=state.erpSession.company.id;searchTerm='';dialog.showModal();await edit();
+    company=state.erpSession.company.id;searchTerm='';const opening=edit();dialog.showModal();await opening;
   };
   document.querySelector('#disbursementsNav').addEventListener('click',window.openEgresos);
   function blank(){return {operacionGuid:crypto.randomUUID(),version:0,sucursalId:'',terceroId:'',fechaContable:new Date().toLocaleDateString('sv-SE',{timeZone:'America/Bogota'}),moneda:'COP',medioPago:'TRANSFERENCIA',bancoCaja:'',cuentaSalida:'',referencia:'',concepto:'',lineas:[]};}
