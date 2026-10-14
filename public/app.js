@@ -250,6 +250,7 @@ function applyAccessControls() {
   setVisible('#salesInvoicesNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
   setVisible('#salesApprovalsNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR')||canSecurity);
   setVisible('#salesReceivablesNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
+  setVisible('#salesRefinancingNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
   setVisible('#cashReceiptsNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
   setVisible('#customerAdvancesNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
   setVisible('#salesConceptsNav',hasPermission('MAESTROS.CONCEPTO_VENTA.ADMINISTRAR'));

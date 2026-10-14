@@ -39,7 +39,7 @@ public static class ZeusModule
         {
             var saved=await warehouses.GetAsync(empresaId,warehouseId,ct);
             var settings=await repo.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura primero el destino Zeus de esta empresa.");
-            try{return Results.Ok(new{configuracion=saved,versionEmpresa=settings.Version,servidor=settings.Configuracion.ServidorEsperado,baseDatos=settings.Configuracion.BaseEsperada,cuentas=await transport.ChartAsync(empresaId,settings.Configuracion,ct),cuentasClientes=await transport.ChartAsync(empresaId,settings.Configuracion,ct,clients:true)});}
+            try{return Results.Ok(new{configuracion=saved,versionEmpresa=settings.Version,servidor=settings.Configuracion.ServidorEsperado,baseDatos=settings.Configuracion.BaseEsperada,cuentas=await transport.ChartAsync(empresaId,settings.Configuracion,ct),cuentasClientes=await transport.ChartAsync(empresaId,settings.Configuracion,ct,clients:true),centrosCosto=(await transport.AccountingDimensionsAsync(empresaId,settings.Configuracion,ct)).CentrosCosto});}
             catch(SqlException){return Results.Json(new{error="No fue posible consultar el plan de Zeus. Verifica la conexión privada y permiso EXECUTE sobre dbo.SpMae_Maecont."},statusCode:502);}
         }).RequireErpPermission(admin);
         group.MapPut("/warehouses/{warehouseId:long}/accounts",async(long empresaId,long warehouseId,ZeusWarehouseSave input,HttpContext http,ZeusWarehouseRepository warehouses,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
@@ -52,6 +52,13 @@ public static class ZeusModule
                 input.Cuentas.Validate(await transport.ChartAsync(empresaId,settings.Configuracion,ct));
                 if(!string.IsNullOrWhiteSpace(input.Cuentas.CarteraClientes))
                     input.Cuentas.ValidateClientReceivable(await transport.ChartAsync(empresaId,settings.Configuracion,ct,clients:true));
+                var dimensions=await transport.AccountingDimensionsAsync(empresaId,settings.Configuracion,ct);
+                var center=input.Cuentas.CentroCosto?.Trim();
+                if(!string.IsNullOrEmpty(center)&&!dimensions.CentrosCosto.Any(x=>x.Codigo==center))
+                    throw new ArgumentException("Selecciona un centro de costo habilitado y de detalle de Zeus para la bodega.");
+                if(string.IsNullOrEmpty(center)&&input.Cuentas.Codes().Append(input.Cuentas.CarteraClientes??"")
+                    .Any(x=>dimensions.CuentasRequierenCentroCosto.Contains(x,StringComparer.OrdinalIgnoreCase)))
+                    throw new ArgumentException("Una cuenta de esta bodega exige centro de costo en Zeus. Configúralo aquí antes de guardar.");
             }
             catch(SqlException){return Results.Json(new{error="No fue posible validar las cuentas en Zeus. No se guardaron cambios."},statusCode:502);}
             await warehouses.SaveAsync(empresaId,warehouseId,Convert.ToInt64(http.Items["UsuarioId"]),input,settings,ct);

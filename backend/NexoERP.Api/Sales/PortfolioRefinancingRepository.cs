@@ -13,6 +13,56 @@ public sealed record PortfolioOldInstallment(long Id,int Numero,DateOnly Vencimi
 
 public sealed class PortfolioRefinancingRepository(TenantConnectionFactory connections,ZeusTransport zeus)
 {
+    public async Task<object> SearchCustomersAsync(long company,string? search,CancellationToken ct)
+    {
+        search=search?.Trim()??"";
+        if(search.Length>100)throw new ArgumentException("La búsqueda admite máximo 100 caracteres.");
+        if(search.Length<2)return new{items=Array.Empty<object>()};
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=ZeusRepository.Command(c,"""
+            SELECT TOP(30) t.TerceroId,t.NumeroIdentificacion,t.RazonSocial,SUM(f.SaldoPendiente),COUNT_BIG(*)
+            FROM ter.Tercero t JOIN ven.FacturaVenta f ON f.EmpresaId=t.EmpresaId AND f.ClienteId=t.TerceroId
+            WHERE t.EmpresaId=@E AND f.SaldoPendiente>0 AND
+                (t.RazonSocial LIKE '%'+@Q+'%' OR t.NumeroIdentificacion LIKE '%'+@Q+'%')
+            GROUP BY t.TerceroId,t.NumeroIdentificacion,t.RazonSocial
+            ORDER BY t.RazonSocial
+            """,company);
+        q.Parameters.Add("@Q",SqlDbType.NVarChar,100).Value=search;
+        var items=new List<object>();await using var r=await q.ExecuteReaderAsync(ct);
+        while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),identificacion=r.GetString(1),nombre=r.GetString(2),saldo=r.GetDecimal(3),facturas=r.GetInt64(4)});
+        return new{items};
+    }
+    public async Task<object> CustomerPortfolioAsync(long company,long customerId,CancellationToken ct)
+    {
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=ZeusRepository.Command(c,"""
+            SELECT t.NumeroIdentificacion,t.RazonSocial,
+                ISNULL((SELECT SUM(f.SaldoPendiente) FROM ven.FacturaVenta f
+                    WHERE f.EmpresaId=t.EmpresaId AND f.ClienteId=t.TerceroId AND f.SaldoPendiente>0),0)
+            FROM ter.Tercero t WHERE t.EmpresaId=@E AND t.TerceroId=@Customer;
+            SELECT f.FacturaVentaId,f.Numero,f.SaldoPendiente,f.ZeusEstado,f.RefinanciacionEstado,f.ClaseCartera,
+                c.NumeroCuota,c.FechaVencimiento,c.SaldoPendiente,c.TipoCuota
+            FROM ven.FacturaVenta f JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId
+                AND c.PlanVersion=f.PlanVersion AND c.EstadoPlan='ACTIVA' AND c.SaldoPendiente>0
+            WHERE f.EmpresaId=@E AND f.ClienteId=@Customer AND f.SaldoPendiente>0
+            ORDER BY c.FechaVencimiento,f.FacturaVentaId,c.NumeroCuota;
+            """,company);
+        ZeusRepository.Add(q,"@Customer",customerId);
+        await using var r=await q.ExecuteReaderAsync(ct);
+        if(!await r.ReadAsync(ct))throw new ArgumentException("El cliente no existe en esta empresa.");
+        var identification=r.GetString(0);var name=r.GetString(1);var total=r.GetDecimal(2);
+        await r.NextResultAsync(ct);
+        var installments=new List<object>();
+        var invoiceBalances=new Dictionary<long,decimal>();var invoiceNumbers=new Dictionary<long,string>();
+        while(await r.ReadAsync(ct))
+        {
+            var id=r.GetInt64(0);var balance=r.GetDecimal(2);
+            if(!invoiceBalances.ContainsKey(id)){invoiceBalances[id]=balance;invoiceNumbers[id]=r.GetString(1);}
+            installments.Add(new{facturaId=id,factura=invoiceNumbers[id],saldoFactura=balance,zeusEstado=r.GetString(3),refinanciacionEstado=r.GetString(4),claseCartera=r.GetString(5),numeroCuota=r.GetInt32(6),vencimiento=r.GetDateTime(7).ToString("yyyy-MM-dd"),saldo=r.GetDecimal(8),tipo=r.GetString(9)});
+        }
+        return new{clienteId=customerId,identificacion=identification,nombre=name,saldo=total,cuotas=installments};
+    }
+
     public async Task CancelUnsentAsync(long company,long invoiceId,long noteId,long user,CancellationToken ct)
     {
         await using var c=await connections.OpenAsync(company,false,ct);

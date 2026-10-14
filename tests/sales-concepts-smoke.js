@@ -29,8 +29,16 @@ assert.match(api,/new ZeusAccount\("CONCEPTO_"\+concept\.Codigo,concept\.Cuenta,
 assert.match(master,/FINANCIACION.*4135/);
 assert.match(migration,/CREATE TABLE ven\.ConceptoVenta/);
 assert.match(migration,/CREATE TABLE ven\.FacturaVentaConcepto/);
-assert.match(ui,/data-concept-center/);
+assert.doesNotMatch(ui,/data-concept-center/);
+assert.doesNotMatch(ui,/name="centroCostoIngreso"/);
+assert.match(ui,/centroCostoIngreso:null/);
 assert.match(ui,/data-general-center-hint/);
+assert.match(ui,/salesRefinancingNav/);
+assert.match(ui,/portfolio-refinancing\/customers/);
+assert.match(navigation,/id="salesRefinancingNav"/);
+assert.match(routes,/portfolio-refinancing\/customers/);
+assert.match(api,/Accounts\.CentroCosto/);
+assert.match(api,/Los artículos de esta factura deben pertenecer a bodegas con el mismo centro de costo Zeus/);
 assert.match(ui,/accounting-dimensions'\)\.catch\(error=>\(\{error:error\.message\}\)\)/);
 assert.match(ui,/data-retry-dimensions/);
 assert.match(ui,/if\(dimensionsError\|\|!dimensions\)/);

@@ -7,7 +7,7 @@ namespace NexoERP.Api.Zeus;
 
 public sealed record ZeusChartAccount(string Codigo,string Nombre,decimal? Tarifa=null,bool? BaseEsValorRetenido=null);
 public sealed record ZeusWarehouseAccounts(string Inventario,string IvaCompras,string IvaVentas,
-    string IvaDevolucionVentas,string Ingreso,string CostoVenta,string DevolucionVenta,string? CarteraClientes=null)
+    string IvaDevolucionVentas,string Ingreso,string CostoVenta,string DevolucionVenta,string? CarteraClientes=null,string? CentroCosto=null)
 {
     public string[] Codes()=>[Inventario,IvaCompras,IvaVentas,IvaDevolucionVentas,Ingreso,CostoVenta,DevolucionVenta];
     public void Validate(IEnumerable<ZeusChartAccount> chart)

@@ -221,6 +221,16 @@ public static class SalesModule
             Results.Ok(await queue.ReconcileAsync(empresaId,"FACTURA",id,zeus,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
         group.MapGet("/sales-invoices/{id:long}/refinancings",async(long empresaId,long id,PortfolioRefinancingRepository portfolio,CancellationToken ct)=>
             Results.Ok(await portfolio.ListAsync(empresaId,id,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapGet("/portfolio-refinancing/customers",async(long empresaId,string? q,PortfolioRefinancingRepository portfolio,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await portfolio.SearchCustomersAsync(empresaId,q,ct));}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapGet("/portfolio-refinancing/customers/{customerId:long}",async(long empresaId,long customerId,PortfolioRefinancingRepository portfolio,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await portfolio.CustomerPortfolioAsync(empresaId,customerId,ct));}
+            catch(ArgumentException e){return Results.NotFound(new{error=e.Message});}
+        }).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/sales-invoices/{id:long}/refinancing-payments",async(long empresaId,long id,CustomerCashRepository receipts,CancellationToken ct)=>
             Results.Ok(await receipts.RefinancingPaymentsAsync(empresaId,id,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapPost("/sales-invoices/{id:long}/refinancing-payment",async(long empresaId,long id,ExtraordinaryRefinancingPaymentInput input,HttpContext http,CustomerCashRepository receipts,CancellationToken ct)=>

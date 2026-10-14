@@ -278,8 +278,8 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))concepts.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),cuentaIngresoZeus=r.GetString(3)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))
         {
-            var account=r.IsDBNull(4)?null:JsonSerializer.Deserialize<ZeusWarehouseAccounts>(r.GetString(4))?.Ingreso;
-            warehouses.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),sucursalId=r.GetInt64(3),cuentaIngreso=account});
+            var warehouseAccounts=r.IsDBNull(4)?null:JsonSerializer.Deserialize<ZeusWarehouseAccounts>(r.GetString(4));
+            warehouses.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),sucursalId=r.GetInt64(3),cuentaIngreso=warehouseAccounts?.Ingreso,centroCosto=warehouseAccounts?.CentroCosto});
         }
         await r.NextResultAsync(ct);await r.ReadAsync(ct);
         return new{sucursales=branches,clientes=customers,articulos=articles,seriales=serials,anticipos=advances,conceptos=concepts,bodegas=warehouses,maxDescuentoVentaPct=r.GetDecimal(0)};
@@ -346,9 +346,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         var dimensions=await zeus.AccountingDimensionsAsync(company,settings,ct);
         var activeCenters=dimensions.CentrosCosto.Select(x=>x.Codigo).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var requiredCenters=dimensions.CuentasRequierenCentroCosto.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var generalCenter=input.CentroCostoIngreso?.Trim()??"";
-        if(generalCenter.Length>0&&!activeCenters.Contains(generalCenter))
-            throw new ArgumentException("Selecciona un centro de costo activo y de detalle de Zeus para la factura.");
+        string generalCenter;
         var validatedConcepts=new List<(SaleConceptLine Input,string Codigo,string Nombre,string Cuenta)>();
         foreach(var concept in conceptLines)
         {
@@ -362,9 +360,6 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
                 var code=r.GetString(0);var account=r.GetString(2);
                 if(code=="FINANCIACION"&&!account.StartsWith("4135",StringComparison.Ordinal))
                     throw new ArgumentException("La financiación requiere una cuenta 4135.");
-                var center=concept.CentroCosto?.Trim()??"";
-                if(center.Length>0&&!activeCenters.Contains(center))throw new ArgumentException($"El centro de costo del concepto {code} no está activo o no es de detalle en Zeus.");
-                if(requiredCenters.Contains(account)&&center.Length==0)throw new ArgumentException($"Selecciona el centro de costo para el concepto {code}; la cuenta {account} lo exige.");
                 validatedConcepts.Add((concept,code,r.GetString(1),account));
             }
             q.Parameters.RemoveAt("@Concept");
@@ -407,6 +402,8 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         }
         if(validated.Select(x=>x.Accounts.CarteraClientes).Distinct().Count()>1)
             throw new ArgumentException("Las bodegas de la factura deben usar la misma cuenta de cartera del cliente.");
+        if(validated.Select(x=>x.Accounts.CentroCosto?.Trim()??"").Distinct(StringComparer.OrdinalIgnoreCase).Count()>1)
+            throw new ArgumentException("Los artículos de esta factura deben pertenecer a bodegas con el mismo centro de costo Zeus.");
         if(priceExceptions.Count>0)
         {
             if(input.AutorizacionVentaId is not >0)throw new ArgumentException("Esta venta excede el descuento libre o está bajo costo. Solicita aprobación antes de emitir.");
@@ -422,7 +419,11 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         }
         else if(input.AutorizacionVentaId is not null)throw new ArgumentException("Esta factura ya no requiere la autorización solicitada. Revísala y emítela sin ella.");
         string receivableAccount;
-        if(validated.Count>0)receivableAccount=validated[0].Accounts.CarteraClientes!;
+        if(validated.Count>0)
+        {
+            receivableAccount=validated[0].Accounts.CarteraClientes!;
+            generalCenter=validated[0].Accounts.CentroCosto?.Trim()??"";
+        }
         else
         {
             if(input.BodegaCarteraId is not >0)throw new ArgumentException("Selecciona la bodega para tomar la cuenta 13 de clientes de esta venta de conceptos.");
@@ -437,10 +438,19 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             q.Parameters.RemoveAt("@Warehouse");
             if(server!=settings.ServidorEsperado||db!=settings.BaseEsperada)
                 throw new ArgumentException("La cuenta de la bodega corresponde a otro destino Zeus.");
-            receivableAccount=JsonSerializer.Deserialize<ZeusWarehouseAccounts>(accountsJson)!.CarteraClientes
+            var warehouseAccounts=JsonSerializer.Deserialize<ZeusWarehouseAccounts>(accountsJson)!;
+            receivableAccount=warehouseAccounts.CarteraClientes
                 ??throw new ArgumentException("Configura la cuenta 13 de clientes de esta bodega.");
+            generalCenter=warehouseAccounts.CentroCosto?.Trim()??"";
             if(!receivableAccount.StartsWith("13",StringComparison.Ordinal))throw new ArgumentException("La cuenta de cartera de esta bodega debe ser clase 13.");
         }
+        if(generalCenter.Length>0&&!activeCenters.Contains(generalCenter))
+            throw new ArgumentException("El centro de costo de la bodega ya no está habilitado en Zeus. Actualiza la configuración contable de la bodega.");
+        if(!string.IsNullOrWhiteSpace(input.CentroCostoIngreso)&&!string.Equals(input.CentroCostoIngreso.Trim(),generalCenter,StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("El centro de costo de la factura se toma de la bodega; actualiza el formulario antes de emitir.");
+        foreach(var concept in validatedConcepts)
+            if(requiredCenters.Contains(concept.Cuenta)&&generalCenter.Length==0)
+                throw new ArgumentException($"Configura el centro de costo de la bodega para el concepto {concept.Codigo}; la cuenta {concept.Cuenta} lo exige.");
         var conceptsTotal=validatedConcepts.Sum(x=>x.Input.Valor);
         var financeTotal=validatedConcepts.Where(x=>x.Codigo=="FINANCIACION").Sum(x=>x.Input.Valor);
         var total=validated.Sum(x=>x.Base+x.Iva)+conceptsTotal;
@@ -530,9 +540,9 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             await using var conceptInsert=ZeusRepository.Command(c,"INSERT ven.FacturaVentaConcepto(EmpresaId,FacturaVentaId,ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus,CentroCostoZeus,Valor) VALUES(@E,@Invoice,@Concept,@Code,@Name,@Account,@Center,@Value)",company,tx);
             ZeusRepository.Add(conceptInsert,"@Invoice",id);ZeusRepository.Add(conceptInsert,"@Concept",concept.Input.ConceptoVentaId);
             ZeusRepository.Add(conceptInsert,"@Code",concept.Codigo);ZeusRepository.Add(conceptInsert,"@Name",concept.Nombre);
-            ZeusRepository.Add(conceptInsert,"@Account",concept.Cuenta);ZeusRepository.Add(conceptInsert,"@Center",string.IsNullOrWhiteSpace(concept.Input.CentroCosto)?DBNull.Value:concept.Input.CentroCosto.Trim());ZeusRepository.Add(conceptInsert,"@Value",concept.Input.Valor);
+            ZeusRepository.Add(conceptInsert,"@Account",concept.Cuenta);ZeusRepository.Add(conceptInsert,"@Center",generalCenter.Length==0?DBNull.Value:generalCenter);ZeusRepository.Add(conceptInsert,"@Value",concept.Input.Valor);
             await conceptInsert.ExecuteNonQueryAsync(ct);
-            movements.Add(new(new ZeusAccount("CONCEPTO_"+concept.Codigo,concept.Cuenta,CentroCosto:concept.Input.CentroCosto?.Trim()??""),-concept.Input.Valor));
+            movements.Add(new(new ZeusAccount("CONCEPTO_"+concept.Codigo,concept.Cuenta,CentroCosto:generalCenter),-concept.Input.Valor));
         }
         if(advanceTotal>0)
         {
@@ -541,7 +551,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             movements.Add(new(new ZeusAccount("ANTICIPO",advanceAccount,CentroCosto:generalCenter),advanceTotal));
         }
         var missingCenter=movements.FirstOrDefault(x=>requiredCenters.Contains(x.Regla.Cuenta)&&string.IsNullOrWhiteSpace(x.Regla.CentroCosto));
-        if(missingCenter is not null)throw new ArgumentException($"Selecciona el centro de costo para {missingCenter.Regla.Concepto}; la cuenta {missingCenter.Regla.Cuenta} lo exige.");
+        if(missingCenter is not null)throw new ArgumentException($"Configura el centro de costo de la bodega para {missingCenter.Regla.Concepto}; la cuenta {missingCenter.Regla.Cuenta} lo exige.");
         if(movements.Sum(x=>x.Valor)!=0)throw new InvalidOperationException("La factura no quedó balanceada. No se contabilizó.");
         var source=new ZeusSource(0,input.ClienteId,input.Numero.Trim(),input.FechaContable.ToDateTime(TimeOnly.MinValue),input.FechaContable.ToDateTime(TimeOnly.MinValue),input.Vencimiento.ToDateTime(TimeOnly.MinValue),total,validated.Sum(x=>x.Iva),0,[],ProveedorNombre:customerName);
         var snapshot=new ZeusSnapshot(settings,source,new(input.ClienteId,identification,identification),movements.ToArray(),

@@ -99,6 +99,13 @@
 .customer-documents-dialog .customer-refinance-payment>strong{color:#704c16}
 .customer-documents-dialog .customer-refinance-payment p{margin:6px 0 10px;font-size:12px;line-height:1.45}
 .customer-documents-dialog .customer-refinance-payment small{display:block;margin:2px 0 8px;color:#5d675f}
+.customer-documents-dialog .customer-refinancing-home{max-width:900px;margin:12px auto}
+.customer-documents-dialog .customer-refinancing-home>label{display:grid;gap:6px;max-width:520px;font-weight:600}
+.customer-documents-dialog .customer-refinancing-home [data-refinancing-customers]{margin-top:16px}
+.customer-documents-dialog .customer-refinancing-balance{display:flex;flex-direction:column;gap:4px;margin:14px 0;padding:18px;border:1px solid #c7ded4;border-radius:10px;background:#eef7f2;color:#174a3e}
+.customer-documents-dialog .customer-refinancing-balance>strong{font-size:clamp(1.5rem,3vw,2.3rem)}
+.customer-documents-dialog .customer-refinancing-balance>small{font-size:12px}
+.customer-documents-dialog .customer-refinancing-dues{max-height:300px;overflow:auto}
 @media(max-width:720px){.customer-documents-dialog .customer-refinance-fields,.customer-documents-dialog .customer-refinance-counterpart{grid-template-columns:minmax(0,1fr)}}
 .customer-documents-dialog .customer-refinancing [data-refinance-total]{font-weight:700;color:#135a45}
 .customer-documents-dialog .customer-refinancing details{max-height:180px;overflow:auto;margin-top:5px;font-size:11px}
