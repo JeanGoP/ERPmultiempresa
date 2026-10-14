@@ -7,12 +7,18 @@
   const serialDialog=document.createElement('dialog');serialDialog.className='erp-dialog customer-serial-dialog';document.body.append(serialDialog);
   const $=selector=>dialog.querySelector(selector);
   let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='',portfolioTypes=[];
-  let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[],extraInstallments=[];
+  let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[],extraInstallments=[],automaticReceiptConcept='';
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='receipt'?'cash-receipts':'sales-invoices'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
   const clientLabel=c=>c?`${c.identificacion} · ${c.nombre}`:'';
   const portfolioLabel=value=>portfolioTypes.find(x=>x.codigo===value)?.nombre||value||'Sin clasificar';
+  const productNames=invoice=>Array.isArray(invoice.articulos)?invoice.articulos.filter(Boolean):[];
+  const productSummary=(names,max=76)=>{
+    const each=names.length>2?28:55;
+    const joined=names.map(name=>name.length>each?name.slice(0,each-1).trimEnd()+'…':name).join(', ');
+    return joined.length>max?joined.slice(0,max-1).trimEnd()+'…':joined;
+  };
   const portfolioOptions=(selected='',activeOnly=false)=>portfolioTypes.filter(x=>!activeOnly||x.activo||x.codigo===selected).map(x=>`<option value="${esc(x.codigo)}" ${x.codigo===selected?'selected':''}>${esc(x.nombre)}${x.activo?'':' · inactivo'}</option>`).join('');
   const loadPortfolioTypes=()=>apiRequest(`/api/v1/companies/${company}/master-data/portfolio-types`);
   function close(force=false){if(!force&&mode==='invoice'&&view!=='create'&&view!=='approvals'&&hasPermission('VENTAS.FACTURA.CONTABILIZAR')){void create();return;}if(!force&&(busy||dirty&&!confirm('¿Salir sin contabilizar el documento?')))return;token++;dirty=false;if(serialDialog.open)serialDialog.close();dialog.close();mode='';company=0;shellMode='';}
@@ -336,6 +342,7 @@
     }catch(error){if(current(t))notice('No se pudieron consultar saldos del cliente: '+error.message,true);}
   }
   function receiptForm(){
+    automaticReceiptConcept='';
     $('[data-content]').innerHTML=`<form data-document><fieldset><h3>Nuevo recibo de caja</h3><div class="egreso-grid">
       <label>Sucursal<select name="sucursalId" required><option value="">Selecciona…</option>${options.sucursales.map(x=>`<option value="${x.id}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label>
       <label>Fecha contable<input name="fechaContable" type="date" value="${today()}" required></label>
@@ -366,6 +373,17 @@
     const account=options.cuentas.find(x=>String(x.sucursalId)===f.elements.sucursalId.value&&x.medioPago===f.elements.medioPago.value);
     $('[data-account-hint]').textContent=account?`Caja/banco automático: ${account.cuenta} · ${account.nombre}`:'Falta configurar caja/banco para esta sucursal y medio de pago.';
   }
+  function syncReceiptConcept(){
+    const f=$('[data-document]');if(!f||mode!=='receipt')return;
+    const field=f.elements.concepto;
+    if(field.value.trim()&&field.value!==automaticReceiptConcept)return;
+    const chosen=applications.map(a=>(options.facturas||[]).find(x=>x.id===a.facturaVentaId&&(x.cuotaId??null)===(a.facturaVentaCuotaId??null))).filter(Boolean);
+    const names=[...new Set(chosen.flatMap(productNames))];
+    const prefix=chosen.length===1?`Pago cuota ${chosen[0].numeroCuota||1} · factura ${chosen[0].numero}`:`Pago de ${chosen.length} cuotas`;
+    automaticReceiptConcept=f.elements.tipo.value==='CARTERA'&&chosen.length
+      ?`${prefix}${names.length?': '+productSummary(names,Math.max(0,300-prefix.length-2)):''}`:'';
+    field.value=automaticReceiptConcept;
+  }
   function renderAllocations(){
     const area=$('[data-allocations]');if(!area)return;
     if(mode==='invoice'){renderAdvances();return;}
@@ -373,7 +391,7 @@
     $('[data-portfolio-filter-wrap]').hidden=kind!=='CARTERA';
     $('[data-contra-wrap]').hidden=kind!=='NORMAL';f.elements.cuentaContrapartida.required=kind==='NORMAL';
     f.elements.total.readOnly=kind==='CARTERA';
-    if(kind!=='CARTERA'){area.innerHTML=kind==='ANTICIPO'?'<p class="egreso-help">El saldo del anticipo quedará disponible para aplicarlo a una factura futura.</p>':'<p class="egreso-help">Selecciona la cuenta contable específica para este ingreso. No modifica cartera.</p>';summary();return;}
+    if(kind!=='CARTERA'){area.innerHTML=kind==='ANTICIPO'?'<p class="egreso-help">El saldo del anticipo quedará disponible para aplicarlo a una factura futura.</p>':'<p class="egreso-help">Selecciona la cuenta contable específica para este ingreso. No modifica cartera.</p>';syncReceiptConcept();summary();return;}
     const selected=x=>applications.find(a=>a.facturaVentaId===x.id&&(a.facturaVentaCuotaId??null)===(x.cuotaId??null));
     const all=[...(options.facturas||[])].sort((a,b)=>a.id-b.id||a.vence.localeCompare(b.vence)||(a.numeroCuota||0)-(b.numeroCuota||0)||(a.cuotaId||0)-(b.cuotaId||0));
     const blocked=new Map(),eligible=new Set();
@@ -385,7 +403,11 @@
       blocked.set(due.id,priorOpen||due.zeusEstado!=='CONTABILIZADO'||!payment||Math.round(payment.valor*100)<Math.round(due.saldo*100));
     }
     const shown=(options.facturas||[]).filter(x=>!f.elements.claseCarteraFiltro.value||x.claseCartera===f.elements.claseCarteraFiltro.value);
-    area.innerHTML=`<h3>Cuotas pendientes</h3><div class="table-wrap customer-receipt-dues"><table><thead><tr><th>Aplicar</th><th>Factura / cuota</th><th>Saldo</th><th>Abono</th></tr></thead><tbody>${shown.map((x,i)=>`<tr><td><input type="checkbox" data-pick="${i}" ${selected(x)?'checked':''} ${eligible.has(`${x.id}:${x.cuotaId??''}`)?'':'disabled'}></td><td><strong>${esc(x.numero)}${x.numeroCuota?' · cuota '+x.numeroCuota:''}</strong><small>${esc(x.vence)} · ${esc(portfolioLabel(x.claseCartera))}</small></td><td>${money(x.saldo)}</td><td><input type="number" data-amount="${i}" min="0.01" max="${x.saldo}" step="0.01" value="${selected(x)?.valor||x.saldo}" ${selected(x)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="4">No hay cuotas pendientes en esta categoría.</td></tr>'}</tbody></table></div><small class="egreso-help">Puedes anticipar la primera cuota pendiente. Para pagar otra de la misma factura, cubre por completo las anteriores en orden de vencimiento.</small>`;
+    area.innerHTML=`<h3>Cuotas pendientes</h3><div class="table-wrap customer-receipt-dues"><table><thead><tr><th>Aplicar</th><th>Factura / cuota y artículos</th><th>Saldo</th><th>Abono</th></tr></thead><tbody>${shown.map((x,i)=>{const products=productNames(x);return `<tr><td><input type="checkbox" data-pick="${i}" ${selected(x)?'checked':''} ${eligible.has(`${x.id}:${x.cuotaId??''}`)?'':'disabled'}></td><td><strong>${esc(x.numero)}${x.numeroCuota?' · cuota '+x.numeroCuota:''}</strong><small>${esc(x.vence)} · ${esc(portfolioLabel(x.claseCartera))}</small><small class="customer-receipt-products">${esc(products.length?productSummary(products):'Sin artículos registrados')}</small>${products.length>2?`<button type="button" class="customer-products-toggle" data-products="${i}" aria-expanded="false">Ver artículos (${products.length})</button><div class="customer-products-list" data-product-list="${i}" hidden>${products.map(name=>`<div>${esc(name)}</div>`).join('')}</div>`:''}</td><td>${money(x.saldo)}</td><td><input type="number" data-amount="${i}" min="0.01" max="${x.saldo}" step="0.01" value="${selected(x)?.valor||x.saldo}" ${selected(x)?'':'disabled'}></td></tr>`;}).join('')||'<tr><td colspan="4">No hay cuotas pendientes en esta categoría.</td></tr>'}</tbody></table></div><small class="egreso-help">Puedes anticipar la primera cuota pendiente. Para pagar otra de la misma factura, cubre por completo las anteriores en orden de vencimiento.</small>`;
+    area.querySelectorAll('[data-products]').forEach(button=>button.onclick=()=>{
+      const list=area.querySelector(`[data-product-list="${button.dataset.products}"]`);list.hidden=!list.hidden;
+      button.setAttribute('aria-expanded',String(!list.hidden));button.textContent=list.hidden?`Ver artículos (${list.childElementCount})`:'Ocultar artículos';
+    });
     area.querySelectorAll('[data-pick]').forEach(box=>box.onchange=()=>{
       const invoice=shown[Number(box.dataset.pick)];
       applications=applications.filter(a=>!(a.facturaVentaId===invoice.id&&(a.facturaVentaCuotaId??null)===(invoice.cuotaId??null)));
@@ -395,7 +417,7 @@
     area.querySelectorAll('[data-amount]').forEach(input=>input.oninput=()=>{
       const invoice=shown[Number(input.dataset.amount)],item=selected(invoice);if(item)item.valor=Number(input.value);
       summary();dirty=true;
-    });area.querySelectorAll('[data-amount]').forEach(input=>input.onchange=()=>renderAllocations());summary();
+    });area.querySelectorAll('[data-amount]').forEach(input=>input.onchange=()=>renderAllocations());syncReceiptConcept();summary();
   }
   function summary(){
     const f=$('[data-document]');if(!f)return;

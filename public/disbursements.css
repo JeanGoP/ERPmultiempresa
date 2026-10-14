@@ -74,6 +74,9 @@
 .customer-documents-dialog .customer-receipt-dues input[type="number"]{width:100%;max-width:115px;height:30px;min-height:30px;box-sizing:border-box;padding:4px 6px}
 .customer-documents-dialog .customer-receipt-dues td strong,.customer-documents-dialog .customer-receipt-dues td small{display:block}
 .customer-documents-dialog .customer-receipt-dues td small{color:#657970;font-size:10px}
+.customer-documents-dialog .customer-receipt-dues .customer-receipt-products{color:#264b42;white-space:normal;overflow-wrap:anywhere}
+.customer-documents-dialog .customer-receipt-dues .customer-products-toggle{display:inline-block;width:auto;height:auto;min-height:0;margin-top:2px;padding:0;border:0;background:transparent;color:#176b52;font-size:10px;text-decoration:underline;cursor:pointer}
+.customer-documents-dialog .customer-receipt-dues .customer-products-list{margin-top:4px;padding:5px 7px;border-radius:5px;background:#f3f8f5;color:#29483d;font-size:10px;white-space:normal}
 .customer-documents-dialog .customer-invoice-settings{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,3fr);gap:18px;align-items:start;margin:18px 0;padding:15px;border:1px solid #d9e5de;border-radius:10px;background:#fbfdfb}
 .customer-documents-dialog .customer-invoice-settings label{display:grid;align-content:start;gap:6px;min-width:0;font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-invoice-settings small{display:block;color:#63766d;font-size:11px;font-weight:400;line-height:1.4}

@@ -75,7 +75,12 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             ORDER BY CASE WHEN t.TerceroId=@C THEN 0 ELSE 1 END,t.RazonSocial;
             SELECT f.FacturaVentaId,f.Numero,f.FechaContable,COALESCE(c.FechaVencimiento,f.Vencimiento),
                 COALESCE(c.ValorOriginal,f.Total),COALESCE(c.SaldoPendiente,f.SaldoPendiente),f.ZeusEstado,
-                c.FacturaVentaCuotaId,c.NumeroCuota,f.ClaseCartera
+                c.FacturaVentaCuotaId,c.NumeroCuota,f.ClaseCartera,
+                (SELECT DISTINCT a.Descripcion AS nombre
+                 FROM ven.FacturaVentaLinea l
+                 JOIN inv.Articulo a ON a.EmpresaId=l.EmpresaId AND a.ArticuloId=l.ArticuloId
+                 WHERE l.EmpresaId=f.EmpresaId AND l.FacturaVentaId=f.FacturaVentaId
+                 ORDER BY a.Descripcion FOR JSON PATH) AS Articulos
             FROM ven.FacturaVenta f LEFT JOIN ven.FacturaVentaCuota c ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId AND c.PlanVersion=f.PlanVersion AND c.EstadoPlan='ACTIVA'
             WHERE f.EmpresaId=@E AND f.ClienteId=@C AND f.SaldoPendiente>0 AND f.RefinanciacionEstado='LIBRE'
                 AND (c.FacturaVentaCuotaId IS NULL OR c.SaldoPendiente>0)
@@ -91,7 +96,18 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         await using var r=await q.ExecuteReaderAsync(ct);
         while(await r.ReadAsync(ct))branches.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))clients.Add(new{id=r.GetInt64(0),identificacion=r.GetString(1),nombre=r.GetString(2)});
-        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))invoices.Add(new{id=r.GetInt64(0),numero=r.GetString(1),fecha=r.GetDateTime(2).ToString("yyyy-MM-dd"),vence=r.GetDateTime(3).ToString("yyyy-MM-dd"),total=r.GetDecimal(4),saldo=r.GetDecimal(5),zeusEstado=r.GetString(6),cuotaId=r.IsDBNull(7)?(long?)null:r.GetInt64(7),numeroCuota=r.IsDBNull(8)?(int?)null:r.GetInt32(8),claseCartera=r.GetString(9)});
+        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))
+        {
+            string[] products;
+            if(r.IsDBNull(10))products=[];
+            else
+            {
+                using var productJson=JsonDocument.Parse(r.GetString(10));
+                products=productJson.RootElement.EnumerateArray()
+                    .Select(x=>x.GetProperty("nombre").GetString()??"").Where(x=>x.Length>0).ToArray();
+            }
+            invoices.Add(new{id=r.GetInt64(0),numero=r.GetString(1),fecha=r.GetDateTime(2).ToString("yyyy-MM-dd"),vence=r.GetDateTime(3).ToString("yyyy-MM-dd"),total=r.GetDecimal(4),saldo=r.GetDecimal(5),zeusEstado=r.GetString(6),cuotaId=r.IsDBNull(7)?(long?)null:r.GetInt64(7),numeroCuota=r.IsDBNull(8)?(int?)null:r.GetInt32(8),claseCartera=r.GetString(9),articulos=products});
+        }
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))advances.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1),concepto=r.GetString(2),fecha=r.GetDateTime(3).ToString("yyyy-MM-dd"),zeusEstado=r.GetString(4)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))accounts.Add(new{sucursalId=r.GetInt64(0),medioPago=r.GetString(1),cuenta=r.GetString(2),nombre=r.GetString(3)});
         return new{sucursales=branches,clientes=clients,facturas=invoices,anticipos=advances,cuentas=accounts};
