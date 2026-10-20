@@ -5,18 +5,18 @@ using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.Sales;
 
-public sealed record SalesConceptInput(string Codigo,string Nombre,string CuentaIngresoZeus,string UbicacionFormato,bool Activo,int Version);
-public sealed record SalesConcept(long Id,string Codigo,string Nombre,string CuentaIngresoZeus,string UbicacionFormato,bool Activo,int Version);
+public sealed record SalesConceptInput(string Codigo,string Nombre,string CuentaIngresoZeus,bool? MostrarEnCuerpo,bool? MostrarEnTotales,bool Activo,int Version,string? UbicacionFormato);
+public sealed record SalesConcept(long Id,string Codigo,string Nombre,string CuentaIngresoZeus,bool MostrarEnCuerpo,bool MostrarEnTotales,bool Activo,int Version,string UbicacionFormato);
 
 public sealed class SalesConceptRepository(TenantConnectionFactory connections)
 {
     public async Task<SalesConcept[]> ListAsync(long company,CancellationToken ct)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
-        await using var q=ZeusRepository.Command(c,"SELECT ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus,UbicacionFormato,Activo,Version FROM ven.ConceptoVenta WHERE EmpresaId=@E ORDER BY Codigo",company);
+        await using var q=ZeusRepository.Command(c,"SELECT ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus,MostrarEnCuerpo,MostrarEnTotales,Activo,Version,UbicacionFormato FROM ven.ConceptoVenta WHERE EmpresaId=@E ORDER BY Codigo",company);
         var result=new List<SalesConcept>();
         await using var r=await q.ExecuteReaderAsync(ct);
-        while(await r.ReadAsync(ct))result.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetString(4),r.GetBoolean(5),r.GetInt32(6)));
+        while(await r.ReadAsync(ct))result.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetBoolean(4),r.GetBoolean(5),r.GetBoolean(6),r.GetInt32(7),r.GetString(8)));
         return result.ToArray();
     }
 
@@ -32,8 +32,11 @@ public sealed class SalesConceptRepository(TenantConnectionFactory connections)
             throw new ArgumentException("Selecciona una cuenta de ingreso clase 4 de Zeus.");
         if(code=="FINANCIACION"&&!account.StartsWith("4135",StringComparison.Ordinal))
             throw new ArgumentException("La financiación debe usar una cuenta de ingreso 4135 de Zeus.");
-        if(input.UbicacionFormato is not("CUERPO" or "TOTALES"))
-            throw new ArgumentException("Selecciona si el concepto se imprime en el cuerpo o en los totales.");
+        if((input.MostrarEnCuerpo is null||input.MostrarEnTotales is null)&&input.UbicacionFormato is not("CUERPO" or "TOTALES"))
+            throw new ArgumentException("Selecciona dónde se mostrará el concepto en la factura.");
+        var showBody=input.MostrarEnCuerpo??input.UbicacionFormato!="TOTALES";
+        var showTotals=input.MostrarEnTotales??input.UbicacionFormato=="TOTALES";
+        var legacyPosition=showTotals&&!showBody?"TOTALES":"CUERPO";
         if(id is not null&&input.Version<1)throw new ArgumentException("Actualiza el maestro antes de editar este concepto.");
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
@@ -47,20 +50,21 @@ public sealed class SalesConceptRepository(TenantConnectionFactory connections)
         ZeusRepository.Add(q,"@Code",code);ZeusRepository.Add(q,"@Name",name);ZeusRepository.Add(q,"@Account",account);
         ZeusRepository.Add(q,"@Server",settings.ServidorEsperado);ZeusRepository.Add(q,"@Database",settings.BaseEsperada);
         ZeusRepository.Add(q,"@Active",input.Activo);ZeusRepository.Add(q,"@User",user);
-        ZeusRepository.Add(q,"@Position",input.UbicacionFormato);
+        ZeusRepository.Add(q,"@Body",showBody);ZeusRepository.Add(q,"@Totals",showTotals);
+        ZeusRepository.Add(q,"@Position",legacyPosition);
         var creating=id is null;
         if(creating)
         {
-            q.CommandText="INSERT ven.ConceptoVenta(EmpresaId,Codigo,Nombre,CuentaIngresoZeus,ServidorZeus,BaseDatosZeus,UbicacionFormato,Activo,CreadoPor) OUTPUT inserted.ConceptoVentaId VALUES(@E,@Code,@Name,@Account,@Server,@Database,@Position,@Active,@User)";
+            q.CommandText="INSERT ven.ConceptoVenta(EmpresaId,Codigo,Nombre,CuentaIngresoZeus,ServidorZeus,BaseDatosZeus,UbicacionFormato,MostrarEnCuerpo,MostrarEnTotales,Activo,CreadoPor) OUTPUT inserted.ConceptoVentaId VALUES(@E,@Code,@Name,@Account,@Server,@Database,@Position,@Body,@Totals,@Active,@User)";
             id=Convert.ToInt64(await q.ExecuteScalarAsync(ct));
         }
         else
         {
             ZeusRepository.Add(q,"@Id",id.GetValueOrDefault());ZeusRepository.Add(q,"@Version",input.Version);
-            q.CommandText="UPDATE ven.ConceptoVenta SET Codigo=@Code,Nombre=@Name,CuentaIngresoZeus=@Account,ServidorZeus=@Server,BaseDatosZeus=@Database,UbicacionFormato=@Position,Activo=@Active,Version=Version+1,ActualizadoEnUtc=SYSUTCDATETIME() WHERE EmpresaId=@E AND ConceptoVentaId=@Id AND Version=@Version";
+            q.CommandText="UPDATE ven.ConceptoVenta SET Codigo=@Code,Nombre=@Name,CuentaIngresoZeus=@Account,ServidorZeus=@Server,BaseDatosZeus=@Database,UbicacionFormato=@Position,MostrarEnCuerpo=@Body,MostrarEnTotales=@Totals,Activo=@Active,Version=Version+1,ActualizadoEnUtc=SYSUTCDATETIME() WHERE EmpresaId=@E AND ConceptoVentaId=@Id AND Version=@Version";
             if(await q.ExecuteNonQueryAsync(ct)!=1)throw new ArgumentException("El concepto cambió o ya no existe. Actualiza el maestro e intenta otra vez.");
         }
         await tx.CommitAsync(ct);
-        return new(id.GetValueOrDefault(),code,name,account,input.UbicacionFormato,input.Activo,creating?1:input.Version+1);
+        return new(id.GetValueOrDefault(),code,name,account,showBody,showTotals,input.Activo,creating?1:input.Version+1,legacyPosition);
     }
 }
