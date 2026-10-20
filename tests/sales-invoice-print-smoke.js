@@ -11,7 +11,7 @@ assert.match(report,/Comprobante interno de venta/);
 assert.match(report,/No válido como factura electrónica DIAN/);
 assert.match(report,/FV-7/);
 assert.match(report,/MOTOCENTRO/);
-assert.match(report,/2026-11-14/);
+assert.doesNotMatch(report,/Plan de cuotas|2026-11-14|Valor original/);
 assert.match(report,/Total venta<\/dt><dd><strong>\$\s?119[.,]000/);
 assert.doesNotMatch(report,/Anticipos aplicados|Saldo inicial financiado|Cuota inicial|RC-2/);
 assert.match(report,/IVA artículos/);
