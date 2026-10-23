@@ -13,7 +13,17 @@
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
   const clientLabel=c=>c?`${c.identificacion} · ${c.nombre}`:'';
   const portfolioLabel=value=>portfolioTypes.find(x=>x.codigo===value)?.nombre||value||'Sin clasificar';
-  const productNames=invoice=>Array.isArray(invoice.articulos)?invoice.articulos.filter(Boolean):[];
+  const productItems=invoice=>Array.isArray(invoice.articulos)?invoice.articulos.filter(Boolean).map(x=>typeof x==='string'?{nombre:x,cantidad:1,unidades:[]}:x):[];
+  const productNames=invoice=>productItems(invoice).map(x=>x.nombre).filter(Boolean);
+  const productIdentifiers=product=>Array.isArray(product.unidades)?product.unidades.flatMap(unit=>{
+    const identifiers=[unit.chasis&&`Chasis ${unit.chasis}`,unit.vin&&`VIN ${unit.vin}`].filter(Boolean);
+    return identifiers.length?identifiers:unit.serial?[`Serial ${unit.serial}`]:[];
+  }):[];
+  const shortText=(value,max)=>max<2?'':value.length>max?value.slice(0,max-1).trimEnd()+'…':value;
+  const productForConcept=product=>{
+    const identities=(product.unidades||[]).map(unit=>unit.chasis?`Chasis ${unit.chasis}`:unit.vin?`VIN ${unit.vin}`:unit.serial?`Serial ${unit.serial}`:'').filter(Boolean);
+    return shortText(product.nombre||'',48)+(identities.length?` (${identities.join(', ')})`:'');
+  };
   const productSummary=(names,max=76)=>{
     const each=names.length>2?28:55;
     const joined=names.map(name=>name.length>each?name.slice(0,each-1).trimEnd()+'…':name).join(', ');
@@ -349,7 +359,7 @@
       <label>Tipo de recibo<select name="tipo"><option value="ANTICIPO">Anticipo de cliente</option><option value="CARTERA">Recaudo de cartera</option><option value="NORMAL">Recibo normal</option></select></label>
       <label>Medio de pago<select name="medioPago"><option>TRANSFERENCIA</option><option>EFECTIVO</option><option>CHEQUE</option></select></label>
       ${clientField()}<label data-reference-wrap>Referencia / cheque<input name="referencia" maxlength="20"></label>
-      <p class="egreso-help" data-account-hint></p><label class="egreso-wide">Concepto<input name="concepto" maxlength="300" required></label>
+      <p class="egreso-help" data-account-hint></p><label class="egreso-wide">Descripción del recibo<input name="concepto" maxlength="300" required></label>
       <label data-contra-wrap class="egreso-wide" hidden>Cuenta de contrapartida en Zeus<select name="cuentaContrapartida"><option value="">Selecciona cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label>
       <label>Valor recibido<input name="total" type="number" min="0.01" step="0.01" required></label></div>
       <label class="customer-portfolio-filter" data-portfolio-filter-wrap hidden>Mostrar cartera de<select name="claseCarteraFiltro"><option value="">Todas las facturas</option>${portfolioOptions()}</select></label>
@@ -377,12 +387,26 @@
     const f=$('[data-document]');if(!f||mode!=='receipt')return;
     const field=f.elements.concepto;
     if(field.value.trim()&&field.value!==automaticReceiptConcept)return;
-    const chosen=applications.map(a=>(options.facturas||[]).find(x=>x.id===a.facturaVentaId&&(x.cuotaId??null)===(a.facturaVentaCuotaId??null))).filter(Boolean);
-    const names=[...new Set(chosen.flatMap(productNames))];
-    const prefix=chosen.length===1?`Pago cuota ${chosen[0].numeroCuota||1} · factura ${chosen[0].numero}`:`Pago de ${chosen.length} cuotas`;
+    const chosen=applications.map(a=>(options.facturas||[]).find(x=>x.id===a.facturaVentaId&&(x.cuotaId??null)===(a.facturaVentaCuotaId??null))).filter(Boolean)
+      .sort((a,b)=>a.vence.localeCompare(b.vence)||a.id-b.id||(a.numeroCuota||0)-(b.numeroCuota||0));
+    const quotas=chosen.slice(0,4).map(x=>`${x.tipoCuota==='EXTRA'?'cuota extra':'cuota'} ${x.numeroCuota||1} (${x.vence}) factura ${x.numero}`);
+    const prefix=`Abono ${quotas.join('; ')}${chosen.length>4?`; y ${chosen.length-4} cuota(s) más`:''}`;
+    const articles=[...new Set([...new Map(chosen.map(x=>[x.id,x])).values()].flatMap(x=>productItems(x).map(productForConcept)))];
+    const room=300-prefix.length-2;
     automaticReceiptConcept=f.elements.tipo.value==='CARTERA'&&chosen.length
-      ?`${prefix}${names.length?': '+productSummary(names,Math.max(0,300-prefix.length-2)):''}`:'';
+      ?shortText(prefix,300)+(articles.length&&room>2?': '+shortText(articles.join(', '),room):''):'';
     field.value=automaticReceiptConcept;
+  }
+  function receiptDueRow(invoice,index,selected,eligible){
+    const products=productItems(invoice),identifiers=products.length===1?productIdentifiers(products[0]):[];
+    return `<tr><td><input type="checkbox" data-pick="${index}" ${selected(invoice)?'checked':''} ${eligible.has(`${invoice.id}:${invoice.cuotaId??''}`)?'':'disabled'}></td>
+      <td><strong>${esc(invoice.numero)}${invoice.numeroCuota?' · cuota '+invoice.numeroCuota:''}${invoice.tipoCuota==='EXTRA'?' extra':''}</strong>
+      <small>${esc(invoice.vence)} · ${esc(portfolioLabel(invoice.claseCartera))}</small>
+      <small class="customer-receipt-products">${esc(products.length?productSummary(productNames(invoice)):'Sin artículos registrados')}</small>
+      ${identifiers.length?`<small class="customer-receipt-identifiers">${esc(identifiers.join(' · '))}</small>`:''}
+      ${products.length?`<button type="button" class="customer-products-toggle" data-products="${index}" aria-expanded="false">Ver productos (${products.length})</button>
+      <div class="customer-products-list" data-product-list="${index}" hidden>${products.map(product=>`<div><strong>${esc(product.nombre)}</strong><small>${esc(product.cantidad)} unidad(es)</small>${productIdentifiers(product).length?`<small>${esc(productIdentifiers(product).join(' · '))}</small>`:''}</div>`).join('')}</div>`:''}</td>
+      <td>${money(invoice.saldo)}</td><td><input type="number" data-amount="${index}" min="0.01" max="${invoice.saldo}" step="0.01" value="${selected(invoice)?.valor||invoice.saldo}" ${selected(invoice)?'':'disabled'}></td></tr>`;
   }
   function renderAllocations(){
     const area=$('[data-allocations]');if(!area)return;
@@ -403,10 +427,10 @@
       blocked.set(due.id,priorOpen||due.zeusEstado!=='CONTABILIZADO'||!payment||Math.round(payment.valor*100)<Math.round(due.saldo*100));
     }
     const shown=(options.facturas||[]).filter(x=>!f.elements.claseCarteraFiltro.value||x.claseCartera===f.elements.claseCarteraFiltro.value);
-    area.innerHTML=`<h3>Cuotas pendientes</h3><div class="table-wrap customer-receipt-dues"><table><thead><tr><th>Aplicar</th><th>Factura / cuota y artículos</th><th>Saldo</th><th>Abono</th></tr></thead><tbody>${shown.map((x,i)=>{const products=productNames(x);return `<tr><td><input type="checkbox" data-pick="${i}" ${selected(x)?'checked':''} ${eligible.has(`${x.id}:${x.cuotaId??''}`)?'':'disabled'}></td><td><strong>${esc(x.numero)}${x.numeroCuota?' · cuota '+x.numeroCuota:''}</strong><small>${esc(x.vence)} · ${esc(portfolioLabel(x.claseCartera))}</small><small class="customer-receipt-products">${esc(products.length?productSummary(products):'Sin artículos registrados')}</small>${products.length>2?`<button type="button" class="customer-products-toggle" data-products="${i}" aria-expanded="false">Ver artículos (${products.length})</button><div class="customer-products-list" data-product-list="${i}" hidden>${products.map(name=>`<div>${esc(name)}</div>`).join('')}</div>`:''}</td><td>${money(x.saldo)}</td><td><input type="number" data-amount="${i}" min="0.01" max="${x.saldo}" step="0.01" value="${selected(x)?.valor||x.saldo}" ${selected(x)?'':'disabled'}></td></tr>`;}).join('')||'<tr><td colspan="4">No hay cuotas pendientes en esta categoría.</td></tr>'}</tbody></table></div><small class="egreso-help">Puedes anticipar la primera cuota pendiente. Para pagar otra de la misma factura, cubre por completo las anteriores en orden de vencimiento.</small>`;
+    area.innerHTML=`<h3>Cuotas pendientes</h3><div class="table-wrap customer-receipt-dues"><table><thead><tr><th>Aplicar</th><th>Factura / cuota y artículos</th><th>Saldo</th><th>Abono</th></tr></thead><tbody>${shown.map((x,i)=>receiptDueRow(x,i,selected,eligible)).join('')||'<tr><td colspan="4">No hay cuotas pendientes en esta categoría.</td></tr>'}</tbody></table></div><small class="egreso-help">Puedes anticipar la primera cuota pendiente. Para pagar otra de la misma factura, cubre por completo las anteriores en orden de vencimiento.</small>`;
     area.querySelectorAll('[data-products]').forEach(button=>button.onclick=()=>{
       const list=area.querySelector(`[data-product-list="${button.dataset.products}"]`);list.hidden=!list.hidden;
-      button.setAttribute('aria-expanded',String(!list.hidden));button.textContent=list.hidden?`Ver artículos (${list.childElementCount})`:'Ocultar artículos';
+      button.setAttribute('aria-expanded',String(!list.hidden));button.textContent=list.hidden?`Ver productos (${list.childElementCount})`:'Cerrar productos';
     });
     area.querySelectorAll('[data-pick]').forEach(box=>box.onchange=()=>{
       const invoice=shown[Number(box.dataset.pick)];
