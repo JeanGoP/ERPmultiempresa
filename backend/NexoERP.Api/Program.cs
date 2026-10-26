@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.DataProtection;
@@ -31,6 +32,8 @@ builder.Services.AddScoped<AdvancedControlsRepository>();
 builder.Services.AddScoped<MasterDataRepository>();
 builder.Services.AddScoped<CustomerRepository>();
 builder.Services.AddScoped<CrmApprovedCreditRepository>();
+builder.Services.AddHttpClient("CrmIntegrationVerification", client => client.Timeout = TimeSpan.FromSeconds(5))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<CustomerCashRepository>();
 builder.Services.AddScoped<SalesInvoiceRepository>();
 builder.Services.AddScoped<SalesPriceApprovalRepository>();
@@ -65,7 +68,7 @@ var dataProtection=builder.Services.AddDataProtection().SetApplicationName("Nexo
 if(OperatingSystem.IsWindows())dataProtection.ProtectKeysWithDpapi();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.10.26.3";
+const string ReleaseVersion="2026.10.26.4";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -100,6 +103,8 @@ app.Use(async (context,next) =>
 
 app.Use(async (context,next) =>
 {
+    if (context.Request.Path.StartsWithSegments("/api/v1/integrations/crm") && context.Request.Method == "POST")
+        context.Request.EnableBuffering();
     if (context.Request.Path.StartsWithSegments("/api/v1/health") || context.Request.Path.StartsWithSegments("/api/v1/auth/login")
         || context.Request.Path.Equals("/api/v1/integrations/crm/approved-credits", StringComparison.OrdinalIgnoreCase)
         || context.Request.Path.Equals("/api/v1/integrations/crm/companies", StringComparison.OrdinalIgnoreCase))
@@ -157,8 +162,7 @@ app.MapPost("/api/v1/integrations/crm/approved-credits", async (
     CrmApprovedCreditInput input, HttpContext context, IConfiguration configuration,
     CrmApprovedCreditRepository credits, CancellationToken ct) =>
 {
-    if (!configuration.GetValue<bool>("CrmIntegration:Enabled")) return Results.NotFound();
-    if (!IsAuthorizedCrmIntegration(context, configuration)) return Results.Unauthorized();
+    if (!await IsAuthorizedCrmIntegrationAsync(context, ct)) return Results.Unauthorized();
     if (input.CrmCompanyId == Guid.Empty || input.ErpCompanyId < 1
         || CrmApprovedCreditRepository.Digits(input.CompanyNit ?? "").Length < 6)
         return Results.StatusCode(StatusCodes.Status403Forbidden);
@@ -182,8 +186,7 @@ app.MapPost("/api/v1/integrations/crm/approved-credits", async (
 app.MapGet("/api/v1/integrations/crm/companies", async (
     HttpContext context, IConfiguration configuration, CrmApprovedCreditRepository credits, CancellationToken ct) =>
 {
-    if (!configuration.GetValue<bool>("CrmIntegration:Enabled")) return Results.NotFound();
-    if (!IsAuthorizedCrmIntegration(context, configuration)) return Results.Unauthorized();
+    if (!await IsAuthorizedCrmIntegrationAsync(context, ct)) return Results.Unauthorized();
     return Results.Ok(await credits.AvailableCompaniesAsync(ct));
 });
 app.MapGet("/api/v1/companies/{empresaId:long}/crm-approved-credits", async (
@@ -752,18 +755,34 @@ app.MapBranches();
 app.MapCompanyMaster();
 app.Run();
 
-static bool IsAuthorizedCrmIntegration(HttpContext context, IConfiguration configuration)
+static async Task<bool> IsAuthorizedCrmIntegrationAsync(HttpContext context, CancellationToken ct)
 {
     var remote = context.Connection.RemoteIpAddress;
     if (remote is null || !System.Net.IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote))
         return false;
-    var configuredKey = configuration["CrmIntegration:SharedKey"];
-    var suppliedKey = context.Request.Headers["X-Crm-Integration-Key"].ToString();
-    return !string.IsNullOrWhiteSpace(configuredKey) && configuredKey.Length >= 32
-        && !string.IsNullOrWhiteSpace(suppliedKey)
-        && CryptographicOperations.FixedTimeEquals(
-            SHA256.HashData(Encoding.UTF8.GetBytes(configuredKey)),
-            SHA256.HashData(Encoding.UTF8.GetBytes(suppliedKey)));
+    var token = context.Request.Headers["X-Crm-Integration-Token"].ToString();
+    if (string.IsNullOrWhiteSpace(token) || token.Length > 1024) return false;
+    var body = "";
+    if (context.Request.Method == "POST")
+    {
+        if (context.Request.ContentLength > 1024 * 1024 || !context.Request.Body.CanSeek) return false;
+        context.Request.Body.Position = 0;
+        using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true);
+        body = await reader.ReadToEndAsync(ct);
+        context.Request.Body.Position = 0;
+    }
+    var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(body)));
+    var client = context.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient("CrmIntegrationVerification");
+    using var request = new HttpRequestMessage(HttpMethod.Post, "http://127.0.0.1/crmapi/api/erp-integration/verify");
+    request.Headers.Host = "stecno.dyndns.org";
+    request.Content = JsonContent.Create(new { token, method = context.Request.Method,
+        path = context.Request.Path.Value, bodyHash = hash });
+    try
+    {
+        using var response = await client.SendAsync(request, ct);
+        return response.IsSuccessStatusCode;
+    }
+    catch (Exception error) when (error is HttpRequestException or TaskCanceledException) { return false; }
 }
 
 static void LoadDotEnv()
