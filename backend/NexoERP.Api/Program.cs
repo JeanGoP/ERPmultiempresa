@@ -65,7 +65,7 @@ var dataProtection=builder.Services.AddDataProtection().SetApplicationName("Nexo
 if(OperatingSystem.IsWindows())dataProtection.ProtectKeysWithDpapi();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.10.26.2";
+const string ReleaseVersion="2026.10.26.3";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -159,9 +159,8 @@ app.MapPost("/api/v1/integrations/crm/approved-credits", async (
 {
     if (!configuration.GetValue<bool>("CrmIntegration:Enabled")) return Results.NotFound();
     if (!IsAuthorizedCrmIntegration(context, configuration)) return Results.Unauthorized();
-    if (string.IsNullOrWhiteSpace(configuration["CrmIntegration:CompanyNit"])
-        || input.CrmCompanyId == Guid.Empty || input.ErpCompanyId < 1
-        || CrmApprovedCreditRepository.Digits(input.CompanyNit ?? "") != CrmApprovedCreditRepository.Digits(configuration["CrmIntegration:CompanyNit"] ?? ""))
+    if (input.CrmCompanyId == Guid.Empty || input.ErpCompanyId < 1
+        || CrmApprovedCreditRepository.Digits(input.CompanyNit ?? "").Length < 6)
         return Results.StatusCode(StatusCodes.Status403Forbidden);
     if (input.EventId == Guid.Empty || input.ApplicationId == Guid.Empty || string.IsNullOrWhiteSpace(input.ApplicationNumber)
         || input.ApplicationNumber.Length > 40 || input.Customer is null
@@ -185,9 +184,7 @@ app.MapGet("/api/v1/integrations/crm/companies", async (
 {
     if (!configuration.GetValue<bool>("CrmIntegration:Enabled")) return Results.NotFound();
     if (!IsAuthorizedCrmIntegration(context, configuration)) return Results.Unauthorized();
-    var allowedNit = configuration["CrmIntegration:CompanyNit"];
-    if (string.IsNullOrWhiteSpace(allowedNit)) return Results.Problem("Falta configurar el NIT ERP permitido.");
-    return Results.Ok(await credits.AvailableCompaniesAsync(allowedNit, ct));
+    return Results.Ok(await credits.AvailableCompaniesAsync(ct));
 });
 app.MapGet("/api/v1/companies/{empresaId:long}/crm-approved-credits", async (
     long empresaId, CrmApprovedCreditRepository credits, CancellationToken ct) =>

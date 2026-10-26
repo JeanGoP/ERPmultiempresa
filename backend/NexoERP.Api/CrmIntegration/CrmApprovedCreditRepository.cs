@@ -21,7 +21,7 @@ public sealed record CrmCreditPending(long ReceiptId, Guid ApplicationId, string
 
 public sealed class CrmApprovedCreditRepository(TenantConnectionFactory connections)
 {
-    public async Task<IReadOnlyList<CrmAvailableCompany>> AvailableCompaniesAsync(string allowedNit, CancellationToken ct)
+    public async Task<IReadOnlyList<CrmAvailableCompany>> AvailableCompaniesAsync(CancellationToken ct)
     {
         await using var connection = await connections.OpenAsync(null, true, ct);
         await using var command = connection.CreateCommand();
@@ -29,10 +29,8 @@ public sealed class CrmApprovedCreditRepository(TenantConnectionFactory connecti
             SELECT EmpresaId, RazonSocial, CONCAT(Nit, COALESCE('-' + DigitoVerificacion, ''))
             FROM core.Empresa
             WHERE Activa = 1
-              AND CONCAT(REPLACE(REPLACE(REPLACE(Nit, '-', ''), '.', ''), ' ', ''),
-                         COALESCE(DigitoVerificacion, '')) = @Nit;
+            ORDER BY RazonSocial;
             """;
-        command.Parameters.Add(new SqlParameter("@Nit", SqlDbType.NVarChar, 20) { Value = Digits(allowedNit) });
         var rows = new List<CrmAvailableCompany>();
         await using var reader = await command.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
