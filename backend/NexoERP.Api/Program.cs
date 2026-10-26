@@ -65,7 +65,7 @@ var dataProtection=builder.Services.AddDataProtection().SetApplicationName("Nexo
 if(OperatingSystem.IsWindows())dataProtection.ProtectKeysWithDpapi();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.10.26.1";
+const string ReleaseVersion="2026.10.26.2";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -101,7 +101,8 @@ app.Use(async (context,next) =>
 app.Use(async (context,next) =>
 {
     if (context.Request.Path.StartsWithSegments("/api/v1/health") || context.Request.Path.StartsWithSegments("/api/v1/auth/login")
-        || context.Request.Path.Equals("/api/v1/integrations/crm/approved-credits", StringComparison.OrdinalIgnoreCase))
+        || context.Request.Path.Equals("/api/v1/integrations/crm/approved-credits", StringComparison.OrdinalIgnoreCase)
+        || context.Request.Path.Equals("/api/v1/integrations/crm/companies", StringComparison.OrdinalIgnoreCase))
     {
         await next();
         return;
@@ -157,19 +158,9 @@ app.MapPost("/api/v1/integrations/crm/approved-credits", async (
     CrmApprovedCreditRepository credits, CancellationToken ct) =>
 {
     if (!configuration.GetValue<bool>("CrmIntegration:Enabled")) return Results.NotFound();
-    var remote = context.Connection.RemoteIpAddress;
-    if (remote is null || !System.Net.IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote))
-        return Results.StatusCode(StatusCodes.Status403Forbidden);
-    var configuredKey = configuration["CrmIntegration:SharedKey"];
-    var suppliedKey = context.Request.Headers["X-Crm-Integration-Key"].ToString();
-    if (string.IsNullOrWhiteSpace(configuredKey) || configuredKey.Length < 32 || string.IsNullOrWhiteSpace(suppliedKey)
-        || !CryptographicOperations.FixedTimeEquals(
-            SHA256.HashData(Encoding.UTF8.GetBytes(configuredKey)),
-            SHA256.HashData(Encoding.UTF8.GetBytes(suppliedKey))))
-        return Results.Unauthorized();
+    if (!IsAuthorizedCrmIntegration(context, configuration)) return Results.Unauthorized();
     if (string.IsNullOrWhiteSpace(configuration["CrmIntegration:CompanyNit"])
-        || !Guid.TryParse(configuration["CrmIntegration:CrmCompanyId"], out var allowedCompany)
-        || allowedCompany == Guid.Empty || input.CrmCompanyId != allowedCompany
+        || input.CrmCompanyId == Guid.Empty || input.ErpCompanyId < 1
         || CrmApprovedCreditRepository.Digits(input.CompanyNit ?? "") != CrmApprovedCreditRepository.Digits(configuration["CrmIntegration:CompanyNit"] ?? ""))
         return Results.StatusCode(StatusCodes.Status403Forbidden);
     if (input.EventId == Guid.Empty || input.ApplicationId == Guid.Empty || string.IsNullOrWhiteSpace(input.ApplicationNumber)
@@ -188,6 +179,15 @@ app.MapPost("/api/v1/integrations/crm/approved-credits", async (
         return receipt.AlreadyReceived ? Results.Ok(receipt) : Results.Created($"/api/v1/integrations/crm/approved-credits/{receipt.ReceiptId}", receipt);
     }
     catch (InvalidOperationException error) { return Results.Conflict(new { error = error.Message }); }
+});
+app.MapGet("/api/v1/integrations/crm/companies", async (
+    HttpContext context, IConfiguration configuration, CrmApprovedCreditRepository credits, CancellationToken ct) =>
+{
+    if (!configuration.GetValue<bool>("CrmIntegration:Enabled")) return Results.NotFound();
+    if (!IsAuthorizedCrmIntegration(context, configuration)) return Results.Unauthorized();
+    var allowedNit = configuration["CrmIntegration:CompanyNit"];
+    if (string.IsNullOrWhiteSpace(allowedNit)) return Results.Problem("Falta configurar el NIT ERP permitido.");
+    return Results.Ok(await credits.AvailableCompaniesAsync(allowedNit, ct));
 });
 app.MapGet("/api/v1/companies/{empresaId:long}/crm-approved-credits", async (
     long empresaId, CrmApprovedCreditRepository credits, CancellationToken ct) =>
@@ -754,6 +754,20 @@ app.MapSales();
 app.MapBranches();
 app.MapCompanyMaster();
 app.Run();
+
+static bool IsAuthorizedCrmIntegration(HttpContext context, IConfiguration configuration)
+{
+    var remote = context.Connection.RemoteIpAddress;
+    if (remote is null || !System.Net.IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote))
+        return false;
+    var configuredKey = configuration["CrmIntegration:SharedKey"];
+    var suppliedKey = context.Request.Headers["X-Crm-Integration-Key"].ToString();
+    return !string.IsNullOrWhiteSpace(configuredKey) && configuredKey.Length >= 32
+        && !string.IsNullOrWhiteSpace(suppliedKey)
+        && CryptographicOperations.FixedTimeEquals(
+            SHA256.HashData(Encoding.UTF8.GetBytes(configuredKey)),
+            SHA256.HashData(Encoding.UTF8.GetBytes(suppliedKey)));
+}
 
 static void LoadDotEnv()
 {

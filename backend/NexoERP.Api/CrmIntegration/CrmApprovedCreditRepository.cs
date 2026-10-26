@@ -10,16 +10,36 @@ namespace NexoERP.Api.CrmIntegration;
 public sealed record CrmCreditCustomer(string IdentificationType, string IdentificationNumber, string Name, string? Phone);
 public sealed record CrmCreditItem(string Reference, string Name, decimal Price, int Quantity);
 public sealed record CrmApprovedCreditInput(
-    Guid EventId, Guid CrmCompanyId, string CompanyNit, Guid ApplicationId, string ApplicationNumber,
+    Guid EventId, Guid CrmCompanyId, long ErpCompanyId, string CompanyNit, Guid ApplicationId, string ApplicationNumber,
     DateTime ApprovedAtUtc, CrmCreditCustomer Customer, CrmCreditItem[] Items,
     decimal ApprovedAmount, decimal DownPayment, decimal FinancedAmount, int TermMonths, DateTime? FirstDueDate,
     string? Advisor, string? SalesPoint);
 public sealed record CrmCreditReceipt(long ReceiptId, string Status, bool AlreadyReceived);
+public sealed record CrmAvailableCompany(long Id, string Name, string Nit);
 public sealed record CrmCreditPending(long ReceiptId, Guid ApplicationId, string ApplicationNumber,
     string CustomerName, string CustomerIdentification, decimal ApprovedAmount, string Status, DateTime ReceivedUtc);
 
 public sealed class CrmApprovedCreditRepository(TenantConnectionFactory connections)
 {
+    public async Task<IReadOnlyList<CrmAvailableCompany>> AvailableCompaniesAsync(string allowedNit, CancellationToken ct)
+    {
+        await using var connection = await connections.OpenAsync(null, true, ct);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EmpresaId, RazonSocial, CONCAT(Nit, COALESCE('-' + DigitoVerificacion, ''))
+            FROM core.Empresa
+            WHERE Activa = 1
+              AND CONCAT(REPLACE(REPLACE(REPLACE(Nit, '-', ''), '.', ''), ' ', ''),
+                         COALESCE(DigitoVerificacion, '')) = @Nit;
+            """;
+        command.Parameters.Add(new SqlParameter("@Nit", SqlDbType.NVarChar, 20) { Value = Digits(allowedNit) });
+        var rows = new List<CrmAvailableCompany>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            rows.Add(new CrmAvailableCompany(reader.GetInt64(0), reader.GetString(1), reader.GetString(2)));
+        return rows;
+    }
+
     public async Task<IReadOnlyList<CrmCreditPending>> ListAsync(long empresaId, CancellationToken ct)
     {
         await using var connection = await connections.OpenAsync(empresaId, false, ct);
@@ -51,10 +71,11 @@ public sealed class CrmApprovedCreditRepository(TenantConnectionFactory connecti
         await using var company = lookup.CreateCommand();
         company.CommandText = """
             SELECT EmpresaId FROM core.Empresa
-            WHERE Activa = 1
+            WHERE Activa = 1 AND EmpresaId = @ErpCompanyId
               AND CONCAT(REPLACE(REPLACE(REPLACE(Nit, '-', ''), '.', ''), ' ', ''),
                          COALESCE(DigitoVerificacion, '')) = @Nit;
             """;
+        company.Parameters.Add(new SqlParameter("@ErpCompanyId", SqlDbType.BigInt) { Value = input.ErpCompanyId });
         company.Parameters.Add(new SqlParameter("@Nit", SqlDbType.NVarChar, 20) { Value = Digits(input.CompanyNit) });
         var value = await company.ExecuteScalarAsync(ct);
         if (value is null) return null;

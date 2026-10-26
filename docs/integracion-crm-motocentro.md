@@ -4,8 +4,8 @@ La primera entrega recibe una solicitud de crédito aprobada del CRM como ficha 
 
 ## Identidad y correspondencias
 
-- Empresa CRM: Motocentro (`Guid`), empresa ERP: Motocentro (`bigint`). La correspondencia se configura de forma explícita y se comprueba en ambos extremos; nunca se infiere solo del nombre durante un envío.
-- NIT confirmado por el propietario: `91452546-1`. El ERP guarda `Nit=91452546` y `DigitoVerificacion=1` por separado; el receptor compara ambos. El CRM solo encola aprobaciones de su empresa GUID configurada. El nombre visible no es una clave definitiva.
+- Empresa CRM: Motocentro (`Guid`), empresa ERP: Motocentro (`bigint`). El administrador escoge la empresa ERP en **Configuración → Conexión con el ERP** del CRM; no se infiere solo del nombre durante un envío.
+- NIT confirmado por el propietario: `91452546-1`. El ERP guarda `Nit=91452546` y `DigitoVerificacion=1` por separado; el receptor compara el ID ERP seleccionado y ambos componentes del NIT. El CRM solo encola aprobaciones de una empresa expresamente vinculada. El nombre visible no es una clave definitiva.
 - La solicitud CRM y el evento de envío conservan identificadores estables. El ERP rechaza un segundo evento con el mismo identificador si el contenido cambió; un reintento idéntico devuelve la misma recepción.
 - Cliente: tipo y número de identificación; artículo: referencia; punto de venta: nombre de sede. La ficha recibida no se convierte en factura automáticamente, aunque haya homologación.
 
@@ -24,9 +24,9 @@ Ambas API están en el mismo servidor IIS y sus rutas de salud respondieron por 
 ## Activación controlada
 
 1. Aplicar la migración ERP `075_crm_approved_credits.sql` y desplegar el backend ERP actualizado.
-2. Identificar el GUID de Motocentro en la tabla `Empresas` del CRM y confirmar que su NIT ERP es `91452546-1`.
-3. Configurar en el ERP, fuera de Git: `CrmIntegration__Enabled=true`, `CrmIntegration__CompanyNit=91452546-1`, `CrmIntegration__CrmCompanyId=<GUID CRM>` y `CrmIntegration__SharedKey=<clave aleatoria de al menos 32 caracteres>`.
-4. Desplegar el backend CRM actualizado, que aplica su migración EF al arrancar. Configurar en el CRM, fuera de Git: `ErpIntegration__Enabled=true`, `ErpIntegration__CompanyNit=91452546-1`, `ErpIntegration__CrmCompanyId=<mismo GUID>`, `ErpIntegration__BaseUrl=http://127.0.0.1/ERP/`, `ErpIntegration__HostHeader=stecno.dyndns.org` y `ErpIntegration__SharedKey=<misma clave>`.
+2. Configurar en el ERP, fuera de Git: `CrmIntegration__Enabled=true`, `CrmIntegration__CompanyNit=91452546-1` y `CrmIntegration__SharedKey=<clave aleatoria de al menos 32 caracteres>`.
+3. Desplegar el backend y frontend CRM actualizados; el backend aplica sus migraciones EF al arrancar. Configurar en el CRM, fuera de Git: `ErpIntegration__Enabled=true`, `ErpIntegration__BaseUrl=http://127.0.0.1/ERP/`, `ErpIntegration__HostHeader=stecno.dyndns.org` y `ErpIntegration__SharedKey=<misma clave>`.
+4. En el CRM, entrar como administrador en Configuración y escoger «MOTOCENTRO SA · NIT 91452546-1» en **Conexión con el ERP**. La selección se valida directamente contra el catálogo ERP permitido y se guarda para la empresa CRM activa. El piloto admite una sola empresa CRM vinculada; no se puede cambiar el destino si ya hay exportaciones.
 5. Aprobar una solicitud controlada. Verificar en CRM `ErpCreditExports` el estado `Enviado` y en ERP `ven.CrmApprovedCredit` el estado `PENDIENTE_REVISION`, o consultar `GET /api/v1/companies/{empresaId}/crm-approved-credits` con un usuario ERP autorizado.
 
 Los dos interruptores `Enabled` están apagados por defecto. El CRM guarda el evento junto con la aprobación y reintenta el envío; el ERP reconoce reintentos idénticos y rechaza contenido cambiado para la misma solicitud. Las solicitudes anteriores a la activación no se exportan automáticamente.
