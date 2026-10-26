@@ -14,6 +14,7 @@ using NexoERP.Api.Security;
 using NexoERP.Api.Zeus;
 using NexoERP.Api.Treasury;
 using NexoERP.Api.Sales;
+using NexoERP.Api.CrmIntegration;
 
 LoadDotEnv();
 var builder = WebApplication.CreateBuilder(args);
@@ -29,6 +30,7 @@ builder.Services.AddScoped<InventoryOperationsRepository>();
 builder.Services.AddScoped<AdvancedControlsRepository>();
 builder.Services.AddScoped<MasterDataRepository>();
 builder.Services.AddScoped<CustomerRepository>();
+builder.Services.AddScoped<CrmApprovedCreditRepository>();
 builder.Services.AddScoped<CustomerCashRepository>();
 builder.Services.AddScoped<SalesInvoiceRepository>();
 builder.Services.AddScoped<SalesPriceApprovalRepository>();
@@ -63,7 +65,7 @@ var dataProtection=builder.Services.AddDataProtection().SetApplicationName("Nexo
 if(OperatingSystem.IsWindows())dataProtection.ProtectKeysWithDpapi();
 
 var app = builder.Build();
-const string ReleaseVersion="2026.09.23.2";
+const string ReleaseVersion="2026.10.26.1";
 app.UseExceptionHandler();
 
 app.Use(async (context,next) =>
@@ -98,7 +100,8 @@ app.Use(async (context,next) =>
 
 app.Use(async (context,next) =>
 {
-    if (context.Request.Path.StartsWithSegments("/api/v1/health") || context.Request.Path.StartsWithSegments("/api/v1/auth/login"))
+    if (context.Request.Path.StartsWithSegments("/api/v1/health") || context.Request.Path.StartsWithSegments("/api/v1/auth/login")
+        || context.Request.Path.Equals("/api/v1/integrations/crm/approved-credits", StringComparison.OrdinalIgnoreCase))
     {
         await next();
         return;
@@ -148,6 +151,47 @@ app.MapGet("/api/v1/health/ready",async(ProductionOperationsRepository operation
     var productionIntegration=string.Equals(options.Value.DeliveryMode,"Webhook",StringComparison.OrdinalIgnoreCase)&&Uri.IsWellFormedUriString(options.Value.WebhookUrl,UriKind.Absolute);
     return Results.Json(new { status=ready?"ready":"degraded",database="connected",health.Migrations,health.PendingOutbox,health.DiscardedOutbox,health.OldestPendingUtc,integrationMode=options.Value.DeliveryMode,productionIntegration },statusCode:ready?200:503);
 });
+
+app.MapPost("/api/v1/integrations/crm/approved-credits", async (
+    CrmApprovedCreditInput input, HttpContext context, IConfiguration configuration,
+    CrmApprovedCreditRepository credits, CancellationToken ct) =>
+{
+    if (!configuration.GetValue<bool>("CrmIntegration:Enabled")) return Results.NotFound();
+    var remote = context.Connection.RemoteIpAddress;
+    if (remote is null || !System.Net.IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote))
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    var configuredKey = configuration["CrmIntegration:SharedKey"];
+    var suppliedKey = context.Request.Headers["X-Crm-Integration-Key"].ToString();
+    if (string.IsNullOrWhiteSpace(configuredKey) || configuredKey.Length < 32 || string.IsNullOrWhiteSpace(suppliedKey)
+        || !CryptographicOperations.FixedTimeEquals(
+            SHA256.HashData(Encoding.UTF8.GetBytes(configuredKey)),
+            SHA256.HashData(Encoding.UTF8.GetBytes(suppliedKey))))
+        return Results.Unauthorized();
+    if (string.IsNullOrWhiteSpace(configuration["CrmIntegration:CompanyNit"])
+        || !Guid.TryParse(configuration["CrmIntegration:CrmCompanyId"], out var allowedCompany)
+        || allowedCompany == Guid.Empty || input.CrmCompanyId != allowedCompany
+        || CrmApprovedCreditRepository.Digits(input.CompanyNit ?? "") != CrmApprovedCreditRepository.Digits(configuration["CrmIntegration:CompanyNit"] ?? ""))
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    if (input.EventId == Guid.Empty || input.ApplicationId == Guid.Empty || string.IsNullOrWhiteSpace(input.ApplicationNumber)
+        || input.ApplicationNumber.Length > 40 || input.Customer is null
+        || string.IsNullOrWhiteSpace(input.Customer.IdentificationNumber) || string.IsNullOrWhiteSpace(input.Customer.Name)
+        || input.Items is null || input.Items.Length == 0 || input.Items.Length > 100
+        || input.Items.Any(item => string.IsNullOrWhiteSpace(item.Reference) || string.IsNullOrWhiteSpace(item.Name)
+            || item.Price < 0 || item.Quantity < 1)
+        || input.ApprovedAmount <= 0 || input.DownPayment < 0 || input.DownPayment > input.ApprovedAmount
+        || input.FinancedAmount != input.ApprovedAmount - input.DownPayment || input.TermMonths < 1)
+        return Results.BadRequest(new { error = "Datos de crédito aprobado incompletos o inválidos." });
+    try
+    {
+        var receipt = await credits.ReceiveAsync(input, ct);
+        if (receipt is null) return Results.Conflict(new { error = "El NIT no corresponde a una empresa activa del ERP." });
+        return receipt.AlreadyReceived ? Results.Ok(receipt) : Results.Created($"/api/v1/integrations/crm/approved-credits/{receipt.ReceiptId}", receipt);
+    }
+    catch (InvalidOperationException error) { return Results.Conflict(new { error = error.Message }); }
+});
+app.MapGet("/api/v1/companies/{empresaId:long}/crm-approved-credits", async (
+    long empresaId, CrmApprovedCreditRepository credits, CancellationToken ct) =>
+    Results.Ok(await credits.ListAsync(empresaId, ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
 
 app.MapPost("/api/v1/auth/login", async (LoginRequest input,HttpContext context,AuthRepository auth,CancellationToken cancellationToken) =>
 {
