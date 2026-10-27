@@ -347,7 +347,7 @@
   async function refreshClient(){
     if(!client)return;const t=token,selected=client.id;
     try{const result=await apiRequest(endpoint()+`/options?clienteId=${selected}`);if(!current(t)||client?.id!==selected)return;
-      if(mode==='invoice')options.anticipos=result.anticipos;else{options.facturas=result.facturas;options.anticipos=result.anticipos;}
+      if(mode==='invoice')options.anticipos=result.anticipos;else{options.facturas=result.facturas;options.anticipos=result.anticipos;options.ordenCobroCartera=result.ordenCobroCartera;}
       applications=[];advances=[];renderAllocations();$('[data-client-hint]').textContent='';
     }catch(error){if(current(t))notice('No se pudieron consultar saldos del cliente: '+error.message,true);}
   }
@@ -408,6 +408,22 @@
       <div class="customer-products-list" data-product-list="${index}" hidden>${products.map(product=>`<div><strong>${esc(product.nombre)}</strong><small>${esc(product.cantidad)} unidad(es)</small>${productIdentifiers(product).length?`<small>${esc(productIdentifiers(product).join(' · '))}</small>`:''}</div>`).join('')}</div>`:''}</td>
       <td>${money(invoice.saldo)}</td><td><input type="number" data-amount="${index}" min="0.01" max="${invoice.saldo}" step="0.01" value="${selected(invoice)?.valor||invoice.saldo}" ${selected(invoice)?'':'disabled'}></td></tr>`;
   }
+  function receiptEligibility(facturas,selectedApplications,globalOrder,receiptDate){
+    const all=facturas.filter(x=>x.zeusEstado==='CONTABILIZADO'&&x.fecha<=receiptDate)
+      .sort((a,b)=>(globalOrder?0:a.id-b.id)||a.vence.localeCompare(b.vence)||a.id-b.id||(a.numeroCuota||0)-(b.numeroCuota||0)||(a.cuotaId||0)-(b.cuotaId||0));
+    const key=x=>`${x.id}:${x.cuotaId??''}`,available=new Set(all.map(key));
+    let kept=selectedApplications.filter(x=>available.has(`${x.facturaVentaId}:${x.facturaVentaCuotaId??''}`));
+    const blocked=new Map(),eligible=new Set();let globallyBlocked=false;
+    for(const due of all){
+      const priorOpen=globalOrder?globallyBlocked:(blocked.get(due.id)||false);
+      if(!priorOpen)eligible.add(key(due));
+      if(priorOpen)kept=kept.filter(x=>!(x.facturaVentaId===due.id&&(x.facturaVentaCuotaId??null)===(due.cuotaId??null)));
+      const payment=kept.find(x=>x.facturaVentaId===due.id&&(x.facturaVentaCuotaId??null)===(due.cuotaId??null));
+      const incomplete=priorOpen||!payment||Math.round(payment.valor*100)<Math.round(due.saldo*100);
+      if(globalOrder)globallyBlocked=incomplete;else blocked.set(due.id,incomplete);
+    }
+    return {applications:kept,eligible};
+  }
   function renderAllocations(){
     const area=$('[data-allocations]');if(!area)return;
     if(mode==='invoice'){renderAdvances();return;}
@@ -417,17 +433,11 @@
     f.elements.total.readOnly=kind==='CARTERA';
     if(kind!=='CARTERA'){area.innerHTML=kind==='ANTICIPO'?'<p class="egreso-help">El saldo del anticipo quedará disponible para aplicarlo a una factura futura.</p>':'<p class="egreso-help">Selecciona la cuenta contable específica para este ingreso. No modifica cartera.</p>';syncReceiptConcept();summary();return;}
     const selected=x=>applications.find(a=>a.facturaVentaId===x.id&&(a.facturaVentaCuotaId??null)===(x.cuotaId??null));
-    const all=[...(options.facturas||[])].sort((a,b)=>a.id-b.id||a.vence.localeCompare(b.vence)||(a.numeroCuota||0)-(b.numeroCuota||0)||(a.cuotaId||0)-(b.cuotaId||0));
-    const blocked=new Map(),eligible=new Set();
-    for(const due of all){
-      const key=`${due.id}:${due.cuotaId??''}`,priorOpen=blocked.get(due.id)||false;
-      if(!priorOpen&&due.zeusEstado==='CONTABILIZADO')eligible.add(key);
-      if(priorOpen)applications=applications.filter(x=>!(x.facturaVentaId===due.id&&(x.facturaVentaCuotaId??null)===(due.cuotaId??null)));
-      const payment=selected(due);
-      blocked.set(due.id,priorOpen||due.zeusEstado!=='CONTABILIZADO'||!payment||Math.round(payment.valor*100)<Math.round(due.saldo*100));
-    }
+    const globalOrder=options.ordenCobroCartera==='MAS_VENCIDA';
+    const order=receiptEligibility(options.facturas||[],applications,globalOrder,f.elements.fechaContable.value);
+    applications=order.applications;const eligible=order.eligible;
     const shown=(options.facturas||[]).filter(x=>!f.elements.claseCarteraFiltro.value||x.claseCartera===f.elements.claseCarteraFiltro.value);
-    area.innerHTML=`<h3>Cuotas pendientes</h3><div class="table-wrap customer-receipt-dues"><table><thead><tr><th>Aplicar</th><th>Factura / cuota y artículos</th><th>Saldo</th><th>Abono</th></tr></thead><tbody>${shown.map((x,i)=>receiptDueRow(x,i,selected,eligible)).join('')||'<tr><td colspan="4">No hay cuotas pendientes en esta categoría.</td></tr>'}</tbody></table></div><small class="egreso-help">Puedes anticipar la primera cuota pendiente. Para pagar otra de la misma factura, cubre por completo las anteriores en orden de vencimiento.</small>`;
+    area.innerHTML=`<h3>Cuotas pendientes</h3><p class="egreso-help">${globalOrder?'Esta empresa exige pagar primero la cuota más antigua entre todas las facturas del cliente.':'Puedes escoger cualquier factura, pagando primero sus cuotas anteriores.'} Puedes anticipar la primera cuota permitida aunque aún no venza.</p><div class="table-wrap customer-receipt-dues"><table><thead><tr><th>Aplicar</th><th>Factura / cuota y artículos</th><th>Saldo</th><th>Abono</th></tr></thead><tbody>${shown.map((x,i)=>receiptDueRow(x,i,selected,eligible)).join('')||'<tr><td colspan="4">No hay cuotas pendientes en esta categoría.</td></tr>'}</tbody></table></div>`;
     area.querySelectorAll('[data-products]').forEach(button=>button.onclick=()=>{
       const list=area.querySelector(`[data-product-list="${button.dataset.products}"]`);list.hidden=!list.hidden;
       button.setAttribute('aria-expanded',String(!list.hidden));button.textContent=list.hidden?`Ver productos (${list.childElementCount})`:'Cerrar productos';

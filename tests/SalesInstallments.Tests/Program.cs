@@ -111,3 +111,12 @@ try{CustomerPaymentPolicy.ValidateOrder(openDues,[new CashReceiptApplication(1,3
 catch(ArgumentException){Console.WriteLine("OK: no salta la primera cuota");}
 try{CustomerPaymentPolicy.ValidateOrder(openDues,[new CashReceiptApplication(1,50m,10),new CashReceiptApplication(1,30m,11)]);throw new Exception("Permitió cobrar la siguiente con la anterior parcial.");}
 catch(ArgumentException){Console.WriteLine("OK: exige cubrir la cuota anterior");}
+CustomerPaymentPolicy.ValidateGlobalOrder(openDues,[new CashReceiptApplication(2,50m,20)]);
+CustomerPaymentPolicy.ValidateGlobalOrder(openDues,[new CashReceiptApplication(2,80m,20),new CashReceiptApplication(1,30m,10)]);
+try{CustomerPaymentPolicy.ValidateGlobalOrder(openDues,[new CashReceiptApplication(1,50m,10)]);throw new Exception("Permitió saltar la factura más vencida.");}
+catch(ArgumentException){Console.WriteLine("OK: modo global exige la factura más vencida");}
+try{CustomerPaymentPolicy.ValidateGlobalOrder(openDues,[new CashReceiptApplication(2,40m,20),new CashReceiptApplication(1,30m,10)]);throw new Exception("Permitió saltar una cuota global parcialmente pagada.");}
+catch(ArgumentException){Console.WriteLine("OK: modo global exige cubrir la cuota anterior");}
+var legacyDue=new CustomerPaymentPolicy.OpenInstallment[]{new(3,0,new DateTime(2026,9,1),1,70m),new(2,20,new DateTime(2026,10,1),1,80m)};
+try{CustomerPaymentPolicy.ValidateGlobalOrder(legacyDue,[new CashReceiptApplication(2,20m,20)]);throw new Exception("Ignoró una factura antigua sin plan de cuotas.");}
+catch(ArgumentException){Console.WriteLine("OK: modo global incluye facturas históricas sin cuotas");}

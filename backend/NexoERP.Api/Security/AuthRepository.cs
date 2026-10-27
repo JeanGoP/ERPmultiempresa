@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
+using NexoERP.Api.Sales;
 
 namespace NexoERP.Api.Security;
 
@@ -169,9 +170,12 @@ public sealed class AuthRepository(TenantConnectionFactory connections,NexoERP.A
         var currency=string.IsNullOrWhiteSpace(input.MonedaFuncional)?"COP":input.MonedaFuncional.Trim().ToUpperInvariant();
         var timezone=string.IsNullOrWhiteSpace(input.ZonaHoraria)?"America/Bogota":input.ZonaHoraria.Trim();
         var framework=string.IsNullOrWhiteSpace(input.MarcoContable)?"GRUPO_2":input.MarcoContable.Trim().ToUpperInvariant();
+        var collectionOrder=string.IsNullOrWhiteSpace(input.OrdenCobroCartera)?CustomerPaymentPolicy.PerInvoice:input.OrdenCobroCartera.Trim().ToUpperInvariant();
         if(currency.Length!=3) throw new ArgumentException("La moneda funcional debe tener tres caracteres.");
         if(timezone.Length>80||timezone.Any(char.IsControl))throw new ArgumentException("Zona horaria inválida.");
         if(framework is not ("GRUPO_1" or "GRUPO_2" or "GRUPO_3")) throw new ArgumentException("El marco contable no es válido.");
+        if(collectionOrder is not(CustomerPaymentPolicy.PerInvoice or CustomerPaymentPolicy.OldestAcrossInvoices))
+            throw new ArgumentException("Selecciona un orden de cobro válido para la empresa.");
 
         await using var connection=await connections.OpenAsync(null,true,cancellationToken);
         await using var transaction=await connection.BeginTransactionAsync(cancellationToken);
@@ -180,8 +184,8 @@ public sealed class AuthRepository(TenantConnectionFactory connections,NexoERP.A
         {
             command.Transaction=(SqlTransaction)transaction;
             command.CommandText="""
-                INSERT core.Empresa(Codigo,Nit,DigitoVerificacion,RazonSocial,MonedaFuncional,ZonaHoraria,MarcoContable)
-                VALUES(@Codigo,@Nit,@Dv,@Nombre,@Moneda,@Zona,@Marco);
+                INSERT core.Empresa(Codigo,Nit,DigitoVerificacion,RazonSocial,MonedaFuncional,ZonaHoraria,MarcoContable,OrdenCobroCartera)
+                VALUES(@Codigo,@Nit,@Dv,@Nombre,@Moneda,@Zona,@Marco,@OrdenCobro);
                 SELECT CONVERT(bigint,SCOPE_IDENTITY());
                 """;
             command.Parameters.Add(new SqlParameter("@Codigo",SqlDbType.NVarChar,20){Value=code});
@@ -191,6 +195,7 @@ public sealed class AuthRepository(TenantConnectionFactory connections,NexoERP.A
             command.Parameters.Add(new SqlParameter("@Moneda",SqlDbType.Char,3){Value=currency});
             command.Parameters.Add(new SqlParameter("@Zona",SqlDbType.NVarChar,80){Value=timezone});
             command.Parameters.Add(new SqlParameter("@Marco",SqlDbType.VarChar,20){Value=framework});
+            command.Parameters.Add(new SqlParameter("@OrdenCobro",SqlDbType.VarChar,24){Value=collectionOrder});
             companyId=Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
         }
         await using(var configuration=connection.CreateCommand())
