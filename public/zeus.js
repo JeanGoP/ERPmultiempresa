@@ -120,7 +120,7 @@ function zeusOptions(rows,value,label,selected,empty='Predeterminado'){return `<
 function zeusRenderSettings(){
   const s=zeusUI.settings;
   $('#zeusContent').innerHTML=`<form id="zeusSettingsForm"><section class="zeus-card"><h2>1. Fuentes y medios de pago por sucursal</h2><p>Conexión: ${zeusEscape(s.baseEsperada||'Pendiente de configurar en Seguridad → Empresas')}${s.baseEsperada?' · '+zeusEscape(s.servidorEsperado):''}</p>${typeof zeusSourcesSection==='function'?zeusSourcesSection(s):''}<div id="zeusCashAccounts"></div></section>
-    ${zeusGeneralSupplierSection(s)}${zeusInterestCostCenterSection(s)}${zeusMotorcycleRetentionAccountSection(s)}${zeusRetentionSection(s)}
+    ${zeusGeneralSupplierSection(s)}${zeusMotorcycleRetentionAccountSection(s)}${zeusRetentionSection(s)}
     <section class="zeus-card zeus-save"><label class="zeus-toggle"><input name="habilitado" type="checkbox" ${s.habilitado?'checked':''}><span><strong>Enviar automáticamente las entradas a Zeus</strong><small>Activa solo después de validar sus cuentas y probar la conexión. El envío también requiere activar el despachador en el servidor.</small></span></label><button type="submit" class="button primary">Guardar configuración de empresa</button></section></form>`;
 }
 function zeusReadSettings(){
