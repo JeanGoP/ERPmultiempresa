@@ -115,10 +115,11 @@
 .customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues td:nth-child(3){white-space:nowrap;font-weight:600}
 .customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues td small{margin-top:2px;font-size:11px}
 .customer-documents-dialog .customer-receipt-more{margin-top:10px}
-.customer-documents-dialog .customer-receipt-charge-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.customer-documents-dialog .customer-receipt-charge-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .customer-documents-dialog .customer-receipt-charge-grid>div{padding:12px;border:1px solid #dce7e1;border-radius:8px;background:#f8faf8}
 .customer-documents-dialog .customer-receipt-charge-grid label{display:grid;gap:6px;max-width:260px;font-size:12px;font-weight:700}
 .customer-documents-dialog .customer-receipt-charge-grid small{display:block;margin-top:7px;color:#60746a;font-size:11px}
+@media(max-width:900px){.customer-documents-dialog .customer-receipt-charge-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .customer-documents-dialog .customer-receipt-footer{position:sticky;bottom:0;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:16px;margin:16px 0 0;padding:14px 18px;border:1px solid #cdded2;border-radius:9px;background:#f1f7f2;box-shadow:0 -7px 18px #173e3314}
 .customer-documents-dialog .customer-receipt-footer .customer-receipt-total{display:block;min-width:0;margin:0}
 .customer-documents-dialog .customer-receipt-footer .customer-receipt-total label{width:220px}

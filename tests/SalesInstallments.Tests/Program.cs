@@ -102,6 +102,25 @@ Check(extraIncomeLines.Sum(x=>decimal.Parse((string)x.Element("VALORTRA")!,Syste
     &&(string?)extraIncomeLines.Single(x=>(string?)x.Element("CODICTA")=="413505001").Element("IDCENCO")=="CC01"
     &&(string?)extraIncomeLines.Single(x=>(string?)x.Element("CODICTA")=="413505001").Element("DESCRITRA")=="INGRESO POR RETENCIÓN DE MOTO",
     "la retención de moto va a su ingreso Zeus sin reducir el abono de cartera");
+var discountRule=new ZeusAccount("DESCUENTO_PRONTO_PAGO","530505001",CentroCosto:"CC01");
+var discountReceipt=receiptOriginal with{Origen=receiptSource with{Total=180m},Movimientos=[
+    new(new ZeusAccount("CLIENTE","130505"),-200m),new(discountRule,20m),new(new ZeusAccount("BANCO_CAJA","111005"),180m)]};
+var discountLines=XElement.Parse(ZeusXml.Build(discountReceipt,Guid.NewGuid())).Descendants("Transac").ToArray();
+Check(discountLines.Sum(x=>decimal.Parse((string)x.Element("VALORTRA")!,System.Globalization.CultureInfo.InvariantCulture))==0m
+    &&(string?)discountLines.Single(x=>(string?)x.Element("CODICTA")=="130505").Element("VALORTRA")=="-200"
+    &&(string?)discountLines.Single(x=>(string?)x.Element("CODICTA")=="111005").Element("VALORTRA")=="180"
+    &&(string?)discountLines.Single(x=>(string?)x.Element("CODICTA")=="530505001").Element("IDCENCO")=="CC01"
+    &&(string?)discountLines.Single(x=>(string?)x.Element("CODICTA")=="530505001").Element("DESCRITRA")=="DESCUENTO POR PRONTO PAGO",
+    "el descuento cancela cartera completa, reduce caja y debita la cuenta configurada en Zeus");
+Check(ZeusJournal.GeneralEarlyPaymentDiscountAccount(settings with{Cuentas=[discountRule]})?.Cuenta=="530505001",
+    "la cuenta de descuento por pronto pago se configura por empresa");
+var discountReversal=discountReceipt with{Movimientos=discountReceipt.Movimientos.Select(m=>m with{Valor=-m.Valor}).ToArray(),
+    ClienteDocumento=discountReceipt.ClienteDocumento! with{Tipo="REVERSO_RECIBO",Concepto="Reversión RC-7"}};
+var discountReversalLines=XElement.Parse(ZeusXml.Build(discountReversal,Guid.NewGuid())).Descendants("Transac").ToArray();
+Check(discountReversalLines.Sum(x=>decimal.Parse((string)x.Element("VALORTRA")!,System.Globalization.CultureInfo.InvariantCulture))==0m
+    &&(string?)discountReversalLines.Single(x=>(string?)x.Element("CODICTA")=="530505001").Element("VALORTRA")=="-20"
+    &&(string?)discountReversalLines.Single(x=>(string?)x.Element("CODICTA")=="130505").Element("VALORTRA")=="200",
+    "la reversión del descuento reabre la cartera y compensa la cuenta de Zeus");
 var receiptReversal=receiptOriginal with
 {
     Origen=receiptSource with{Factura="RC-7-REV"},

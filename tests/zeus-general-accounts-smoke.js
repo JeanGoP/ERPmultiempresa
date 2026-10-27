@@ -9,12 +9,17 @@ vm.runInContext(fs.readFileSync('public/zeus-general-accounts.js','utf8'),ctx);
 (async()=>{
  const html=ctx.zeusGeneralSupplierSection(settings);assert.match(html,/Cuentas generales de la empresa/);assert.match(html,/value="2205"/);
  assert.match(html,/name="cuentaAnticipoGeneral"/);
+ assert.match(html,/name="cuentaDescuentoProntoPago"/);
+ assert.match(html,/name="centroCostoDescuentoProntoPago"/);
  form.elements.cuentaAnticipoGeneral={value:'280505'};
  const advance=ctx.zeusReadGeneralAdvance(form,settings)[0];assert.equal(advance.concepto,'ANTICIPO');assert.equal(advance.cuenta,'280505');
  form.elements.cuentaAnticipoSoat={value:'280506'};form.elements.cuentaAnticipoMatricula={value:'280507'};form.elements.cuentaAnticipoOtros={value:'280508'};
  assert.deepEqual(Array.from(ctx.zeusReadGeneralAdvance(form,settings),r=>r.concepto),['ANTICIPO','ANTICIPO_SOAT','ANTICIPO_MATRICULA','ANTICIPO_OTROS']);
  assert.match(html,/name="cuentaAnticipoSoat"/);assert.match(html,/name="cuentaAnticipoMatricula"/);assert.match(html,/name="cuentaAnticipoOtros"/);
  form.elements.cuentaAnticipoGeneral.value='';form.elements.cuentaAnticipoSoat.value='';form.elements.cuentaAnticipoMatricula.value='';form.elements.cuentaAnticipoOtros.value='';assert.equal(ctx.zeusReadGeneralAdvance(form,settings).length,0);
+ form.elements.cuentaDescuentoProntoPago={value:'530505001'};form.elements.centroCostoDescuentoProntoPago={value:'CC01'};
+ const discount=ctx.zeusReadGeneralAdvance(form,settings)[0];assert.equal(discount.concepto,'DESCUENTO_PRONTO_PAGO');assert.equal(discount.cuenta,'530505001');assert.equal(discount.centroCosto,'CC01');
+ form.elements.cuentaDescuentoProntoPago.value='';
  assert.doesNotMatch(html,/Consultar plan de proveedores|data-zeus="supplier-chart"/,'No requiere botón de consulta');
  const rule=ctx.zeusReadGeneralSupplier(form,settings)[0];assert.equal(rule.cuenta,'220501');assert.equal(rule.centroCosto,'01');assert.equal(rule.proveedorId,null);assert.equal(rule.articuloId,null);
  form.elements.cuentaProveedorGeneral.value='';assert.throws(()=>ctx.zeusReadGeneralSupplier(form,settings));

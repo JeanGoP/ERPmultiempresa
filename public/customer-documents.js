@@ -100,6 +100,11 @@
             income.textContent=`Ingreso por retención de moto: ${money(item.ingresoRetencionMoto)}`;
             row.cells[4].append(document.createElement('br'),income);
           }
+          if(item.tipo==='CARTERA'&&item.descuentoProntoPago>0){
+            const discount=document.createElement('small');
+            discount.textContent=`Descuento por pronto pago: ${money(item.descuentoProntoPago)}`;
+            row.cells[4].append(document.createElement('br'),discount);
+          }
           const cell=row.cells[row.cells.length-1];
           if(item.reversionEstado){
             const detail=document.createElement('small');
@@ -417,15 +422,16 @@
         <div data-allocations></div>
       </section>
       <section class="customer-receipt-card customer-receipt-charges" data-late-interest hidden>
-        <h3>Cargos adicionales</h3><div class="customer-receipt-charge-grid">
+        <h3>Ajustes del recaudo</h3><div class="customer-receipt-charge-grid">
           <div><label>Interés de mora<input name="interesMora" type="number" min="0" step="0.01" value="0"></label><small>Tasa mensual <span data-late-rate></span> % · Sugerido: <b data-late-suggested></b></small></div>
           <div><label>Retención de moto<input name="ingresoRetencionMoto" type="number" min="0" step="0.01" value="0"></label><small>Ingreso adicional; no reduce la cartera.</small></div>
+          <div><label>Descuento por pronto pago<input name="descuentoProntoPago" type="number" min="0" step="0.01" value="0"></label><small>Reduce el valor recibido y cancela el mismo valor de cartera.</small></div>
         </div>
       </section>
       <div class="customer-receipt-footer"><div class="customer-receipt-total"><label>Valor total a recibir<input name="total" type="number" min="0.01" step="0.01" required></label><small data-summary></small></div><button class="button primary" type="submit">Contabilizar recibo</button></div>
     </fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
-    f.elements.tipo.onchange=()=>{applications=[];receiptVisibleRows=8;f.elements.total.value='';f.elements.interesMora.value='0';f.elements.interesMora.dataset.edited='';f.elements.ingresoRetencionMoto.value='0';renderAllocations();};
+    f.elements.tipo.onchange=()=>{applications=[];receiptVisibleRows=8;f.elements.total.value='';f.elements.interesMora.value='0';f.elements.interesMora.dataset.edited='';f.elements.ingresoRetencionMoto.value='0';f.elements.descuentoProntoPago.value='0';renderAllocations();};
     f.elements.interesMora.oninput=()=>{f.elements.interesMora.dataset.edited='yes';dirty=true;summary();};
     f.elements.claseCarteraFiltro.onchange=()=>{receiptVisibleRows=8;renderAllocations();};
     f.elements.sucursalId.onchange=accountHint;f.elements.medioPago.onchange=()=>{accountHint();syncReceiptReference();};
@@ -504,6 +510,7 @@
     const globalOrder=options.ordenCobroCartera==='MAS_VENCIDA';
     const order=receiptEligibility(options.facturas||[],applications,globalOrder,f.elements.fechaContable.value);
     applications=order.applications;const eligible=order.eligible;
+    if(!applications.length)f.elements.descuentoProntoPago.value='0';
     const shown=(options.facturas||[]).filter(x=>!f.elements.claseCarteraFiltro.value||x.claseCartera===f.elements.claseCarteraFiltro.value);
     const visible=shown.slice(0,receiptVisibleRows);
     const remaining=shown.length-receiptVisibleRows;
@@ -545,11 +552,11 @@
         $('[data-late-rate]').textContent=String(options.moraMensualPct||0);
         $('[data-late-suggested]').textContent=money(suggested);
         if(interest.dataset.edited!=='yes')interest.value=String(suggested);
-        f.elements.total.value=String((applications.reduce((s,x)=>s+Math.round(Number(x.valor||0)*100),0)+Math.round(Number(interest.value||0)*100)+Math.round(Number(f.elements.ingresoRetencionMoto.value||0)*100))/100||'');
+        f.elements.total.value=String((applications.reduce((s,x)=>s+Math.round(Number(x.valor||0)*100),0)+Math.round(Number(interest.value||0)*100)+Math.round(Number(f.elements.ingresoRetencionMoto.value||0)*100)-Math.round(Number(f.elements.descuentoProntoPago.value||0)*100))/100||'');
       }
       if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=String(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].reduce((s,x)=>s+Math.round(Number(x.value||0)*100),0))/100||'');
       $('[data-summary]').textContent=f.elements.tipo.value==='CARTERA'
-        ?`Cuotas ${money(applications.reduce((s,x)=>s+Number(x.valor||0),0))} · Mora ${money(Number(f.elements.interesMora.value||0))} · Retención ${money(Number(f.elements.ingresoRetencionMoto.value||0))}`
+        ?`Cuotas ${money(applications.reduce((s,x)=>s+Number(x.valor||0),0))} · Mora ${money(Number(f.elements.interesMora.value||0))} · Retención ${money(Number(f.elements.ingresoRetencionMoto.value||0))} · Descuento ${money(Number(f.elements.descuentoProntoPago.value||0))}`
         :`Total recibido: ${money(Number(f.elements.total.value))}`;
     }else invoiceSummary();
   }
@@ -561,9 +568,11 @@
     if(kind==='ANTICIPO'&&(!conceptos.length||Math.round(conceptos.reduce((sum,x)=>sum+x.valor,0)*100)!==Math.round(total*100))){notice('Indica al menos un destino y comprueba que los valores sumen el total recibido.',true);return;}
     const interesMora=kind==='CARTERA'?Number(f.elements.interesMora.value||0):0;
     const ingresoRetencionMoto=kind==='CARTERA'?Number(f.elements.ingresoRetencionMoto.value||0):0;
-    if(kind==='CARTERA'&&(!applications.length||!Number.isFinite(interesMora)||interesMora<0||!Number.isFinite(ingresoRetencionMoto)||ingresoRetencionMoto<0||Math.round((applications.reduce((s,a)=>s+a.valor,0)+interesMora+ingresoRetencionMoto)*100)!==Math.round(total*100))){notice('Selecciona cuotas y comprueba que los abonos, el interés y los ingresos varios sumen el total.',true);return;}
+    const descuentoProntoPago=kind==='CARTERA'?Number(f.elements.descuentoProntoPago.value||0):0;
+    const cuotas=applications.reduce((s,a)=>s+Number(a.valor||0),0);
+    if(kind==='CARTERA'&&(!applications.length||!Number.isFinite(interesMora)||interesMora<0||!Number.isFinite(ingresoRetencionMoto)||ingresoRetencionMoto<0||!Number.isFinite(descuentoProntoPago)||descuentoProntoPago<0||descuentoProntoPago>=cuotas||Math.round((cuotas+interesMora+ingresoRetencionMoto-descuentoProntoPago)*100)!==Math.round(total*100))){notice('Revisa las cuotas y el descuento: el valor recibido debe ser igual a cuotas más cargos menos descuento.',true);return;}
     if(!options.cuentas.some(x=>String(x.sucursalId)===f.elements.sucursalId.value&&x.medioPago===f.elements.medioPago.value)){notice('Configura la caja o el banco de esta sucursal.',true);return;}
-    const body={operacionGuid:operation,sucursalId:Number(f.elements.sucursalId.value),clienteId:client.id,fechaContable:f.elements.fechaContable.value,tipo:kind,medioPago:f.elements.medioPago.value,referencia:f.elements.referencia.value,concepto:f.elements.concepto.value,total,interesMora,ingresoRetencionMoto,cuentaContrapartida:kind==='NORMAL'?f.elements.cuentaContrapartida.value:null,aplicaciones:kind==='CARTERA'?applications:[],conceptos:kind==='ANTICIPO'?conceptos:null};
+    const body={operacionGuid:operation,sucursalId:Number(f.elements.sucursalId.value),clienteId:client.id,fechaContable:f.elements.fechaContable.value,tipo:kind,medioPago:f.elements.medioPago.value,referencia:f.elements.referencia.value,concepto:f.elements.concepto.value,total,interesMora,ingresoRetencionMoto,descuentoProntoPago,cuentaContrapartida:kind==='NORMAL'?f.elements.cuentaContrapartida.value:null,aplicaciones:kind==='CARTERA'?applications:[],conceptos:kind==='ANTICIPO'?conceptos:null};
     await send(body,'Recibo');
   }
   function invoiceForm(){

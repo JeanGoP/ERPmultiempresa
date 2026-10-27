@@ -33,7 +33,7 @@ function zeusSupplierSendButton(supplier){
     finally{button.disabled=supplier.active===false;}
   });return button;
 }
-const zeusConcepts={INVENTARIO:'Inventario',PROVEEDOR:'Cuenta por pagar · proveedor',IVA:'IVA',OTRO_IMPUESTO:'Otro impuesto',RETEFUENTE:'Retención en la fuente',RETEIVA:'Retención de IVA',RETEICA:'Retención de ICA',CUENTA_POR_COBRAR:'Cuenta por cobrar (futuro)',GASTO:'Gasto (futuro)',FLETE:'Flete (futuro)',ANTICIPO:'Anticipo (futuro)',DESCUENTO:'Descuento (futuro)',REDONDEO:'Redondeo (futuro)'};
+const zeusConcepts={INVENTARIO:'Inventario',PROVEEDOR:'Cuenta por pagar · proveedor',IVA:'IVA',OTRO_IMPUESTO:'Otro impuesto',RETEFUENTE:'Retención en la fuente',RETEIVA:'Retención de IVA',RETEICA:'Retención de ICA',CUENTA_POR_COBRAR:'Cuenta por cobrar (futuro)',GASTO:'Gasto (futuro)',FLETE:'Flete (futuro)',ANTICIPO:'Anticipo (futuro)',DESCUENTO:'Descuento (futuro)',DESCUENTO_PRONTO_PAGO:'Descuento por pronto pago',REDONDEO:'Redondeo (futuro)'};
 const zeusStates={SIN_PREPARAR:'Sin preparar',REQUIERE_REVISION:'Por revisar',POR_APROBAR:'Por aprobar',PENDIENTE:'En cola',ENVIANDO:'Enviando',CONTABILIZADO:'Contabilizado',RECHAZADO:'Rechazado',INCIERTO:'Por conciliar',CANCELADO:'Descartado'};
 const zeusUI={epoch:0,company:null,tab:'jobs',version:0,settings:null,collectionPolicy:null,jobs:[],receipts:[],offset:0,receipt:null,preview:null,dirty:false,busy:false,status:null};
 const zeusPanel=document.createElement('section');zeusPanel.id='zeusModule';zeusPanel.className='zeus-workspace';zeusPanel.hidden=true;elements.purchaseModule.before(zeusPanel);
@@ -128,7 +128,7 @@ function zeusReadSettings(){
   const form=$('#zeusSettingsForm'),s={habilitado:form.elements.habilitado.checked};
   ['servidorEsperado','baseEsperada','usuarioZeus'].forEach(k=>s[k]=zeusUI.settings[k]??'');
   ['fuente','serie','unidadNegocio','tipoFactura'].forEach(k=>s[k]=zeusUI.settings[k]??'');
-  s.cuentas=zeusUI.settings.cuentas.filter(rule=>rule.concepto!=='PROVEEDOR'&&!['ANTICIPO','ANTICIPO_SOAT','ANTICIPO_MATRICULA','ANTICIPO_OTROS','INTERES_MORA','INGRESO_RETENCION_MOTO'].includes(rule.concepto)&&!zeusRetentionConcepts[rule.concepto]).map(rule=>({...rule}));
+  s.cuentas=zeusUI.settings.cuentas.filter(rule=>rule.concepto!=='PROVEEDOR'&&!['ANTICIPO','ANTICIPO_SOAT','ANTICIPO_MATRICULA','ANTICIPO_OTROS','INTERES_MORA','INGRESO_RETENCION_MOTO','DESCUENTO_PRONTO_PAGO'].includes(rule.concepto)&&!zeusRetentionConcepts[rule.concepto]).map(rule=>({...rule}));
   s.cuentas.push(...zeusReadGeneralSupplier(form,zeusUI.settings),...zeusReadGeneralAdvance(form,zeusUI.settings),...zeusReadRetentions(zeusUI.settings));
   s.fuentesAutomaticas=typeof zeusReadSources==='function'?zeusReadSources(zeusUI.settings):zeusUI.settings.fuentesAutomaticas??null;
   s.proveedores=zeusUI.settings.proveedores.map(supplier=>({...supplier}));return s;

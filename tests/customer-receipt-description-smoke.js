@@ -52,4 +52,11 @@ order=context.receiptEligibility([later,first],[{facturaVentaId:10,facturaVentaC
 assert.equal(order.applications.length,0);
 order=context.receiptEligibility([later,first],[],true,'2026-08-31');
 assert.equal(order.eligible.size,0);
+const totalsSource=source.slice(source.indexOf('  function lateInterestSuggestion()'),source.indexOf('  async function submitReceipt('));
+const totalForm={elements:{tipo:{value:'CARTERA'},fechaContable:{value:'2026-10-26'},interesMora:{value:'0',dataset:{edited:'yes'}},ingresoRetencionMoto:{value:'0'},descuentoProntoPago:{value:'20'},total:{value:''}}};
+const nodes={'[data-document]':totalForm,'[data-late-rate]':{},'[data-late-suggested]':{},'[data-summary]':{}};
+const totalsContext={mode:'receipt',applications:[{facturaVentaId:9,facturaVentaCuotaId:301,valor:200}],options:{moraMensualPct:0,facturas:[]},$:selector=>nodes[selector],money:value=>String(value)};
+vm.createContext(totalsContext);vm.runInContext(totalsSource,totalsContext);
+totalsContext.summary();assert.equal(totalForm.elements.total.value,'180');assert.match(nodes['[data-summary]'].textContent,/Descuento 20/);
+totalForm.elements.interesMora.value='5';totalForm.elements.ingresoRetencionMoto.value='10';totalsContext.summary();assert.equal(totalForm.elements.total.value,'195');
 console.log('Recibos de caja: descripción, artículos, chasis/VIN y ambos modos de orden de cobro correctos.');

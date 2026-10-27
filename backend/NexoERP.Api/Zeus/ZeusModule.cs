@@ -170,6 +170,24 @@ public static class ZeusModule
                 }
                 catch(SqlException){return Results.Json(new{error=$"No se pudo validar la cuenta de {name} en Zeus. No se guardaron cambios."},statusCode:502);}
             }
+            var earlyDiscount=ZeusJournal.GeneralEarlyPaymentDiscountAccount(input.Configuracion);
+            if(earlyDiscount is not null)
+            {
+                if(earlyDiscount.Cuenta[0] is not('4' or '5'))
+                    throw new ArgumentException("El descuento por pronto pago debe usar una cuenta de clase 4 o 5 en Zeus.");
+                try
+                {
+                    var chart=await transport.AdvanceAccountsAsync(empresaId,input.Configuracion,ct);
+                    if(!chart.Any(a=>a.Codigo==earlyDiscount.Cuenta))
+                        throw new ArgumentException("La cuenta de descuento por pronto pago debe estar habilitada y ser de detalle en Zeus.");
+                    var dimensions=await transport.AccountingDimensionsAsync(empresaId,input.Configuracion,ct);
+                    if(!string.IsNullOrWhiteSpace(earlyDiscount.CentroCosto)&&!dimensions.CentrosCosto.Any(x=>x.Codigo==earlyDiscount.CentroCosto))
+                        throw new ArgumentException("El centro de costo del descuento por pronto pago no está habilitado en Zeus.");
+                    if(string.IsNullOrWhiteSpace(earlyDiscount.CentroCosto)&&dimensions.CuentasRequierenCentroCosto.Contains(earlyDiscount.Cuenta,StringComparer.OrdinalIgnoreCase))
+                        throw new ArgumentException("La cuenta de descuento por pronto pago exige centro de costo en Zeus.");
+                }
+                catch(SqlException){return Results.Json(new{error="No se pudo validar la cuenta de descuento por pronto pago en Zeus. No se guardaron cambios."},statusCode:502);}
+            }
             if(input.Configuracion.Cuentas.Any(a=>ZeusJournal.IsRetention(a.Concepto)))
             {
                 try{input=input with{Configuracion=ZeusJournal.WithZeusRetentionRates(input.Configuracion,await transport.ChartAsync(empresaId,input.Configuracion,ct))};}

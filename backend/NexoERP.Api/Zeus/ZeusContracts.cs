@@ -93,8 +93,16 @@ public static class ZeusJournal
             throw new ArgumentException("El ingreso por retención de moto requiere una única cuenta general de Zeus.");
         return rules.SingleOrDefault();
     }
+    public static ZeusAccount? GeneralEarlyPaymentDiscountAccount(ZeusSettings settings)
+    {
+        Validate(settings);
+        var rules=settings.Cuentas.Where(a=>a.Concepto=="DESCUENTO_PRONTO_PAGO").ToArray();
+        if(rules.Length>1||rules.Any(a=>a.ArticuloId is not null||a.ProveedorId is not null||a.Tarifa is not null))
+            throw new ArgumentException("El descuento por pronto pago requiere una única cuenta general de Zeus.");
+        return rules.SingleOrDefault();
+    }
     public static readonly string[] Concepts = ["INVENTARIO", "PROVEEDOR", "CUENTA_POR_COBRAR", "IVA",
-        "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "ANTICIPO_SOAT", "ANTICIPO_MATRICULA", "ANTICIPO_OTROS", "INTERES_MORA", "INGRESO_RETENCION_MOTO", "DESCUENTO", "REDONDEO"];
+        "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "ANTICIPO_SOAT", "ANTICIPO_MATRICULA", "ANTICIPO_OTROS", "INTERES_MORA", "INGRESO_RETENCION_MOTO", "DESCUENTO", "DESCUENTO_PRONTO_PAGO", "REDONDEO"];
     public static void Validate(ZeusSettings s)
     {
         ZeusRouting.Validate(s.FuentesAutomaticas);
