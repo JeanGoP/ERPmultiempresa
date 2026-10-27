@@ -84,6 +84,12 @@
         const rows=Array.from($('[data-content] tbody').rows);
         response.items.forEach((item,index)=>{
           const row=rows[index];if(!row)return;
+          if(item.tipo==='ANTICIPO'&&item.conceptos?.length){
+            const breakdown=document.createElement('small');
+            const names={ANTICIPO:'Compra',SOAT:'SOAT',MATRICULA:'Matrícula',OTROS:'Otros'};
+            breakdown.textContent=item.conceptos.map(x=>`${names[x.codigo]||x.codigo}: ${money(x.valor)}`).join(' · ');
+            row.cells[4].append(document.createElement('br'),breakdown);
+          }
           const cell=row.cells[row.cells.length-1];
           if(item.reversionEstado){
             const detail=document.createElement('small');
@@ -393,10 +399,11 @@
       <p class="egreso-help" data-account-hint></p><label class="egreso-wide">Descripción del recibo<input name="concepto" maxlength="300" required></label>
       <label data-contra-wrap class="egreso-wide" hidden>Cuenta de contrapartida en Zeus<select name="cuentaContrapartida"><option value="">Selecciona cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label>
       <label>Valor recibido<input name="total" type="number" min="0.01" step="0.01" required></label></div>
+      <div data-advance-concepts hidden></div>
       <label class="customer-portfolio-filter" data-portfolio-filter-wrap hidden>Mostrar cartera de<select name="claseCarteraFiltro"><option value="">Todas las facturas</option>${portfolioOptions()}</select></label>
       <div data-allocations></div><div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Contabilizar recibo</button></div></fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
-    f.elements.tipo.onchange=()=>{applications=[];renderAllocations();};
+    f.elements.tipo.onchange=()=>{applications=[];f.elements.total.value='';renderAllocations();};
     f.elements.claseCarteraFiltro.onchange=()=>renderAllocations();
     f.elements.sucursalId.onchange=accountHint;f.elements.medioPago.onchange=()=>{accountHint();syncReceiptReference();};
     f.elements.fechaContable.onchange=()=>{applications=[];renderAllocations();dirty=true;};
@@ -461,8 +468,12 @@
     const f=$('[data-document]'),kind=f.elements.tipo.value;
     $('[data-portfolio-filter-wrap]').hidden=kind!=='CARTERA';
     $('[data-contra-wrap]').hidden=kind!=='NORMAL';f.elements.cuentaContrapartida.required=kind==='NORMAL';
-    f.elements.total.readOnly=kind==='CARTERA';
-    if(kind!=='CARTERA'){area.innerHTML=kind==='ANTICIPO'?'<p class="egreso-help">El saldo del anticipo quedará disponible para aplicarlo a una factura futura.</p>':'<p class="egreso-help">Selecciona la cuenta contable específica para este ingreso. No modifica cartera.</p>';syncReceiptConcept();summary();return;}
+    f.elements.total.readOnly=kind!=='NORMAL';
+    const conceptArea=$('[data-advance-concepts]');conceptArea.hidden=kind!=='ANTICIPO';
+    if(kind==='ANTICIPO'&&!conceptArea.firstElementChild){
+      conceptArea.innerHTML='<h3>Destino del dinero recibido</h3><p class="egreso-help">Distribuye el valor entre los conceptos que correspondan. Cada uno se contabiliza en su cuenta Zeus; solo el anticipo para compra queda disponible como cuota inicial.</p><div class="egreso-grid">'+[['ANTICIPO','Anticipo para compra'],['SOAT','SOAT'],['MATRICULA','Matrícula'],['OTROS','Otros']].map(([code,label])=>`<label>${label}<input type="number" data-advance-concept="${code}" min="0" step="0.01" value="0"></label>`).join('')+'</div>';
+    }
+    if(kind!=='CARTERA'){area.innerHTML=kind==='ANTICIPO'?'<p class="egreso-help">Los valores quedan separados en el recibo y en Zeus.</p>':'<p class="egreso-help">Selecciona la cuenta contable específica para este ingreso. No modifica cartera.</p>';syncReceiptConcept();summary();return;}
     const selected=x=>applications.find(a=>a.facturaVentaId===x.id&&(a.facturaVentaCuotaId??null)===(x.cuotaId??null));
     const globalOrder=options.ordenCobroCartera==='MAS_VENCIDA';
     const order=receiptEligibility(options.facturas||[],applications,globalOrder,f.elements.fechaContable.value);
@@ -488,6 +499,7 @@
     const f=$('[data-document]');if(!f)return;
     if(mode==='receipt'){
       if(f.elements.tipo.value==='CARTERA')f.elements.total.value=String(Math.round(applications.reduce((s,x)=>s+Math.round(x.valor*100),0))/100||'');
+      if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=String(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].reduce((s,x)=>s+Math.round(Number(x.value)*100),0))/100||'');
       $('[data-summary]').textContent='Total recibido: '+money(Number(f.elements.total.value));
     }else invoiceSummary();
   }
@@ -495,9 +507,11 @@
     event.preventDefault();if(busy)return;const f=event.target;
     if(!client){notice('Selecciona un cliente de los resultados.',true);return;}
     const kind=f.elements.tipo.value,total=Number(f.elements.total.value);
+    const conceptos=kind==='ANTICIPO'?[...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].map(x=>({codigo:x.dataset.advanceConcept,valor:Number(x.value)})).filter(x=>x.valor>0):[];
+    if(kind==='ANTICIPO'&&(!conceptos.length||Math.round(conceptos.reduce((sum,x)=>sum+x.valor,0)*100)!==Math.round(total*100))){notice('Indica al menos un destino y comprueba que los valores sumen el total recibido.',true);return;}
     if(kind==='CARTERA'&&(!applications.length||Math.round(applications.reduce((s,a)=>s+a.valor,0)*100)!==Math.round(total*100))){notice('Selecciona facturas y comprueba que los abonos sumen el total.',true);return;}
     if(!options.cuentas.some(x=>String(x.sucursalId)===f.elements.sucursalId.value&&x.medioPago===f.elements.medioPago.value)){notice('Configura la caja o el banco de esta sucursal.',true);return;}
-    const body={operacionGuid:operation,sucursalId:Number(f.elements.sucursalId.value),clienteId:client.id,fechaContable:f.elements.fechaContable.value,tipo:kind,medioPago:f.elements.medioPago.value,referencia:f.elements.referencia.value,concepto:f.elements.concepto.value,total,cuentaContrapartida:kind==='NORMAL'?f.elements.cuentaContrapartida.value:null,aplicaciones:kind==='CARTERA'?applications:[]};
+    const body={operacionGuid:operation,sucursalId:Number(f.elements.sucursalId.value),clienteId:client.id,fechaContable:f.elements.fechaContable.value,tipo:kind,medioPago:f.elements.medioPago.value,referencia:f.elements.referencia.value,concepto:f.elements.concepto.value,total,cuentaContrapartida:kind==='NORMAL'?f.elements.cuentaContrapartida.value:null,aplicaciones:kind==='CARTERA'?applications:[],conceptos:kind==='ANTICIPO'?conceptos:null};
     await send(body,'Recibo');
   }
   function invoiceForm(){

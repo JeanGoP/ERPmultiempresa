@@ -132,13 +132,15 @@ public static class ZeusModule
                 }
                 catch(SqlException){return Results.Json(new{error="No se pudo validar la cuenta general en Zeus. No se guardaron cambios."},statusCode:502);}
             }
-            var advance=ZeusJournal.GeneralAdvanceAccount(input.Configuracion);
-            if(advance is not null)
+            var advanceAccounts=ZeusJournal.AdvanceConcepts.Select(concept=>ZeusJournal.GeneralAdvanceAccount(input.Configuracion,concept)).OfType<ZeusAccount>().ToArray();
+            if(advanceAccounts.Select(a=>a.Cuenta).Distinct(StringComparer.Ordinal).Count()!=advanceAccounts.Length)
+                throw new ArgumentException("Anticipo para compra, SOAT, matrícula y otros deben usar cuentas Zeus diferentes.");
+            if(advanceAccounts.Length>0)
             {
                 try
                 {
                     var chart=await transport.AdvanceAccountsAsync(empresaId,input.Configuracion,ct);
-                    if(!chart.Any(a=>a.Codigo==advance.Cuenta))throw new ArgumentException("La cuenta de anticipos debe ser de detalle, habilitada y compatible con anticipos recibidos en Zeus.");
+                    if(advanceAccounts.Any(account=>!chart.Any(a=>a.Codigo==account.Cuenta)))throw new ArgumentException("Cada cuenta de anticipos, SOAT, matrícula y otros debe ser de detalle, habilitada y compatible con anticipos recibidos en Zeus.");
                 }
                 catch(SqlException){return Results.Json(new{error="No se pudo validar la cuenta de anticipos en Zeus. No se guardaron cambios."},statusCode:502);}
             }

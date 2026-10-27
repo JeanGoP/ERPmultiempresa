@@ -22,13 +22,13 @@ public sealed class CashReceiptReversalRepository(TenantConnectionFactory connec
             FROM cxc.ReciboCaja WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND ReciboCajaId=@Id
             """,company,tx);
         ZeusRepository.Add(q,"@Id",id);
-        string type,concept;long customer;decimal total;ZeusSnapshot original;
+        string type;long customer;ZeusSnapshot original;
         await using(var r=await q.ExecuteReaderAsync(ct))
         {
             if(!await r.ReadAsync(ct))throw new ArgumentException("El recibo no existe.");
             if(r.GetString(4)!="CONTABILIZADO"||!r.IsDBNull(5))
                 throw new ArgumentException("Solo se puede revertir un recibo confirmado en Zeus que no tenga otra reversión en curso.");
-            type=r.GetString(0);customer=r.GetInt64(1);total=r.GetDecimal(2);concept=r.GetString(6);
+            type=r.GetString(0);customer=r.GetInt64(1);
             original=JsonSerializer.Deserialize<ZeusSnapshot>(r.GetString(3))
                 ??throw new ArgumentException("No se encuentra el comprobante original para reversar.");
         }
@@ -39,9 +39,14 @@ public sealed class CashReceiptReversalRepository(TenantConnectionFactory connec
             throw new ArgumentException("Abre el período de la fecha de reversión antes de continuar.");
         if(type=="ANTICIPO")
         {
-            q.CommandText="SELECT Saldo FROM cxc.AnticipoCliente WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND ReciboCajaId=@Id";
-            if(await q.ExecuteScalarAsync(ct) is not decimal balance||balance!=total)
-                throw new ArgumentException("El anticipo ya fue aplicado. Revierte primero la factura que lo utilizó.");
+            q.CommandText="SELECT ISNULL(SUM(Valor),0) FROM cxc.ReciboCajaConcepto WHERE EmpresaId=@E AND ReciboCajaId=@Id AND Codigo='ANTICIPO'";
+            var purchaseAdvance=Convert.ToDecimal(await q.ExecuteScalarAsync(ct));
+            if(purchaseAdvance>0)
+            {
+                q.CommandText="SELECT Saldo FROM cxc.AnticipoCliente WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND ReciboCajaId=@Id";
+                if(await q.ExecuteScalarAsync(ct) is not decimal balance||balance!=purchaseAdvance)
+                    throw new ArgumentException("El anticipo para compra ya fue aplicado. Revierte primero la factura que lo utilizó.");
+            }
         }
         if(type=="CARTERA")
         {

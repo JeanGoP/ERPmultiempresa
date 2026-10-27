@@ -65,16 +65,19 @@ public static class ZeusJournal
             throw new ArgumentException("Selecciona la cuenta general por pagar a proveedores antes de habilitar aprobaciones.");
         return rules.SingleOrDefault();
     }
-    public static ZeusAccount? GeneralAdvanceAccount(ZeusSettings settings)
+    public static ZeusAccount? GeneralAdvanceAccount(ZeusSettings settings,string concept="ANTICIPO")
     {
         Validate(settings);
-        var rules=settings.Cuentas.Where(a=>a.Concepto=="ANTICIPO").ToArray();
+        if(concept is not("ANTICIPO" or "ANTICIPO_SOAT" or "ANTICIPO_MATRICULA" or "ANTICIPO_OTROS"))
+            throw new ArgumentException("Concepto de anticipo no válido.");
+        var rules=settings.Cuentas.Where(a=>a.Concepto==concept).ToArray();
         if(rules.Length>1||rules.Any(a=>a.ArticuloId is not null||a.ProveedorId is not null||a.Tarifa is not null))
-            throw new ArgumentException("La cuenta de anticipos de clientes debe ser una única cuenta general de la empresa, sin artículo, tercero ni tarifa específicos.");
+            throw new ArgumentException($"La cuenta de {concept} debe ser una única cuenta general de la empresa, sin artículo, tercero ni tarifa específicos.");
         return rules.SingleOrDefault();
     }
+    public static readonly string[] AdvanceConcepts=["ANTICIPO","ANTICIPO_SOAT","ANTICIPO_MATRICULA","ANTICIPO_OTROS"];
     public static readonly string[] Concepts = ["INVENTARIO", "PROVEEDOR", "CUENTA_POR_COBRAR", "IVA",
-        "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "DESCUENTO", "REDONDEO"];
+        "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "ANTICIPO_SOAT", "ANTICIPO_MATRICULA", "ANTICIPO_OTROS", "DESCUENTO", "REDONDEO"];
     public static void Validate(ZeusSettings s)
     {
         ZeusRouting.Validate(s.FuentesAutomaticas);

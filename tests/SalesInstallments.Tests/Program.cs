@@ -8,6 +8,24 @@ static void Check(bool condition,string description)
     Console.WriteLine("OK: "+description);
 }
 
+var mixedAdvance=CashReceiptAdvancePolicy.Normalize([new("ANTICIPO",500m),new("SOAT",200m),new("MATRICULA",100m),new("OTROS",50m)],850m);
+Check(CashReceiptAdvancePolicy.PurchaseAmount(mixedAdvance)==500m&&mixedAdvance.Sum(x=>x.Valor)==850m,
+    "el recibo separa cuatro destinos y solo el anticipo de compra queda disponible para factura");
+Check(CashReceiptAdvancePolicy.PurchaseAmount(CashReceiptAdvancePolicy.Normalize([new("SOAT",200m)],200m))==0m,
+    "un recibo exclusivo para SOAT no crea anticipo aplicable a factura");
+Check(CashReceiptAdvancePolicy.PurchaseAmount(CashReceiptAdvancePolicy.Normalize(null,200m))==200m,
+    "los recibos antiguos conservan el anticipo íntegro");
+try{CashReceiptAdvancePolicy.Normalize([new("SOAT",100m),new("SOAT",100m)],200m);throw new Exception("Permitió conceptos repetidos.");}
+catch(ArgumentException){Console.WriteLine("OK: conceptos duplicados rechazados");}
+try{CashReceiptAdvancePolicy.Normalize([new("SOAT",100m)],200m);throw new Exception("Permitió un recibo descuadrado.");}
+catch(ArgumentException){Console.WriteLine("OK: total del recibo debe cuadrar con sus conceptos");}
+var separatedAccounts=new ZeusSettings(true,"Zeus","Pruebas","12","00","Local","zeussql","FA",
+    [new("ANTICIPO","280505"),new("ANTICIPO_SOAT","280506"),new("ANTICIPO_MATRICULA","280507"),new("ANTICIPO_OTROS","280508")],[]);
+Check(ZeusJournal.GeneralAdvanceAccount(separatedAccounts,"ANTICIPO_SOAT")?.Cuenta=="280506"
+    &&ZeusJournal.GeneralAdvanceAccount(separatedAccounts,"ANTICIPO_MATRICULA")?.Cuenta=="280507"
+    &&ZeusJournal.GeneralAdvanceAccount(separatedAccounts,"ANTICIPO_OTROS")?.Cuenta=="280508",
+    "cada destino de anticipo tiene su propia cuenta Zeus");
+
 SalesPricing.Validate(95m,100m,5m,70m,19m,true,1);
 Check(true,"descuento exacto al límite permitido");
 try{SalesPricing.Validate(94.99m,100m,5m,70m,19m,true,1);throw new Exception("Permitió exceso de descuento.");}

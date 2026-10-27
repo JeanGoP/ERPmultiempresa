@@ -127,7 +127,7 @@ function zeusReadSettings(){
   const form=$('#zeusSettingsForm'),s={habilitado:form.elements.habilitado.checked};
   ['servidorEsperado','baseEsperada','usuarioZeus'].forEach(k=>s[k]=zeusUI.settings[k]??'');
   ['fuente','serie','unidadNegocio','tipoFactura'].forEach(k=>s[k]=zeusUI.settings[k]??'');
-  s.cuentas=zeusUI.settings.cuentas.filter(rule=>rule.concepto!=='PROVEEDOR'&&rule.concepto!=='ANTICIPO'&&!zeusRetentionConcepts[rule.concepto]).map(rule=>({...rule}));
+  s.cuentas=zeusUI.settings.cuentas.filter(rule=>rule.concepto!=='PROVEEDOR'&&!['ANTICIPO','ANTICIPO_SOAT','ANTICIPO_MATRICULA','ANTICIPO_OTROS'].includes(rule.concepto)&&!zeusRetentionConcepts[rule.concepto]).map(rule=>({...rule}));
   s.cuentas.push(...zeusReadGeneralSupplier(form,zeusUI.settings),...zeusReadGeneralAdvance(form,zeusUI.settings),...zeusReadRetentions(zeusUI.settings));
   s.fuentesAutomaticas=typeof zeusReadSources==='function'?zeusReadSources(zeusUI.settings):zeusUI.settings.fuentesAutomaticas??null;
   s.proveedores=zeusUI.settings.proveedores.map(supplier=>({...supplier}));return s;

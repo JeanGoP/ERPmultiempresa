@@ -80,20 +80,26 @@ public sealed class CustomerPostingQueue(TenantConnectionFactory connections)
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
         await using var q=ZeusRepository.Command(c,"SELECT Tipo,ZeusEstado,ReversionEstado,Total,ReversionPor FROM cxc.ReciboCaja WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND ReciboCajaId=@Id",job.EmpresaId,tx);
         ZeusRepository.Add(q,"@Id",job.Id);
-        string type;long user;decimal total;
+        string type;long user;
         await using(var r=await q.ExecuteReaderAsync(ct))
         {
             if(!await r.ReadAsync(ct)||r.GetString(1)!="CONTABILIZADO"||r.GetString(2) is not("ENVIANDO" or "INCIERTO"))
                 throw new InvalidOperationException("El recibo o su reversión cambiaron antes de confirmar Zeus.");
-            type=r.GetString(0);total=r.GetDecimal(3);user=r.GetInt64(4);
+            type=r.GetString(0);user=r.GetInt64(4);
         }
         if(result.Estado=="CONTABILIZADO")
         {
             if(type=="ANTICIPO")
             {
-                q.CommandText="UPDATE cxc.AnticipoCliente SET Saldo=0 WHERE EmpresaId=@E AND ReciboCajaId=@Id AND Saldo=@Total";
-                ZeusRepository.Add(q,"@Total",total);
-                if(await q.ExecuteNonQueryAsync(ct)!=1)throw new InvalidOperationException("El anticipo fue utilizado mientras se procesaba la reversión; requiere conciliación.");
+                q.CommandText="SELECT ISNULL(SUM(Valor),0) FROM cxc.ReciboCajaConcepto WHERE EmpresaId=@E AND ReciboCajaId=@Id AND Codigo='ANTICIPO'";
+                var purchaseAdvance=Convert.ToDecimal(await q.ExecuteScalarAsync(ct));
+                if(purchaseAdvance>0)
+                {
+                    q.CommandText="UPDATE cxc.AnticipoCliente SET Saldo=0 WHERE EmpresaId=@E AND ReciboCajaId=@Id AND Saldo=@Advance";
+                    ZeusRepository.Add(q,"@Advance",purchaseAdvance);
+                    if(await q.ExecuteNonQueryAsync(ct)!=1)throw new InvalidOperationException("El anticipo fue utilizado mientras se procesaba la reversión; requiere conciliación.");
+                    q.Parameters.RemoveAt("@Advance");
+                }
             }
             if(type=="CARTERA")
             {
