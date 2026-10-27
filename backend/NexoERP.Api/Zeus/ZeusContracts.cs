@@ -76,8 +76,16 @@ public static class ZeusJournal
         return rules.SingleOrDefault();
     }
     public static readonly string[] AdvanceConcepts=["ANTICIPO","ANTICIPO_SOAT","ANTICIPO_MATRICULA","ANTICIPO_OTROS"];
+    public static ZeusAccount? GeneralLateInterestAccount(ZeusSettings settings)
+    {
+        Validate(settings);
+        var rules=settings.Cuentas.Where(a=>a.Concepto=="INTERES_MORA").ToArray();
+        if(rules.Length>1||rules.Any(a=>a.ArticuloId is not null||a.ProveedorId is not null||a.Tarifa is not null))
+            throw new ArgumentException("El interés de mora requiere una única cuenta general de ingreso en Zeus.");
+        return rules.SingleOrDefault();
+    }
     public static readonly string[] Concepts = ["INVENTARIO", "PROVEEDOR", "CUENTA_POR_COBRAR", "IVA",
-        "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "ANTICIPO_SOAT", "ANTICIPO_MATRICULA", "ANTICIPO_OTROS", "DESCUENTO", "REDONDEO"];
+        "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "ANTICIPO_SOAT", "ANTICIPO_MATRICULA", "ANTICIPO_OTROS", "INTERES_MORA", "DESCUENTO", "REDONDEO"];
     public static void Validate(ZeusSettings s)
     {
         ZeusRouting.Validate(s.FuentesAutomaticas);

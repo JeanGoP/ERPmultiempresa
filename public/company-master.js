@@ -35,7 +35,7 @@ function renderCompanyMaster(){
   const renderRows=()=>{
     const query=companyMasterQuery.trim().toLocaleLowerCase('es-CO');
     const rows=companyMasterRows.filter(x=>(!query||[x.codigo,x.nit,x.razonSocial].join(' ').toLocaleLowerCase('es-CO').includes(query))&&(!companyMasterStatus||x.activa===(companyMasterStatus==='active')));
-    const table=buildDataTable(['Código','NIT','Razón social','Moneda','Marco contable','Cobro de cartera','Estado','Acciones'],rows.map(x=>[x.codigo,x.nit+(x.digitoVerificacion?'-'+x.digitoVerificacion:''),x.razonSocial,x.monedaFuncional,x.marcoContable,x.ordenCobroCartera==='MAS_VENCIDA'?'Más vencida del cliente':'Cualquier factura, en orden',x.activa?'Activa':'Inactiva','']));
+    const table=buildDataTable(['Código','NIT','Razón social','Moneda','Marco contable','Cobro de cartera','Mora mensual','Estado','Acciones'],rows.map(x=>[x.codigo,x.nit+(x.digitoVerificacion?'-'+x.digitoVerificacion:''),x.razonSocial,x.monedaFuncional,x.marcoContable,x.ordenCobroCartera==='MAS_VENCIDA'?'Más vencida del cliente':'Cualquier factura, en orden',`${x.moraMensualPct??0} %`,x.activa?'Activa':'Inactiva','']));
     table.querySelectorAll('tbody tr').forEach((tr,i)=>{if(!rows[i])return;const button=document.createElement('button');button.type='button';button.className='button secondary';button.textContent='Editar';button.onclick=()=>openCompanyMasterForm(rows[i]);tr.lastElementChild.append(button);});
     result.replaceChildren(table);elements.securityStatus.textContent=rows.length+' de '+companyMasterRows.length+' empresas';
   };
@@ -51,6 +51,7 @@ function openCompanyMasterForm(record=null){
   const field=(label,name,max,value,readOnly=false)=>{const wrap=document.createElement('label');const caption=document.createElement('span');caption.textContent=label;wrap.append(caption);const input=document.createElement('input');input.name=name;input.maxLength=max;input.required=name!=='digitoVerificacion';input.value=value||'';input.readOnly=readOnly;wrap.append(input);form.append(wrap);return input;};
   field('Código','codigo',20,record?.codigo);field('NIT','nit',20,record?.nit);field('Dígito de verificación','digitoVerificacion',1,record?.digitoVerificacion).pattern='[0-9]';field('Razón social','razonSocial',200,record?.razonSocial);
   if(record){const discount=field('Descuento máximo sin aprobación %','maxDescuentoVentaPct',6,String(record.maxDescuentoVentaPct??0));discount.type='number';discount.min='0';discount.max='100';discount.step='0.01';}
+  const lateRate=field('Interés de mora mensual %','moraMensualPct',8,String(record?.moraMensualPct??0));lateRate.type='number';lateRate.min='0';lateRate.max='100';lateRate.step='0.0001';
   const collectionLabel=document.createElement('label');const collectionTitle=document.createElement('span');collectionTitle.textContent='Orden de cobro de créditos múltiples';
   const collectionOrder=document.createElement('select');collectionOrder.name='ordenCobroCartera';
   [['POR_FACTURA','Permitir cualquier factura; cuotas en orden'],['MAS_VENCIDA','Exigir la cuota más vencida del cliente']].forEach(([value,label])=>collectionOrder.add(new Option(label,value)));
@@ -71,7 +72,7 @@ function openCompanyMasterForm(record=null){
   let busy=false;cancel.onclick=()=>dialog.close();dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});dialog.addEventListener('close',()=>{zeus.clear();dialog.remove();},{once:true});
   form.onsubmit=async event=>{
     event.preventDefault();if(busy)return;if(!state.erpSession?.superAdmin||token!==apiToken()){dialog.close();return;}
-    const data=Object.fromEntries(new FormData(form));const payload=record?{codigo:data.codigo,nit:data.nit,digitoVerificacion:data.digitoVerificacion||null,razonSocial:data.razonSocial,version:record.version,maxDescuentoVentaPct:Number(data.maxDescuentoVentaPct),ordenCobroCartera:data.ordenCobroCartera}:data;
+    const data=Object.fromEntries(new FormData(form));const payload=record?{codigo:data.codigo,nit:data.nit,digitoVerificacion:data.digitoVerificacion||null,razonSocial:data.razonSocial,version:record.version,maxDescuentoVentaPct:Number(data.maxDescuentoVentaPct),ordenCobroCartera:data.ordenCobroCartera,moraMensualPct:Number(data.moraMensualPct)}:{...data,moraMensualPct:Number(data.moraMensualPct)};
     busy=true;save.disabled=cancel.disabled=true;error.textContent='';
     try{
       payload.zeus=zeus.read();

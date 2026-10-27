@@ -113,7 +113,13 @@ public static class ZeusModule
         group.MapGet("/advance-accounts",async(long empresaId,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
         {
             var settings=await repo.SettingsAsync(empresaId,ct)??throw new ArgumentException("Guarda primero el destino de Zeus de esta empresa.");
-            try{return Results.Ok(new{version=settings.Version,baseDatos=settings.Configuracion.BaseEsperada,cuentas=await transport.AdvanceAccountsAsync(empresaId,settings.Configuracion,ct)});}
+            try
+            {
+                var dimensions=await transport.AccountingDimensionsAsync(empresaId,settings.Configuracion,ct);
+                return Results.Ok(new{version=settings.Version,baseDatos=settings.Configuracion.BaseEsperada,
+                    cuentas=await transport.AdvanceAccountsAsync(empresaId,settings.Configuracion,ct),
+                    centrosCosto=dimensions.CentrosCosto,cuentasRequierenCentroCosto=dimensions.CuentasRequierenCentroCosto});
+            }
             catch(SqlException){return Results.Json(new{error="No se pudo consultar las cuentas de anticipos en Zeus."},statusCode:502);}
         }).RequireErpPermission(admin);
         group.MapPut("/configuration",async(long empresaId,ZeusSettingsRequest input,HttpContext http,ZeusRepository repo,ZeusTransport transport,CancellationToken ct)=>
@@ -143,6 +149,23 @@ public static class ZeusModule
                     if(advanceAccounts.Any(account=>!chart.Any(a=>a.Codigo==account.Cuenta)))throw new ArgumentException("Cada cuenta de anticipos, SOAT, matrícula y otros debe ser de detalle, habilitada y compatible con anticipos recibidos en Zeus.");
                 }
                 catch(SqlException){return Results.Json(new{error="No se pudo validar la cuenta de anticipos en Zeus. No se guardaron cambios."},statusCode:502);}
+            }
+            var lateInterest=ZeusJournal.GeneralLateInterestAccount(input.Configuracion);
+            if(lateInterest is not null)
+            {
+                if(!lateInterest.Cuenta.StartsWith('4'))throw new ArgumentException("El interés de mora debe ir a una cuenta de ingreso de Zeus (clase 4).");
+                try
+                {
+                    var chart=await transport.AdvanceAccountsAsync(empresaId,input.Configuracion,ct);
+                    if(!chart.Any(a=>a.Codigo==lateInterest.Cuenta))
+                        throw new ArgumentException("La cuenta de interés de mora debe estar habilitada y ser de detalle en Zeus.");
+                    var dimensions=await transport.AccountingDimensionsAsync(empresaId,input.Configuracion,ct);
+                    if(!string.IsNullOrWhiteSpace(lateInterest.CentroCosto)&&!dimensions.CentrosCosto.Any(x=>x.Codigo==lateInterest.CentroCosto))
+                        throw new ArgumentException("El centro de costo del interés de mora no está habilitado en Zeus.");
+                    if(string.IsNullOrWhiteSpace(lateInterest.CentroCosto)&&dimensions.CuentasRequierenCentroCosto.Contains(lateInterest.Cuenta,StringComparer.OrdinalIgnoreCase))
+                        throw new ArgumentException("La cuenta de interés de mora exige centro de costo en Zeus.");
+                }
+                catch(SqlException){return Results.Json(new{error="No se pudo validar la cuenta de interés de mora en Zeus. No se guardaron cambios."},statusCode:502);}
             }
             if(input.Configuracion.Cuentas.Any(a=>ZeusJournal.IsRetention(a.Concepto)))
             {

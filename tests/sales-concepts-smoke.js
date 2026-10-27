@@ -144,7 +144,7 @@ assert.match(ui,/El servidor aún no entrega fecha, concepto o estado/);
 assert.match(ui,/Puedes anticipar la primera cuota permitida/);
 assert.match(ui,/options\.ordenCobroCartera==='MAS_VENCIDA'/);
 assert.match(cash,/CustomerPaymentPolicy\.ValidateGlobalOrder/);
-assert.match(cash,/SELECT OrdenCobroCartera FROM core\.Empresa/);
+assert.match(cash,/SELECT OrdenCobroCartera,MoraMensualPct FROM core\.Empresa/);
 assert.match(cash,/FROM ven\.FacturaVentaLinea l[\s\S]*JOIN inv\.Articulo a/);
 assert.match(cash,/OUTER APPLY OPENJSON\(l\.UnidadesJson\)/);
 assert.match(cash,/ui\.Tipo='CHASIS'/);

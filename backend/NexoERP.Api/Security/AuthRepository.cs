@@ -176,6 +176,8 @@ public sealed class AuthRepository(TenantConnectionFactory connections,NexoERP.A
         if(framework is not ("GRUPO_1" or "GRUPO_2" or "GRUPO_3")) throw new ArgumentException("El marco contable no es válido.");
         if(collectionOrder is not(CustomerPaymentPolicy.PerInvoice or CustomerPaymentPolicy.OldestAcrossInvoices))
             throw new ArgumentException("Selecciona un orden de cobro válido para la empresa.");
+        if(input.MoraMensualPct is <0 or >100||decimal.Round(input.MoraMensualPct,4)!=input.MoraMensualPct)
+            throw new ArgumentException("La tasa mensual de mora debe estar entre 0 y 100 %, con máximo cuatro decimales.");
 
         await using var connection=await connections.OpenAsync(null,true,cancellationToken);
         await using var transaction=await connection.BeginTransactionAsync(cancellationToken);
@@ -184,8 +186,8 @@ public sealed class AuthRepository(TenantConnectionFactory connections,NexoERP.A
         {
             command.Transaction=(SqlTransaction)transaction;
             command.CommandText="""
-                INSERT core.Empresa(Codigo,Nit,DigitoVerificacion,RazonSocial,MonedaFuncional,ZonaHoraria,MarcoContable,OrdenCobroCartera)
-                VALUES(@Codigo,@Nit,@Dv,@Nombre,@Moneda,@Zona,@Marco,@OrdenCobro);
+                INSERT core.Empresa(Codigo,Nit,DigitoVerificacion,RazonSocial,MonedaFuncional,ZonaHoraria,MarcoContable,OrdenCobroCartera,MoraMensualPct)
+                VALUES(@Codigo,@Nit,@Dv,@Nombre,@Moneda,@Zona,@Marco,@OrdenCobro,@Mora);
                 SELECT CONVERT(bigint,SCOPE_IDENTITY());
                 """;
             command.Parameters.Add(new SqlParameter("@Codigo",SqlDbType.NVarChar,20){Value=code});
@@ -196,6 +198,7 @@ public sealed class AuthRepository(TenantConnectionFactory connections,NexoERP.A
             command.Parameters.Add(new SqlParameter("@Zona",SqlDbType.NVarChar,80){Value=timezone});
             command.Parameters.Add(new SqlParameter("@Marco",SqlDbType.VarChar,20){Value=framework});
             command.Parameters.Add(new SqlParameter("@OrdenCobro",SqlDbType.VarChar,24){Value=collectionOrder});
+            command.Parameters.Add(new SqlParameter("@Mora",SqlDbType.Decimal){Precision=7,Scale=4,Value=input.MoraMensualPct});
             companyId=Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
         }
         await using(var configuration=connection.CreateCommand())

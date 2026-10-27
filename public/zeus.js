@@ -120,14 +120,14 @@ function zeusOptions(rows,value,label,selected,empty='Predeterminado'){return `<
 function zeusRenderSettings(){
   const s=zeusUI.settings;
   $('#zeusContent').innerHTML=`<form id="zeusSettingsForm"><section class="zeus-card"><h2>1. Fuentes y medios de pago por sucursal</h2><p>Conexión: ${zeusEscape(s.baseEsperada||'Pendiente de configurar en Seguridad → Empresas')}${s.baseEsperada?' · '+zeusEscape(s.servidorEsperado):''}</p>${typeof zeusSourcesSection==='function'?zeusSourcesSection(s):''}<div id="zeusCashAccounts"></div></section>
-    ${zeusGeneralSupplierSection(s)}${zeusRetentionSection(s)}
+    ${zeusGeneralSupplierSection(s)}${zeusInterestCostCenterSection(s)}${zeusRetentionSection(s)}
     <section class="zeus-card zeus-save"><label class="zeus-toggle"><input name="habilitado" type="checkbox" ${s.habilitado?'checked':''}><span><strong>Enviar automáticamente las entradas a Zeus</strong><small>Activa solo después de validar sus cuentas y probar la conexión. El envío también requiere activar el despachador en el servidor.</small></span></label><button type="submit" class="button primary">Guardar configuración de empresa</button></section></form>`;
 }
 function zeusReadSettings(){
   const form=$('#zeusSettingsForm'),s={habilitado:form.elements.habilitado.checked};
   ['servidorEsperado','baseEsperada','usuarioZeus'].forEach(k=>s[k]=zeusUI.settings[k]??'');
   ['fuente','serie','unidadNegocio','tipoFactura'].forEach(k=>s[k]=zeusUI.settings[k]??'');
-  s.cuentas=zeusUI.settings.cuentas.filter(rule=>rule.concepto!=='PROVEEDOR'&&!['ANTICIPO','ANTICIPO_SOAT','ANTICIPO_MATRICULA','ANTICIPO_OTROS'].includes(rule.concepto)&&!zeusRetentionConcepts[rule.concepto]).map(rule=>({...rule}));
+  s.cuentas=zeusUI.settings.cuentas.filter(rule=>rule.concepto!=='PROVEEDOR'&&!['ANTICIPO','ANTICIPO_SOAT','ANTICIPO_MATRICULA','ANTICIPO_OTROS','INTERES_MORA'].includes(rule.concepto)&&!zeusRetentionConcepts[rule.concepto]).map(rule=>({...rule}));
   s.cuentas.push(...zeusReadGeneralSupplier(form,zeusUI.settings),...zeusReadGeneralAdvance(form,zeusUI.settings),...zeusReadRetentions(zeusUI.settings));
   s.fuentesAutomaticas=typeof zeusReadSources==='function'?zeusReadSources(zeusUI.settings):zeusUI.settings.fuentesAutomaticas??null;
   s.proveedores=zeusUI.settings.proveedores.map(supplier=>({...supplier}));return s;

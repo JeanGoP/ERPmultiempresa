@@ -107,6 +107,7 @@ public static class ZeusXml
                 Set(line,"DESCRITRA",invoice is null?receipt.Concepto[..Math.Min(120,receipt.Concepto.Length)]:(reversal?"REVERSIÓN RECAUDO FACTURA ":"RECAUDO FACTURA ")+invoice.Numero);
                 Set(line,"BU",invoice?.UnidadNegocio??config.UnidadNegocio);Set(line,"IDUSUARIO",config.UsuarioZeus);
                 Set(line,"STATUSTRA","XA");Set(line,"INDCPITRA",invoice is null?"1":"2");Set(line,"VALORTRA",m.Valor);
+                Set(line,"IDCENCO",m.Regla.CentroCosto);Set(line,"AUXIAUX",m.Regla.Auxiliar);
                 Set(line,"TasaCambio",1);Set(line,"Aplicacion","CONTABILIDAD");
                 if(m.Regla.Concepto=="BANCO_CAJA")
                 {

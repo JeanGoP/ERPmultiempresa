@@ -9,6 +9,12 @@ static void Check(bool condition,string description)
 }
 
 var mixedAdvance=CashReceiptAdvancePolicy.Normalize([new("ANTICIPO",500m),new("SOAT",200m),new("MATRICULA",100m),new("OTROS",50m)],850m);
+Check(LateInterestPolicy.Calculate(new DateOnly(2026,10,31),2m,[(new DateOnly(2026,10,1),1_000_000m)])==20_000m,
+    "mora mensual durante 30 días sobre la cuota abonada");
+Check(LateInterestPolicy.Calculate(new DateOnly(2026,10,16),2m,[(new DateOnly(2026,10,1),100_000m),(new DateOnly(2026,11,1),50_000m)])==1_000m,
+    "mora proporcional a días de atraso y sin cobrar cuotas futuras");
+Check(LateInterestPolicy.Calculate(new DateOnly(2026,10,2),1m,[(new DateOnly(2026,10,1),1m)])==0m,
+    "mora redondeada a centavos al final del cálculo");
 Check(CashReceiptAdvancePolicy.PurchaseAmount(mixedAdvance)==500m&&mixedAdvance.Sum(x=>x.Valor)==850m,
     "el recibo separa cuatro destinos y solo el anticipo de compra queda disponible para factura");
 Check(CashReceiptAdvancePolicy.PurchaseAmount(CashReceiptAdvancePolicy.Normalize([new("SOAT",200m)],200m))==0m,

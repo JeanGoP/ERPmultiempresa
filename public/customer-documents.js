@@ -90,6 +90,11 @@
             breakdown.textContent=item.conceptos.map(x=>`${names[x.codigo]||x.codigo}: ${money(x.valor)}`).join(' · ');
             row.cells[4].append(document.createElement('br'),breakdown);
           }
+          if(item.tipo==='CARTERA'&&item.moraValor>0){
+            const late=document.createElement('small');
+            late.textContent=`Interés de mora: ${money(item.moraValor)} · tasa mensual ${item.moraTasaPct} % · sugerido ${money(item.moraCalculada)}`;
+            row.cells[4].append(document.createElement('br'),late);
+          }
           const cell=row.cells[row.cells.length-1];
           if(item.reversionEstado){
             const detail=document.createElement('small');
@@ -384,7 +389,7 @@
   async function refreshClient(){
     if(!client)return;const t=token,selected=client.id;
     try{const result=await apiRequest(endpoint()+`/options?clienteId=${selected}`);if(!current(t)||client?.id!==selected)return;
-      if(mode==='invoice')options.anticipos=result.anticipos;else{options.facturas=result.facturas;options.anticipos=result.anticipos;options.ordenCobroCartera=result.ordenCobroCartera;}
+      if(mode==='invoice')options.anticipos=result.anticipos;else{options.facturas=result.facturas;options.anticipos=result.anticipos;options.ordenCobroCartera=result.ordenCobroCartera;options.moraMensualPct=result.moraMensualPct;}
       applications=[];advances=[];renderAllocations();$('[data-client-hint]').textContent='';
     }catch(error){if(current(t))notice('No se pudieron consultar saldos del cliente: '+error.message,true);}
   }
@@ -400,10 +405,11 @@
       <label data-contra-wrap class="egreso-wide" hidden>Cuenta de contrapartida en Zeus<select name="cuentaContrapartida"><option value="">Selecciona cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label></div>
       <div data-advance-concepts hidden></div>
       <label class="customer-portfolio-filter" data-portfolio-filter-wrap hidden>Mostrar cartera de<select name="claseCarteraFiltro"><option value="">Todas las facturas</option>${portfolioOptions()}</select></label>
-      <div data-allocations></div><div class="customer-receipt-total"><label>Valor del recibo de caja<input name="total" type="number" min="0.01" step="0.01" required></label></div>
+      <div data-allocations></div><div class="customer-late-interest" data-late-interest hidden><strong>Interés de mora</strong><p class="egreso-help">Tasa mensual: <span data-late-rate></span> %. Se calcula por los días de atraso sobre el abono a cuotas vencidas, con base de 30 días.</p><div class="egreso-grid"><label>Valor sugerido<input data-late-suggested type="text" readonly></label><label>Interés a cobrar<input name="interesMora" type="number" min="0" step="0.01" value="0"></label></div></div><div class="customer-receipt-total"><label>Valor del recibo de caja<input name="total" type="number" min="0.01" step="0.01" required></label></div>
       <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Contabilizar recibo</button></div></fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
-    f.elements.tipo.onchange=()=>{applications=[];f.elements.total.value='';renderAllocations();};
+    f.elements.tipo.onchange=()=>{applications=[];f.elements.total.value='';f.elements.interesMora.value='0';f.elements.interesMora.dataset.edited='';renderAllocations();};
+    f.elements.interesMora.oninput=()=>{f.elements.interesMora.dataset.edited='yes';dirty=true;summary();};
     f.elements.claseCarteraFiltro.onchange=()=>renderAllocations();
     f.elements.sucursalId.onchange=accountHint;f.elements.medioPago.onchange=()=>{accountHint();syncReceiptReference();};
     f.elements.fechaContable.onchange=()=>{applications=[];renderAllocations();dirty=true;};
@@ -466,6 +472,7 @@
     const area=$('[data-allocations]');if(!area)return;
     if(mode==='invoice'){renderAdvances();return;}
     const f=$('[data-document]'),kind=f.elements.tipo.value;
+    $('[data-late-interest]').hidden=kind!=='CARTERA';
     $('[data-portfolio-filter-wrap]').hidden=kind!=='CARTERA';
     $('[data-contra-wrap]').hidden=kind!=='NORMAL';f.elements.cuentaContrapartida.required=kind==='NORMAL';
     f.elements.total.readOnly=kind!=='NORMAL';
@@ -495,10 +502,29 @@
       summary();dirty=true;
     });area.querySelectorAll('[data-amount]').forEach(input=>input.onchange=()=>renderAllocations());syncReceiptConcept();summary();
   }
+  function lateInterestSuggestion(){
+    const f=$('[data-document]');if(!f||f.elements.tipo.value!=='CARTERA')return 0;
+    const date=f.elements.fechaContable.value,rate=Number(options.moraMensualPct||0);
+    if(!date||!rate)return 0;
+    const day=Date.parse(date+'T00:00:00Z');
+    const cents=applications.reduce((sum,item)=>{
+      const due=(options.facturas||[]).find(x=>x.id===item.facturaVentaId&&(x.cuotaId??null)===(item.facturaVentaCuotaId??null));
+      if(!due||!due.vence)return sum;
+      const days=Math.max(0,Math.round((day-Date.parse(due.vence+'T00:00:00Z'))/86400000));
+      return sum+Number(item.valor||0)*rate*days/3000;
+    },0);
+    return Math.round((cents+Number.EPSILON)*100)/100;
+  }
   function summary(){
     const f=$('[data-document]');if(!f)return;
     if(mode==='receipt'){
-      if(f.elements.tipo.value==='CARTERA')f.elements.total.value=String(Math.round(applications.reduce((s,x)=>s+Math.round(x.valor*100),0))/100||'');
+      if(f.elements.tipo.value==='CARTERA'){
+        const suggested=lateInterestSuggestion(),interest=f.elements.interesMora;
+        $('[data-late-rate]').textContent=String(options.moraMensualPct||0);
+        $('[data-late-suggested]').value=money(suggested);
+        if(interest.dataset.edited!=='yes')interest.value=String(suggested);
+        f.elements.total.value=String((applications.reduce((s,x)=>s+Math.round(Number(x.valor||0)*100),0)+Math.round(Number(interest.value||0)*100))/100||'');
+      }
       if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=String(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].reduce((s,x)=>s+Math.round(Number(x.value||0)*100),0))/100||'');
       $('[data-summary]').textContent='Total recibido: '+money(Number(f.elements.total.value));
     }else invoiceSummary();
@@ -509,9 +535,10 @@
     const kind=f.elements.tipo.value,total=Number(f.elements.total.value);
     const conceptos=kind==='ANTICIPO'?[...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].map(x=>({codigo:x.dataset.advanceConcept,valor:Number(x.value||0)})).filter(x=>x.valor>0):[];
     if(kind==='ANTICIPO'&&(!conceptos.length||Math.round(conceptos.reduce((sum,x)=>sum+x.valor,0)*100)!==Math.round(total*100))){notice('Indica al menos un destino y comprueba que los valores sumen el total recibido.',true);return;}
-    if(kind==='CARTERA'&&(!applications.length||Math.round(applications.reduce((s,a)=>s+a.valor,0)*100)!==Math.round(total*100))){notice('Selecciona facturas y comprueba que los abonos sumen el total.',true);return;}
+    const interesMora=kind==='CARTERA'?Number(f.elements.interesMora.value||0):0;
+    if(kind==='CARTERA'&&(!applications.length||!Number.isFinite(interesMora)||interesMora<0||Math.round((applications.reduce((s,a)=>s+a.valor,0)+interesMora)*100)!==Math.round(total*100))){notice('Selecciona cuotas y comprueba que los abonos más el interés sumen el total.',true);return;}
     if(!options.cuentas.some(x=>String(x.sucursalId)===f.elements.sucursalId.value&&x.medioPago===f.elements.medioPago.value)){notice('Configura la caja o el banco de esta sucursal.',true);return;}
-    const body={operacionGuid:operation,sucursalId:Number(f.elements.sucursalId.value),clienteId:client.id,fechaContable:f.elements.fechaContable.value,tipo:kind,medioPago:f.elements.medioPago.value,referencia:f.elements.referencia.value,concepto:f.elements.concepto.value,total,cuentaContrapartida:kind==='NORMAL'?f.elements.cuentaContrapartida.value:null,aplicaciones:kind==='CARTERA'?applications:[],conceptos:kind==='ANTICIPO'?conceptos:null};
+    const body={operacionGuid:operation,sucursalId:Number(f.elements.sucursalId.value),clienteId:client.id,fechaContable:f.elements.fechaContable.value,tipo:kind,medioPago:f.elements.medioPago.value,referencia:f.elements.referencia.value,concepto:f.elements.concepto.value,total,interesMora,cuentaContrapartida:kind==='NORMAL'?f.elements.cuentaContrapartida.value:null,aplicaciones:kind==='CARTERA'?applications:[],conceptos:kind==='ANTICIPO'?conceptos:null};
     await send(body,'Recibo');
   }
   function invoiceForm(){
