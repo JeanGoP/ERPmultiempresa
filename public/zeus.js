@@ -35,7 +35,7 @@ function zeusSupplierSendButton(supplier){
 }
 const zeusConcepts={INVENTARIO:'Inventario',PROVEEDOR:'Cuenta por pagar · proveedor',IVA:'IVA',OTRO_IMPUESTO:'Otro impuesto',RETEFUENTE:'Retención en la fuente',RETEIVA:'Retención de IVA',RETEICA:'Retención de ICA',CUENTA_POR_COBRAR:'Cuenta por cobrar (futuro)',GASTO:'Gasto (futuro)',FLETE:'Flete (futuro)',ANTICIPO:'Anticipo (futuro)',DESCUENTO:'Descuento (futuro)',REDONDEO:'Redondeo (futuro)'};
 const zeusStates={SIN_PREPARAR:'Sin preparar',REQUIERE_REVISION:'Por revisar',POR_APROBAR:'Por aprobar',PENDIENTE:'En cola',ENVIANDO:'Enviando',CONTABILIZADO:'Contabilizado',RECHAZADO:'Rechazado',INCIERTO:'Por conciliar',CANCELADO:'Descartado'};
-const zeusUI={epoch:0,company:null,tab:'jobs',version:0,settings:null,jobs:[],receipts:[],offset:0,receipt:null,preview:null,dirty:false,busy:false,status:null};
+const zeusUI={epoch:0,company:null,tab:'jobs',version:0,settings:null,collectionPolicy:null,jobs:[],receipts:[],offset:0,receipt:null,preview:null,dirty:false,busy:false,status:null};
 const zeusPanel=document.createElement('section');zeusPanel.id='zeusModule';zeusPanel.className='zeus-workspace';zeusPanel.hidden=true;elements.purchaseModule.before(zeusPanel);
 function zeusEscape(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function zeusNormalize(row){return Object.fromEntries(Object.entries(row).map(([key,value])=>[key[0].toLowerCase()+key.slice(1),value]));}
@@ -45,7 +45,7 @@ function zeusPosting(){return ['COMPRAS.RECEPCION.CONTABILIZAR','TESORERIA.EGRES
 function zeusScope(){return {epoch:zeusUI.epoch,company:String(state.erpSession?.company?.id),base:`/api/v1/companies/${state.erpSession?.company?.id}/zeus`};}
 function zeusCurrent(s){return s.epoch===zeusUI.epoch&&s.company===String(state.erpSession?.company?.id);}
 function closeZeus(){zeusPanel.hidden=true;$('#zeusNav').classList.remove('active');}
-function resetZeus(){closeZeus();zeusUI.epoch++;Object.assign(zeusUI,{company:null,settings:null,version:0,jobs:[],receipts:[],receipt:null,preview:null,dirty:false,busy:false,status:null,offset:0});zeusPanel.inert=false;zeusPanel.removeAttribute('aria-busy');zeusPanel.replaceChildren();}
+function resetZeus(){closeZeus();zeusUI.epoch++;Object.assign(zeusUI,{company:null,settings:null,collectionPolicy:null,version:0,jobs:[],receipts:[],receipt:null,preview:null,dirty:false,busy:false,status:null,offset:0});zeusPanel.inert=false;zeusPanel.removeAttribute('aria-busy');zeusPanel.replaceChildren();}
 function zeusNotice(message,error=false){const box=$('#zeusNotice');if(box){box.textContent=message;box.hidden=!message;box.classList.toggle('error',error);}}
 async function zeusRun(action){
   if(zeusUI.busy)return;const scope=zeusScope();zeusUI.busy=true;zeusPanel.setAttribute('aria-busy','true');
@@ -86,7 +86,7 @@ async function zeusLoadTab(scope){
     if(!state.apiContext)throw new Error('No se pudieron cargar los maestros de la empresa. Actualiza antes de configurar Zeus.');
     let saved;try{saved=await apiRequest(`${scope.base}/configuration`);}catch(error){if(error.status!==404)throw error;}
     if(!zeusCurrent(scope))return;
-    zeusUI.version=saved?.version||0;zeusUI.settings=saved?.configuracion||{habilitado:false,servidorEsperado:'',baseEsperada:'',fuente:'',serie:'',unidadNegocio:'',usuarioZeus:'',tipoFactura:'',cuentas:[],proveedores:[]};zeusUI.dirty=false;zeusRenderSettings();
+    zeusUI.version=saved?.version||0;zeusUI.settings=saved?.configuracion||{habilitado:false,servidorEsperado:'',baseEsperada:'',fuente:'',serie:'',unidadNegocio:'',usuarioZeus:'',tipoFactura:'',cuentas:[],proveedores:[]};zeusUI.collectionPolicy={ordenCobroCartera:saved?.ordenCobroCartera||'POR_FACTURA',moraMensualPct:saved?.moraMensualPct??0};zeusUI.dirty=false;zeusRenderSettings();
     await Promise.all([zeusAutoLoadSupplierChart(scope),zeusAutoLoadAdvanceChart(scope),zeusAutoLoadRetentionChart(scope)]);
     if(typeof zeusLoadSourceBranches==='function')await zeusLoadSourceBranches(scope);
     if(typeof loadZeusCashAccounts==='function'&&zeusAdmin())await loadZeusCashAccounts(scope);
@@ -121,6 +121,7 @@ function zeusRenderSettings(){
   const s=zeusUI.settings;
   $('#zeusContent').innerHTML=`<form id="zeusSettingsForm"><section class="zeus-card"><h2>1. Fuentes y medios de pago por sucursal</h2><p>Conexión: ${zeusEscape(s.baseEsperada||'Pendiente de configurar en Seguridad → Empresas')}${s.baseEsperada?' · '+zeusEscape(s.servidorEsperado):''}</p>${typeof zeusSourcesSection==='function'?zeusSourcesSection(s):''}<div id="zeusCashAccounts"></div></section>
     ${zeusGeneralSupplierSection(s)}${zeusMotorcycleRetentionAccountSection(s)}${zeusRetentionSection(s)}
+    <section class="zeus-card"><h2>4. Política de recaudo</h2><div class="zeus-grid"><label>Orden de cobro de créditos múltiples<select name="ordenCobroCartera"><option value="POR_FACTURA" ${zeusUI.collectionPolicy?.ordenCobroCartera==='MAS_VENCIDA'?'':'selected'}>Permitir cualquier factura; cuotas en orden</option><option value="MAS_VENCIDA" ${zeusUI.collectionPolicy?.ordenCobroCartera==='MAS_VENCIDA'?'selected':''}>Exigir la cuota más vencida del cliente</option></select></label><label>Interés de mora mensual %<input name="moraMensualPct" type="number" min="0" max="100" step="0.0001" required value="${zeusEscape(zeusUI.collectionPolicy?.moraMensualPct??0)}"></label></div></section>
     <section class="zeus-card zeus-save"><label class="zeus-toggle"><input name="habilitado" type="checkbox" ${s.habilitado?'checked':''}><span><strong>Enviar automáticamente las entradas a Zeus</strong><small>Activa solo después de validar sus cuentas y probar la conexión. El envío también requiere activar el despachador en el servidor.</small></span></label><button type="submit" class="button primary">Guardar configuración de empresa</button></section></form>`;
 }
 function zeusReadSettings(){
@@ -153,7 +154,7 @@ zeusPanel.addEventListener('submit',event=>{
   void zeusRun(async scope=>{
     if(form.id==='zeusSettingsForm'){
       const value=zeusReadSettings(),saveCash=$('#zeusCashAccounts')?.prepareSave?.();
-      await apiRequest(`${scope.base}/configuration`,{method:'PUT',body:JSON.stringify({version:zeusUI.version,configuracion:value})});
+      await apiRequest(`${scope.base}/configuration`,{method:'PUT',body:JSON.stringify({version:zeusUI.version,configuracion:value,ordenCobroCartera:form.elements.ordenCobroCartera.value,moraMensualPct:Number(form.elements.moraMensualPct.value)})});
       if(!zeusCurrent(scope))return;zeusUI.version++;
       try{if(saveCash)await saveCash();}catch(error){throw new Error('Se guardó la configuración general, pero quedan cambios de caja/banco pendientes: '+error.message);}
       if(!zeusCurrent(scope))return;zeusUI.dirty=false;await zeusLoadStatus(scope);if(!zeusCurrent(scope))return;await zeusLoadTab(scope);if(zeusCurrent(scope))zeusNotice('Configuración de empresa guardada.');

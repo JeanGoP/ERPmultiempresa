@@ -35,7 +35,7 @@ function renderCompanyMaster(){
   const renderRows=()=>{
     const query=companyMasterQuery.trim().toLocaleLowerCase('es-CO');
     const rows=companyMasterRows.filter(x=>(!query||[x.codigo,x.nit,x.razonSocial].join(' ').toLocaleLowerCase('es-CO').includes(query))&&(!companyMasterStatus||x.activa===(companyMasterStatus==='active')));
-    const table=buildDataTable(['Código','NIT','Razón social','Moneda','Marco contable','Cobro de cartera','Mora mensual','Estado','Acciones'],rows.map(x=>[x.codigo,x.nit+(x.digitoVerificacion?'-'+x.digitoVerificacion:''),x.razonSocial,x.monedaFuncional,x.marcoContable,x.ordenCobroCartera==='MAS_VENCIDA'?'Más vencida del cliente':'Cualquier factura, en orden',`${x.moraMensualPct??0} %`,x.activa?'Activa':'Inactiva','']));
+    const table=buildDataTable(['Código','NIT','Razón social','Moneda','Marco contable','Estado','Acciones'],rows.map(x=>[x.codigo,x.nit+(x.digitoVerificacion?'-'+x.digitoVerificacion:''),x.razonSocial,x.monedaFuncional,x.marcoContable,x.activa?'Activa':'Inactiva','']));
     table.querySelectorAll('tbody tr').forEach((tr,i)=>{if(!rows[i])return;const button=document.createElement('button');button.type='button';button.className='button secondary';button.textContent='Editar';button.onclick=()=>openCompanyMasterForm(rows[i]);tr.lastElementChild.append(button);});
     result.replaceChildren(table);elements.securityStatus.textContent=rows.length+' de '+companyMasterRows.length+' empresas';
   };
@@ -51,12 +51,6 @@ function openCompanyMasterForm(record=null){
   const field=(label,name,max,value,readOnly=false)=>{const wrap=document.createElement('label');const caption=document.createElement('span');caption.textContent=label;wrap.append(caption);const input=document.createElement('input');input.name=name;input.maxLength=max;input.required=name!=='digitoVerificacion';input.value=value||'';input.readOnly=readOnly;wrap.append(input);form.append(wrap);return input;};
   field('Código','codigo',20,record?.codigo);field('NIT','nit',20,record?.nit);field('Dígito de verificación','digitoVerificacion',1,record?.digitoVerificacion).pattern='[0-9]';field('Razón social','razonSocial',200,record?.razonSocial);
   if(record){const discount=field('Descuento máximo sin aprobación %','maxDescuentoVentaPct',6,String(record.maxDescuentoVentaPct??0));discount.type='number';discount.min='0';discount.max='100';discount.step='0.01';}
-  const lateRate=field('Interés de mora mensual %','moraMensualPct',8,String(record?.moraMensualPct??0));lateRate.type='number';lateRate.min='0';lateRate.max='100';lateRate.step='0.0001';
-  const collectionLabel=document.createElement('label');const collectionTitle=document.createElement('span');collectionTitle.textContent='Orden de cobro de créditos múltiples';
-  const collectionOrder=document.createElement('select');collectionOrder.name='ordenCobroCartera';
-  [['POR_FACTURA','Permitir cualquier factura; cuotas en orden'],['MAS_VENCIDA','Exigir la cuota más vencida del cliente']].forEach(([value,label])=>collectionOrder.add(new Option(label,value)));
-  collectionOrder.value=record?.ordenCobroCartera||'POR_FACTURA';const collectionHint=document.createElement('small');collectionHint.textContent='Se aplica a todos los recibos de recaudo de esta empresa.';
-  collectionLabel.append(collectionTitle,collectionOrder,collectionHint);form.append(collectionLabel);
   const nit=form.elements.nit;
   const digit=form.elements.digitoVerificacion;
   nit.maxLength=15;nit.inputMode='numeric';nit.pattern='[0-9]{1,15}';
@@ -67,12 +61,15 @@ function openCompanyMasterForm(record=null){
   field('Zona horaria','zonaHoraria',80,record?.zonaHoraria||'America/Bogota',!!record);
   const marcoLabel=document.createElement('label');marcoLabel.textContent='Marco contable';const marco=document.createElement('select');marco.name='marcoContable';['GRUPO_1','GRUPO_2','GRUPO_3'].forEach(v=>marco.add(new Option(v.replace('_',' '),v)));marco.value=record?.marcoContable||'GRUPO_2';marco.disabled=!!record;marcoLabel.append(marco);form.append(marcoLabel);
   const zeus=companyZeusFields(form,record,token);
+  const technical=document.createElement('details');technical.className='company-technical wide';
+  const technicalTitle=document.createElement('summary');technicalTitle.textContent='Conexión técnica de Zeus · solo si necesitas modificarla';
+  form.querySelector('.company-zeus-fields').before(technical);technical.append(technicalTitle,form.querySelector('.company-zeus-fields'));
   const error=document.createElement('p');error.className='login-error wide';error.setAttribute('role','alert');
   const actions=document.createElement('div');actions.className='saved-detail-actions wide';const cancel=document.createElement('button');cancel.type='button';cancel.className='button secondary';cancel.textContent='Cancelar';const save=document.createElement('button');save.type='submit';save.className='button primary';save.textContent=record?'Guardar cambios':'Crear empresa';actions.append(cancel,save);form.append(error,actions);dialog.append(heading,form);document.body.append(dialog);
   let busy=false;cancel.onclick=()=>dialog.close();dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});dialog.addEventListener('close',()=>{zeus.clear();dialog.remove();},{once:true});
   form.onsubmit=async event=>{
     event.preventDefault();if(busy)return;if(!state.erpSession?.superAdmin||token!==apiToken()){dialog.close();return;}
-    const data=Object.fromEntries(new FormData(form));const payload=record?{codigo:data.codigo,nit:data.nit,digitoVerificacion:data.digitoVerificacion||null,razonSocial:data.razonSocial,version:record.version,maxDescuentoVentaPct:Number(data.maxDescuentoVentaPct),ordenCobroCartera:data.ordenCobroCartera,moraMensualPct:Number(data.moraMensualPct)}:{...data,moraMensualPct:Number(data.moraMensualPct)};
+    const data=Object.fromEntries(new FormData(form));const payload=record?{codigo:data.codigo,nit:data.nit,digitoVerificacion:data.digitoVerificacion||null,razonSocial:data.razonSocial,version:record.version,maxDescuentoVentaPct:Number(data.maxDescuentoVentaPct)}:{codigo:data.codigo,nit:data.nit,digitoVerificacion:data.digitoVerificacion||null,razonSocial:data.razonSocial,monedaFuncional:data.monedaFuncional,zonaHoraria:data.zonaHoraria,marcoContable:data.marcoContable};
     busy=true;save.disabled=cancel.disabled=true;error.textContent='';
     try{
       payload.zeus=zeus.read();

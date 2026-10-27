@@ -11,7 +11,8 @@ public sealed record ZeusSettings(bool Habilitado, string ServidorEsperado, stri
     ZeusAccount[] Cuentas, ZeusSupplier[] Proveedores,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ZeusSourceRoute[]? FuentesAutomaticas=null,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? SucursalOperacion=null);
-public sealed record ZeusSettingsRequest(int Version, ZeusSettings Configuracion);
+public sealed record ZeusSettingsRequest(int Version, ZeusSettings Configuracion,
+    string? OrdenCobroCartera=null,decimal? MoraMensualPct=null);
 public sealed record ZeusTax(string Concepto, decimal Tarifa, decimal Base, decimal Valor,long? BodegaId=null);
 public sealed record ZeusPreviewRequest(ZeusTax[] Impuestos, ZeusTax[] Retenciones);
 public sealed record ZeusApproveRequest(ZeusTax[] Impuestos, ZeusTax[] Retenciones, string Huella);

@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using System.Globalization;
 using NexoERP.Api.MasterData;
 using NexoERP.Api.Purchasing;
+using NexoERP.Api.Sales;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
 
@@ -31,15 +32,19 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
     public async Task<ZeusSettingsRequest?> SettingsAsync(long company,CancellationToken ct)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
-        await using var q=Command(c,"SELECT Version,Configuracion FROM core.ZeusConfiguracion WHERE EmpresaId=@E",company);
+        await using var q=Command(c,"SELECT z.Version,z.Configuracion,e.OrdenCobroCartera,e.MoraMensualPct FROM core.ZeusConfiguracion z JOIN core.Empresa e ON e.EmpresaId=z.EmpresaId WHERE z.EmpresaId=@E",company);
         await using var r=await q.ExecuteReaderAsync(ct);
-        return await r.ReadAsync(ct)?new(r.GetInt32(0),JsonSerializer.Deserialize<ZeusSettings>(r.GetString(1))!):null;
+        return await r.ReadAsync(ct)?new(r.GetInt32(0),JsonSerializer.Deserialize<ZeusSettings>(r.GetString(1))!,r.GetString(2),r.GetDecimal(3)):null;
     }
     public async Task SaveSettingsAsync(long company,long user,ZeusSettingsRequest input,CancellationToken ct)
     {
         if(input.Configuracion is null) throw new ArgumentException("Falta la configuración.");
         input=input with{Configuracion=input.Configuracion with{SucursalOperacion=null}};
         ZeusJournal.Validate(input.Configuracion);
+        if(input.OrdenCobroCartera is not null&&input.OrdenCobroCartera is not(CustomerPaymentPolicy.PerInvoice or CustomerPaymentPolicy.OldestAcrossInvoices))
+            throw new ArgumentException("Selecciona un orden de cobro válido para la empresa.");
+        if(input.MoraMensualPct is <0 or >100||input.MoraMensualPct.HasValue&&decimal.Round(input.MoraMensualPct.Value,4)!=input.MoraMensualPct.Value)
+            throw new ArgumentException("La tasa mensual de mora debe estar entre 0 y 100 %, con máximo cuatro decimales.");
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable,ct);
         await using(var configLock=Command(c,"SELECT EmpresaId FROM core.ZeusConfiguracion WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E",company,tx))await configLock.ExecuteScalarAsync(ct);
@@ -73,7 +78,22 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             VALUES(@E,@U,'ZEUS_CONFIGURAR','core.ZeusConfiguracion',CONVERT(nvarchar(100),@E),@J,'ZEUS');
             """,company,tx);
         Add(q,"@V",input.Version); Add(q,"@U",user); Add(q,"@J",JsonSerializer.Serialize(input.Configuracion));
-        await q.ExecuteNonQueryAsync(ct); await tx.CommitAsync(ct);
+        await q.ExecuteNonQueryAsync(ct);
+        if(input.OrdenCobroCartera is not null||input.MoraMensualPct.HasValue)
+        {
+            await using var policy=Command(c,"""
+                UPDATE core.Empresa SET OrdenCobroCartera=COALESCE(@Orden,OrdenCobroCartera),
+                    MoraMensualPct=COALESCE(@Mora,MoraMensualPct) WHERE EmpresaId=@E;
+                IF @@ROWCOUNT<>1 THROW 51703,'La empresa no existe para configurar el recaudo.',1;
+                INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen)
+                VALUES(@E,@U,'POLITICA_RECAUDO','core.Empresa',CONVERT(nvarchar(100),@E),@Json,'ERP');
+                """,company,tx);
+            policy.Parameters.Add("@Orden",SqlDbType.VarChar,24).Value=(object?)input.OrdenCobroCartera??DBNull.Value;
+            policy.Parameters.Add(new SqlParameter("@Mora",SqlDbType.Decimal){Precision=7,Scale=4,Value=(object?)input.MoraMensualPct??DBNull.Value});
+            Add(policy,"@U",user);Add(policy,"@Json",JsonSerializer.Serialize(new{input.OrdenCobroCartera,input.MoraMensualPct}));
+            await policy.ExecuteNonQueryAsync(ct);
+        }
+        await tx.CommitAsync(ct);
     }
     private static async Task<ZeusSnapshot> BuildAsync(SqlConnection c,SqlTransaction tx,long company,long receipt,ZeusPreviewRequest input,CancellationToken ct,long user=0)
     {

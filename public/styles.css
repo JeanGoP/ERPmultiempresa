@@ -480,6 +480,9 @@ footer p { margin: 0; }
 .master-dialog { width: min(94vw,650px); }
 .master-dialog.person-master-dialog { width: min(96vw,1040px); }
 .company-zeus-fields { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 4px 0; min-width: 0; }
+.company-technical { border: 1px solid var(--line); border-radius: 8px; margin: 4px 0; background: #f7faf8; }
+.company-technical > summary { padding: 12px 14px; color: #31584b; font-size: 12px; font-weight: 700; cursor: pointer; }
+.company-technical > .company-zeus-fields { margin: 0 10px 10px; background: #fff; }
 .company-zeus-fields legend { font-weight: 700; padding: 0 6px; }
 .company-zeus-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin: 12px 0; }
 .company-zeus-fields input[type="checkbox"] { width: 16px; min-height: 16px; vertical-align: middle; }
