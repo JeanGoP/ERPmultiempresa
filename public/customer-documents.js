@@ -397,11 +397,11 @@
       <label>Medio de pago<select name="medioPago"><option>TRANSFERENCIA</option><option>EFECTIVO</option><option>CHEQUE</option></select></label>
       ${clientField()}<label data-reference-wrap>Referencia / cheque<input name="referencia" maxlength="20"></label>
       <p class="egreso-help" data-account-hint></p><label class="egreso-wide">Descripción del recibo<input name="concepto" maxlength="300" required></label>
-      <label data-contra-wrap class="egreso-wide" hidden>Cuenta de contrapartida en Zeus<select name="cuentaContrapartida"><option value="">Selecciona cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label>
-      <label>Valor recibido<input name="total" type="number" min="0.01" step="0.01" required></label></div>
+      <label data-contra-wrap class="egreso-wide" hidden>Cuenta de contrapartida en Zeus<select name="cuentaContrapartida"><option value="">Selecciona cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label></div>
       <div data-advance-concepts hidden></div>
       <label class="customer-portfolio-filter" data-portfolio-filter-wrap hidden>Mostrar cartera de<select name="claseCarteraFiltro"><option value="">Todas las facturas</option>${portfolioOptions()}</select></label>
-      <div data-allocations></div><div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Contabilizar recibo</button></div></fieldset></form>`;
+      <div data-allocations></div><div class="customer-receipt-total"><label>Valor del recibo de caja<input name="total" type="number" min="0.01" step="0.01" required></label></div>
+      <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Contabilizar recibo</button></div></fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
     f.elements.tipo.onchange=()=>{applications=[];f.elements.total.value='';renderAllocations();};
     f.elements.claseCarteraFiltro.onchange=()=>renderAllocations();
@@ -471,7 +471,7 @@
     f.elements.total.readOnly=kind!=='NORMAL';
     const conceptArea=$('[data-advance-concepts]');conceptArea.hidden=kind!=='ANTICIPO';
     if(kind==='ANTICIPO'&&!conceptArea.firstElementChild){
-      conceptArea.innerHTML='<h3>Destino del dinero recibido</h3><p class="egreso-help">Distribuye el valor entre los conceptos que correspondan. Cada uno se contabiliza en su cuenta Zeus; solo el anticipo para compra queda disponible como cuota inicial.</p><div class="egreso-grid">'+[['ANTICIPO','Anticipo para compra'],['SOAT','SOAT'],['MATRICULA','Matrícula'],['OTROS','Otros']].map(([code,label])=>`<label>${label}<input type="number" data-advance-concept="${code}" min="0" step="0.01" value="0"></label>`).join('')+'</div>';
+      conceptArea.innerHTML='<h3>Destino del dinero recibido</h3><p class="egreso-help">Distribuye el valor entre los conceptos que correspondan. Cada uno se contabiliza en su cuenta Zeus; solo el anticipo para compra queda disponible como cuota inicial. Los campos vacíos cuentan como cero.</p><div class="egreso-grid">'+[['ANTICIPO','Anticipo para compra'],['SOAT','SOAT'],['MATRICULA','Matrícula'],['OTROS','Otros']].map(([code,label])=>`<label>${label}<input type="number" data-advance-concept="${code}" min="0" step="0.01"></label>`).join('')+'</div>';
     }
     if(kind!=='CARTERA'){area.innerHTML=kind==='ANTICIPO'?'<p class="egreso-help">Los valores quedan separados en el recibo y en Zeus.</p>':'<p class="egreso-help">Selecciona la cuenta contable específica para este ingreso. No modifica cartera.</p>';syncReceiptConcept();summary();return;}
     const selected=x=>applications.find(a=>a.facturaVentaId===x.id&&(a.facturaVentaCuotaId??null)===(x.cuotaId??null));
@@ -499,7 +499,7 @@
     const f=$('[data-document]');if(!f)return;
     if(mode==='receipt'){
       if(f.elements.tipo.value==='CARTERA')f.elements.total.value=String(Math.round(applications.reduce((s,x)=>s+Math.round(x.valor*100),0))/100||'');
-      if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=String(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].reduce((s,x)=>s+Math.round(Number(x.value)*100),0))/100||'');
+      if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=String(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].reduce((s,x)=>s+Math.round(Number(x.value||0)*100),0))/100||'');
       $('[data-summary]').textContent='Total recibido: '+money(Number(f.elements.total.value));
     }else invoiceSummary();
   }
@@ -507,7 +507,7 @@
     event.preventDefault();if(busy)return;const f=event.target;
     if(!client){notice('Selecciona un cliente de los resultados.',true);return;}
     const kind=f.elements.tipo.value,total=Number(f.elements.total.value);
-    const conceptos=kind==='ANTICIPO'?[...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].map(x=>({codigo:x.dataset.advanceConcept,valor:Number(x.value)})).filter(x=>x.valor>0):[];
+    const conceptos=kind==='ANTICIPO'?[...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].map(x=>({codigo:x.dataset.advanceConcept,valor:Number(x.value||0)})).filter(x=>x.valor>0):[];
     if(kind==='ANTICIPO'&&(!conceptos.length||Math.round(conceptos.reduce((sum,x)=>sum+x.valor,0)*100)!==Math.round(total*100))){notice('Indica al menos un destino y comprueba que los valores sumen el total recibido.',true);return;}
     if(kind==='CARTERA'&&(!applications.length||Math.round(applications.reduce((s,a)=>s+a.valor,0)*100)!==Math.round(total*100))){notice('Selecciona facturas y comprueba que los abonos sumen el total.',true);return;}
     if(!options.cuentas.some(x=>String(x.sucursalId)===f.elements.sucursalId.value&&x.medioPago===f.elements.medioPago.value)){notice('Configura la caja o el banco de esta sucursal.',true);return;}

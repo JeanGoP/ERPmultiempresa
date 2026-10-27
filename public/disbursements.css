@@ -67,6 +67,9 @@
 .customer-documents-dialog .customer-advance-list [data-advance-summary]{display:block;margin-top:9px;padding:8px 10px;background:#edf5f0;border-radius:6px;color:#14513e;font-size:12px}
 .customer-documents-dialog .customer-advance-list .table-wrap{max-height:280px;overflow:auto}
 .customer-documents-dialog [data-reference-wrap][hidden]{display:none}
+.customer-documents-dialog .customer-receipt-total{display:flex;justify-content:flex-end;margin:14px 0 4px}
+.customer-documents-dialog .customer-receipt-total label{display:grid;gap:5px;width:min(100%,270px);font-size:12px;font-weight:700}
+.customer-documents-dialog .customer-receipt-total input[readonly]{background:#edf5f0;color:#14513e;font-weight:700}
 .customer-documents-dialog .customer-receipt-dues{max-height:280px;overflow:auto;border:1px solid #dce7e1;border-radius:7px}
 .customer-documents-dialog .customer-receipt-dues table{width:100%;min-width:560px;font-size:11px;table-layout:fixed}
 .customer-documents-dialog .customer-receipt-dues th,.customer-documents-dialog .customer-receipt-dues td{padding:5px 7px;vertical-align:middle}
