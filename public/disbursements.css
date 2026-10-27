@@ -87,6 +87,45 @@
 .customer-documents-dialog .customer-receipt-dues .customer-products-list{margin-top:4px;padding:5px 7px;border-radius:5px;background:#f3f8f5;color:#29483d;font-size:10px;white-space:normal}
 .customer-documents-dialog .customer-receipt-dues .customer-products-list>div+div{margin-top:5px;padding-top:5px;border-top:1px solid #dce7e1}
 .customer-documents-dialog .customer-receipt-dues .customer-products-list strong{overflow-wrap:anywhere}
+.customer-documents-dialog .customer-receipt-form{min-width:0}
+.customer-documents-dialog .customer-receipt-card{margin:0 0 12px;padding:16px 18px;border:1px solid #dce7e1;border-radius:10px;background:#fff}
+.customer-documents-dialog .customer-receipt-card[hidden]{display:none}
+.customer-documents-dialog .customer-receipt-card h3{margin:0 0 12px;color:#173e33;font-size:15px}
+.customer-documents-dialog .customer-receipt-fields{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px;align-items:end}
+.customer-documents-dialog .customer-receipt-fields>label{grid-column:span 3;display:grid;gap:5px;min-width:0;font-size:12px;font-weight:600}
+.customer-documents-dialog .customer-receipt-fields>.egreso-wide{grid-column:span 6}
+.customer-documents-dialog .customer-receipt-fields>.customer-receipt-description{grid-column:1/-1}
+.customer-documents-dialog .customer-receipt-fields>[data-client-hint]:empty{display:none}
+.customer-documents-dialog .customer-receipt-fields>[data-client-hint]:not(:empty){grid-column:1/-1;color:#a02c22}
+.customer-documents-dialog .customer-receipt-fields>[hidden]{display:none}
+.customer-documents-dialog .customer-receipt-account{grid-column:span 3;align-self:center;margin:0;padding:8px 10px;border-radius:6px;background:#edf6f0;color:#246349;font-size:11px;line-height:1.4}
+.customer-documents-dialog .customer-receipt-account.missing{background:#fff3e8;color:#885020}
+.customer-documents-dialog .customer-receipt-section-heading{display:flex;align-items:end;justify-content:space-between;gap:14px;margin-bottom:8px}
+.customer-documents-dialog .customer-receipt-section-heading h3{margin:0 0 3px}
+.customer-documents-dialog .customer-receipt-section-heading p{margin:0}
+.customer-documents-dialog .customer-receipt-section-heading .customer-portfolio-filter{flex:0 0 230px;width:auto;margin:0}
+.customer-documents-dialog .customer-receipt-order{margin:0 0 10px;color:#64766d;font-size:11px;line-height:1.4}
+.customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues{max-height:none;overflow-x:auto;overflow-y:visible}
+.customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues table{min-width:640px;table-layout:fixed;font-size:12px}
+.customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues th,.customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues td{padding:8px 10px}
+.customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues th:first-child,.customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues td:first-child{width:56px;min-width:0}
+.customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues th:nth-child(2){width:auto}
+.customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues th:nth-child(3){width:160px}
+.customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues th:nth-child(4){width:165px}
+.customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues td:nth-child(3){white-space:nowrap;font-weight:600}
+.customer-documents-dialog .customer-receipt-portfolio .customer-receipt-dues td small{margin-top:2px;font-size:11px}
+.customer-documents-dialog .customer-receipt-more{margin-top:10px}
+.customer-documents-dialog .customer-receipt-charge-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.customer-documents-dialog .customer-receipt-charge-grid>div{padding:12px;border:1px solid #dce7e1;border-radius:8px;background:#f8faf8}
+.customer-documents-dialog .customer-receipt-charge-grid label{display:grid;gap:6px;max-width:260px;font-size:12px;font-weight:700}
+.customer-documents-dialog .customer-receipt-charge-grid small{display:block;margin-top:7px;color:#60746a;font-size:11px}
+.customer-documents-dialog .customer-receipt-footer{position:sticky;bottom:0;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:16px;margin:16px 0 0;padding:14px 18px;border:1px solid #cdded2;border-radius:9px;background:#f1f7f2;box-shadow:0 -7px 18px #173e3314}
+.customer-documents-dialog .customer-receipt-footer .customer-receipt-total{display:block;min-width:0;margin:0}
+.customer-documents-dialog .customer-receipt-footer .customer-receipt-total label{width:220px}
+.customer-documents-dialog .customer-receipt-footer .customer-receipt-total small{display:block;margin-top:4px;color:#537265;font-size:11px}
+.customer-documents-dialog .customer-receipt-footer .button{flex:none;min-height:38px}
+@media(max-width:850px){.customer-documents-dialog .customer-receipt-fields>label{grid-column:span 6}.customer-documents-dialog .customer-receipt-fields>.egreso-wide{grid-column:1/-1}.customer-documents-dialog .customer-receipt-account{grid-column:span 6}}
+@media(max-width:600px){.customer-documents-dialog .customer-receipt-card{padding:12px}.customer-documents-dialog .customer-receipt-fields>label,.customer-documents-dialog .customer-receipt-fields>.egreso-wide,.customer-documents-dialog .customer-receipt-account{grid-column:1/-1}.customer-documents-dialog .customer-receipt-section-heading{align-items:stretch;flex-direction:column}.customer-documents-dialog .customer-receipt-section-heading .customer-portfolio-filter{flex:auto;width:100%}.customer-documents-dialog .customer-receipt-charge-grid{grid-template-columns:1fr}.customer-documents-dialog .customer-receipt-footer{align-items:stretch;flex-direction:column;padding:12px}.customer-documents-dialog .customer-receipt-footer .customer-receipt-total label{width:100%}.customer-documents-dialog .customer-receipt-footer .button{width:100%}}
 .customer-documents-dialog .customer-invoice-settings{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,3fr);gap:18px;align-items:start;margin:18px 0;padding:15px;border:1px solid #d9e5de;border-radius:10px;background:#fbfdfb}
 .customer-documents-dialog .customer-invoice-settings label{display:grid;align-content:start;gap:6px;min-width:0;font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-invoice-settings small{display:block;color:#63766d;font-size:11px;font-weight:400;line-height:1.4}

@@ -141,7 +141,7 @@ assert.match(ui,/data-clear-advances/);
 assert.match(ui,/Math\.min\(Math\.round\(x\.saldo\*100\),remaining\)/);
 assert.match(ui,/x\.zeusEstado&&x\.zeusEstado!=='CONTABILIZADO'\?'disabled':''/);
 assert.match(ui,/El servidor aún no entrega fecha, concepto o estado/);
-assert.match(ui,/Puedes anticipar la primera cuota permitida/);
+assert.match(ui,/La primera cuota permitida puede pagarse antes del vencimiento/);
 assert.match(ui,/options\.ordenCobroCartera==='MAS_VENCIDA'/);
 assert.match(cash,/CustomerPaymentPolicy\.ValidateGlobalOrder/);
 assert.match(cash,/SELECT OrdenCobroCartera,MoraMensualPct FROM core\.Empresa/);
@@ -158,5 +158,5 @@ assert.doesNotMatch(navigation,/Cotizaciones<\/button>|Pedidos de venta<\/button
 assert.match(uiStyles,/\.customer-products-toggle/);
 assert.match(cash,/CustomerPaymentPolicy\.ValidateOrder/);
 assert.match(cash,/input\.MedioPago!="EFECTIVO"&&string\.IsNullOrWhiteSpace\(input\.Referencia\)/);
-assert.match(uiStyles,/\.customer-receipt-dues\{max-height:280px/);
+assert.match(uiStyles,/\.customer-receipt-portfolio \.customer-receipt-dues\{max-height:none/);
 console.log('Conceptos, centros y cuotas: calendario, cuenta 13 y recaudos por vencimiento verificados.');

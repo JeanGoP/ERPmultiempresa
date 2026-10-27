@@ -7,7 +7,7 @@
   const serialDialog=document.createElement('dialog');serialDialog.className='erp-dialog customer-serial-dialog';document.body.append(serialDialog);
   const $=selector=>dialog.querySelector(selector);
   let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='',portfolioTypes=[];
-  let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[],extraInstallments=[],automaticReceiptConcept='';
+  let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8;
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='receipt'?'cash-receipts':'sales-invoices'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
@@ -354,7 +354,7 @@
     if(dialog.open)return;mode='invoice';company=state.erpSession.company.id;search='';receiptFilter='';shell();dialog.showModal();await viewInvoice(id,null);
   };
   async function create(){
-    const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];extraInstallments=[];dimensions=null;dimensionsError='';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
+    const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];extraInstallments=[];receiptVisibleRows=8;dimensions=null;dimensionsError='';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
     try{
       const [opts,chart,dims,types]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions').catch(error=>({error:error.message})):Promise.resolve(null),loadPortfolioTypes()]);
       if(!current(t))return;options=opts;accounts=chart;dimensions=dims?.error?null:dims;dimensionsError=dims?.error||'';portfolioTypes=types;
@@ -395,27 +395,39 @@
     if(!client)return;const t=token,selected=client.id;
     try{const result=await apiRequest(endpoint()+`/options?clienteId=${selected}`);if(!current(t)||client?.id!==selected)return;
       if(mode==='invoice')options.anticipos=result.anticipos;else{options.facturas=result.facturas;options.anticipos=result.anticipos;options.ordenCobroCartera=result.ordenCobroCartera;options.moraMensualPct=result.moraMensualPct;}
-      applications=[];advances=[];renderAllocations();$('[data-client-hint]').textContent='';
+      applications=[];advances=[];receiptVisibleRows=8;renderAllocations();$('[data-client-hint]').textContent='';
     }catch(error){if(current(t))notice('No se pudieron consultar saldos del cliente: '+error.message,true);}
   }
   function receiptForm(){
     automaticReceiptConcept='';
-    $('[data-content]').innerHTML=`<form data-document><fieldset><h3>Nuevo recibo de caja</h3><div class="egreso-grid">
-      <label>Sucursal<select name="sucursalId" required><option value="">Selecciona…</option>${options.sucursales.map(x=>`<option value="${x.id}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label>
-      <label>Fecha contable<input name="fechaContable" type="date" value="${today()}" required></label>
-      <label>Tipo de recibo<select name="tipo"><option value="ANTICIPO">Anticipo de cliente</option><option value="CARTERA">Recaudo de cartera</option><option value="NORMAL">Recibo normal</option></select></label>
-      <label>Medio de pago<select name="medioPago"><option>TRANSFERENCIA</option><option>EFECTIVO</option><option>CHEQUE</option></select></label>
-      ${clientField()}<label data-reference-wrap>Referencia / cheque<input name="referencia" maxlength="20"></label>
-      <p class="egreso-help" data-account-hint></p><label class="egreso-wide">Descripción del recibo<input name="concepto" maxlength="300" required></label>
-      <label data-contra-wrap class="egreso-wide" hidden>Cuenta de contrapartida en Zeus<select name="cuentaContrapartida"><option value="">Selecciona cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label></div>
-      <div data-advance-concepts hidden></div>
-      <label class="customer-portfolio-filter" data-portfolio-filter-wrap hidden>Mostrar cartera de<select name="claseCarteraFiltro"><option value="">Todas las facturas</option>${portfolioOptions()}</select></label>
-      <div data-allocations></div><div class="customer-late-interest" data-late-interest hidden><strong>Interés de mora</strong><p class="egreso-help">Tasa mensual: <span data-late-rate></span> %. Se calcula por los días de atraso sobre el abono a cuotas vencidas, con base de 30 días.</p><div class="egreso-grid"><label>Valor sugerido<input data-late-suggested type="text" readonly></label><label>Interés a cobrar<input name="interesMora" type="number" min="0" step="0.01" value="0"></label></div><strong>Ingresos varios</strong><p class="egreso-help">Este cobro se suma al recibo y no reduce la cartera.</p><div class="egreso-grid"><label>Retención de moto<input name="ingresoRetencionMoto" type="number" min="0" step="0.01" value="0"></label></div></div><div class="customer-receipt-total"><label>Valor del recibo de caja<input name="total" type="number" min="0.01" step="0.01" required></label></div>
-      <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit">Contabilizar recibo</button></div></fieldset></form>`;
+    $('[data-content]').innerHTML=`<form class="customer-receipt-form" data-document><fieldset>
+      <section class="customer-receipt-card"><h3>Datos del recibo</h3><div class="customer-receipt-fields">
+        <label>Sucursal<select name="sucursalId" required><option value="">Selecciona…</option>${options.sucursales.map(x=>`<option value="${x.id}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></label>
+        <label>Fecha contable<input name="fechaContable" type="date" value="${today()}" required></label>
+        <label>Tipo de recibo<select name="tipo"><option value="ANTICIPO">Anticipo de cliente</option><option value="CARTERA">Recaudo de cartera</option><option value="NORMAL">Recibo normal</option></select></label>
+        <label>Medio de pago<select name="medioPago"><option>TRANSFERENCIA</option><option>EFECTIVO</option><option>CHEQUE</option></select></label>
+        ${clientField()}<label data-reference-wrap>Referencia / cheque<input name="referencia" maxlength="20"></label>
+        <p class="customer-receipt-account" data-account-hint></p>
+        <label class="customer-receipt-description">Descripción del recibo<input name="concepto" maxlength="300" required></label>
+        <label class="customer-receipt-description" data-contra-wrap hidden>Cuenta de contrapartida en Zeus<select name="cuentaContrapartida"><option value="">Selecciona cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label>
+      </div></section>
+      <section class="customer-receipt-card" data-advance-concepts hidden></section>
+      <section class="customer-receipt-card customer-receipt-portfolio" data-portfolio-section hidden>
+        <div class="customer-receipt-section-heading"><div><h3>Cuotas pendientes</h3><p class="egreso-help">Selecciona la cuota y ajusta el abono si corresponde.</p></div><label class="customer-portfolio-filter" data-portfolio-filter-wrap>Tipo de cartera<select name="claseCarteraFiltro"><option value="">Todas las facturas</option>${portfolioOptions()}</select></label></div>
+        <div data-allocations></div>
+      </section>
+      <section class="customer-receipt-card customer-receipt-charges" data-late-interest hidden>
+        <h3>Cargos adicionales</h3><div class="customer-receipt-charge-grid">
+          <div><label>Interés de mora<input name="interesMora" type="number" min="0" step="0.01" value="0"></label><small>Tasa mensual <span data-late-rate></span> % · Sugerido: <b data-late-suggested></b></small></div>
+          <div><label>Retención de moto<input name="ingresoRetencionMoto" type="number" min="0" step="0.01" value="0"></label><small>Ingreso adicional; no reduce la cartera.</small></div>
+        </div>
+      </section>
+      <div class="customer-receipt-footer"><div class="customer-receipt-total"><label>Valor total a recibir<input name="total" type="number" min="0.01" step="0.01" required></label><small data-summary></small></div><button class="button primary" type="submit">Contabilizar recibo</button></div>
+    </fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
-    f.elements.tipo.onchange=()=>{applications=[];f.elements.total.value='';f.elements.interesMora.value='0';f.elements.interesMora.dataset.edited='';f.elements.ingresoRetencionMoto.value='0';renderAllocations();};
+    f.elements.tipo.onchange=()=>{applications=[];receiptVisibleRows=8;f.elements.total.value='';f.elements.interesMora.value='0';f.elements.interesMora.dataset.edited='';f.elements.ingresoRetencionMoto.value='0';renderAllocations();};
     f.elements.interesMora.oninput=()=>{f.elements.interesMora.dataset.edited='yes';dirty=true;summary();};
-    f.elements.claseCarteraFiltro.onchange=()=>renderAllocations();
+    f.elements.claseCarteraFiltro.onchange=()=>{receiptVisibleRows=8;renderAllocations();};
     f.elements.sucursalId.onchange=accountHint;f.elements.medioPago.onchange=()=>{accountHint();syncReceiptReference();};
     f.elements.fechaContable.onchange=()=>{applications=[];renderAllocations();dirty=true;};
     f.onsubmit=submitReceipt;renderAllocations();accountHint();syncReceiptReference();
@@ -430,7 +442,9 @@
   function accountHint(){
     const f=$('[data-document]');if(!f||mode!=='receipt')return;
     const account=options.cuentas.find(x=>String(x.sucursalId)===f.elements.sucursalId.value&&x.medioPago===f.elements.medioPago.value);
-    $('[data-account-hint]').textContent=account?`Caja/banco automático: ${account.cuenta} · ${account.nombre}`:'Falta configurar caja/banco para esta sucursal y medio de pago.';
+    const hint=$('[data-account-hint]');
+    hint.textContent=account?`Se recibirá en ${account.cuenta} · ${account.nombre}`:f.elements.sucursalId.value?'Falta configurar caja/banco para esta sucursal y medio de pago.':'La cuenta de caja/banco se mostrará al elegir sucursal.';
+    hint.classList.toggle('missing',!account&&Boolean(f.elements.sucursalId.value));
   }
   function syncReceiptConcept(){
     const f=$('[data-document]');if(!f||mode!=='receipt')return;
@@ -453,7 +467,7 @@
       <small>${esc(invoice.vence)} · ${esc(portfolioLabel(invoice.claseCartera))}</small>
       <small class="customer-receipt-products">${esc(products.length?productSummary(productNames(invoice)):'Sin artículos registrados')}</small>
       ${identifiers.length?`<small class="customer-receipt-identifiers">${esc(identifiers.join(' · '))}</small>`:''}
-      ${products.length?`<button type="button" class="customer-products-toggle" data-products="${index}" aria-expanded="false">Ver productos (${products.length})</button>
+      ${products.length>1?`<button type="button" class="customer-products-toggle" data-products="${index}" aria-expanded="false">Ver productos (${products.length})</button>
       <div class="customer-products-list" data-product-list="${index}" hidden>${products.map(product=>`<div><strong>${esc(product.nombre)}</strong><small>${esc(product.cantidad)} unidad(es)</small>${productIdentifiers(product).length?`<small>${esc(productIdentifiers(product).join(' · '))}</small>`:''}</div>`).join('')}</div>`:''}</td>
       <td>${money(invoice.saldo)}</td><td><input type="number" data-amount="${index}" min="0.01" max="${invoice.saldo}" step="0.01" value="${selected(invoice)?.valor||invoice.saldo}" ${selected(invoice)?'':'disabled'}></td></tr>`;
   }
@@ -478,20 +492,23 @@
     if(mode==='invoice'){renderAdvances();return;}
     const f=$('[data-document]'),kind=f.elements.tipo.value;
     $('[data-late-interest]').hidden=kind!=='CARTERA';
-    $('[data-portfolio-filter-wrap]').hidden=kind!=='CARTERA';
+    $('[data-portfolio-section]').hidden=kind!=='CARTERA';
     $('[data-contra-wrap]').hidden=kind!=='NORMAL';f.elements.cuentaContrapartida.required=kind==='NORMAL';
     f.elements.total.readOnly=kind!=='NORMAL';
     const conceptArea=$('[data-advance-concepts]');conceptArea.hidden=kind!=='ANTICIPO';
     if(kind==='ANTICIPO'&&!conceptArea.firstElementChild){
       conceptArea.innerHTML='<h3>Destino del dinero recibido</h3><p class="egreso-help">Distribuye el valor entre los conceptos que correspondan. Cada uno se contabiliza en su cuenta Zeus; solo el anticipo para compra queda disponible como cuota inicial. Los campos vacíos cuentan como cero.</p><div class="egreso-grid">'+[['ANTICIPO','Anticipo para compra'],['SOAT','SOAT'],['MATRICULA','Matrícula'],['OTROS','Otros']].map(([code,label])=>`<label>${label}<input type="number" data-advance-concept="${code}" min="0" step="0.01"></label>`).join('')+'</div>';
     }
-    if(kind!=='CARTERA'){area.innerHTML=kind==='ANTICIPO'?'<p class="egreso-help">Los valores quedan separados en el recibo y en Zeus.</p>':'<p class="egreso-help">Selecciona la cuenta contable específica para este ingreso. No modifica cartera.</p>';syncReceiptConcept();summary();return;}
+    if(kind!=='CARTERA'){area.replaceChildren();syncReceiptConcept();summary();return;}
     const selected=x=>applications.find(a=>a.facturaVentaId===x.id&&(a.facturaVentaCuotaId??null)===(x.cuotaId??null));
     const globalOrder=options.ordenCobroCartera==='MAS_VENCIDA';
     const order=receiptEligibility(options.facturas||[],applications,globalOrder,f.elements.fechaContable.value);
     applications=order.applications;const eligible=order.eligible;
     const shown=(options.facturas||[]).filter(x=>!f.elements.claseCarteraFiltro.value||x.claseCartera===f.elements.claseCarteraFiltro.value);
-    area.innerHTML=`<h3>Cuotas pendientes</h3><p class="egreso-help">${globalOrder?'Esta empresa exige pagar primero la cuota más antigua entre todas las facturas del cliente.':'Puedes escoger cualquier factura, pagando primero sus cuotas anteriores.'} Puedes anticipar la primera cuota permitida aunque aún no venza.</p><div class="table-wrap customer-receipt-dues"><table><thead><tr><th>Aplicar</th><th>Factura / cuota y artículos</th><th>Saldo</th><th>Abono</th></tr></thead><tbody>${shown.map((x,i)=>receiptDueRow(x,i,selected,eligible)).join('')||'<tr><td colspan="4">No hay cuotas pendientes en esta categoría.</td></tr>'}</tbody></table></div>`;
+    const visible=shown.slice(0,receiptVisibleRows);
+    const remaining=shown.length-receiptVisibleRows;
+    area.innerHTML=`<p class="customer-receipt-order">${globalOrder?'Paga primero la cuota más antigua del cliente.':'Paga primero las cuotas anteriores de cada factura.'} La primera cuota permitida puede pagarse antes del vencimiento.</p><div class="table-wrap customer-receipt-dues"><table><thead><tr><th>Aplicar</th><th>Factura / cuota y artículos</th><th>Saldo</th><th>Abono</th></tr></thead><tbody>${visible.map((x,i)=>receiptDueRow(x,i,selected,eligible)).join('')||'<tr><td colspan="4">No hay cuotas pendientes en esta categoría.</td></tr>'}</tbody></table></div>${remaining>0?`<button type="button" class="button secondary customer-receipt-more" data-show-more>Mostrar ${Math.min(8,remaining)} más · ${remaining} ${remaining===1?'restante':'restantes'}</button>`:''}`;
+    area.querySelector('[data-show-more]')?.addEventListener('click',()=>{receiptVisibleRows+=8;renderAllocations();});
     area.querySelectorAll('[data-products]').forEach(button=>button.onclick=()=>{
       const list=area.querySelector(`[data-product-list="${button.dataset.products}"]`);list.hidden=!list.hidden;
       button.setAttribute('aria-expanded',String(!list.hidden));button.textContent=list.hidden?`Ver productos (${list.childElementCount})`:'Cerrar productos';
@@ -526,12 +543,14 @@
       if(f.elements.tipo.value==='CARTERA'){
         const suggested=lateInterestSuggestion(),interest=f.elements.interesMora;
         $('[data-late-rate]').textContent=String(options.moraMensualPct||0);
-        $('[data-late-suggested]').value=money(suggested);
+        $('[data-late-suggested]').textContent=money(suggested);
         if(interest.dataset.edited!=='yes')interest.value=String(suggested);
         f.elements.total.value=String((applications.reduce((s,x)=>s+Math.round(Number(x.valor||0)*100),0)+Math.round(Number(interest.value||0)*100)+Math.round(Number(f.elements.ingresoRetencionMoto.value||0)*100))/100||'');
       }
       if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=String(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].reduce((s,x)=>s+Math.round(Number(x.value||0)*100),0))/100||'');
-      $('[data-summary]').textContent='Total recibido: '+money(Number(f.elements.total.value));
+      $('[data-summary]').textContent=f.elements.tipo.value==='CARTERA'
+        ?`Cuotas ${money(applications.reduce((s,x)=>s+Number(x.valor||0),0))} · Mora ${money(Number(f.elements.interesMora.value||0))} · Retención ${money(Number(f.elements.ingresoRetencionMoto.value||0))}`
+        :`Total recibido: ${money(Number(f.elements.total.value))}`;
     }else invoiceSummary();
   }
   async function submitReceipt(event){

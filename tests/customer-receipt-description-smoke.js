@@ -23,8 +23,8 @@ assert.match(form.elements.concepto.value,/MOTOCICLETA PRUEBA.*Chasis CH-123/);
 assert.ok(form.elements.concepto.value.length<=300);
 const motoRow=context.receiptDueRow(moto,0,()=>null,new Set(['7:101']));
 assert.match(motoRow,/Chasis CH-123 · VIN VIN-789/);
-assert.match(motoRow,/Ver productos \(1\)/);
-assert.match(motoRow,/data-product-list="0" hidden/);
+assert.doesNotMatch(motoRow,/Ver productos \(1\)/);
+assert.doesNotMatch(motoRow,/data-product-list="0" hidden/);
 
 context.applications.push({facturaVentaId:7,facturaVentaCuotaId:102,valor:500000});
 context.syncReceiptConcept();
