@@ -17,6 +17,8 @@ public sealed class CustomerPostingQueue(TenantConnectionFactory connections)
             WHERE ZeusEstado='ENVIANDO' AND ZeusActualizadoEnUtc<DATEADD(minute,-10,SYSUTCDATETIME());
             UPDATE cxc.ReciboCaja SET ZeusEstado='INCIERTO',ZeusError=N'Envío interrumpido. Conciliar en Zeus antes de reintentar.',ZeusActualizadoEnUtc=SYSUTCDATETIME()
             WHERE ZeusEstado='ENVIANDO' AND ZeusActualizadoEnUtc<DATEADD(minute,-10,SYSUTCDATETIME());
+            UPDATE cxc.ReciboCaja SET ReversionEstado='INCIERTO',ReversionError=N'Envío de reversión interrumpido. Conciliar en Zeus antes de reintentar.',ReversionActualizadoEnUtc=SYSUTCDATETIME()
+            WHERE ReversionEstado='ENVIANDO' AND ReversionActualizadoEnUtc<DATEADD(minute,-10,SYSUTCDATETIME());
             UPDATE ven.RefinanciacionCartera SET ZeusEstado='INCIERTO',ZeusError=N'Envío interrumpido. Conciliar en Zeus antes de reintentar.',ZeusActualizadoEnUtc=SYSUTCDATETIME()
             WHERE ZeusEstado='ENVIANDO' AND ZeusActualizadoEnUtc<DATEADD(minute,-10,SYSUTCDATETIME());
             UPDATE f SET RefinanciacionEstado='INCIERTO' FROM ven.FacturaVenta f
@@ -36,6 +38,13 @@ public sealed class CustomerPostingQueue(TenantConnectionFactory connections)
             END;
             IF NOT EXISTS(SELECT 1 FROM @Claim)
             BEGIN
+                ;WITH next AS(SELECT TOP(1) * FROM cxc.ReciboCaja WITH(UPDLOCK,ROWLOCK)
+                    WHERE ReversionEstado='PENDIENTE' AND ReversionSnapshot IS NOT NULL ORDER BY ReciboCajaId)
+                UPDATE next SET ReversionEstado='ENVIANDO',ReversionIntentos=ReversionIntentos+1,ReversionActualizadoEnUtc=SYSUTCDATETIME()
+                OUTPUT 'REVERSO',inserted.ReciboCajaId,inserted.EmpresaId,inserted.ReversionGuid,inserted.ReversionSnapshot INTO @Claim;
+            END;
+            IF NOT EXISTS(SELECT 1 FROM @Claim)
+            BEGIN
                 ;WITH next AS(SELECT TOP(1) * FROM ven.RefinanciacionCartera WITH(UPDLOCK,ROWLOCK)
                     WHERE ZeusEstado='PENDIENTE' ORDER BY RefinanciacionCarteraId)
                 UPDATE next SET ZeusEstado='ENVIANDO',ZeusIntentos=ZeusIntentos+1,ZeusActualizadoEnUtc=SYSUTCDATETIME()
@@ -48,6 +57,10 @@ public sealed class CustomerPostingQueue(TenantConnectionFactory connections)
     }
     public async Task FinishAsync(CustomerPostingJob job,ZeusResult result,CancellationToken ct)
     {
+        if(job.Tipo=="REVERSO")
+        {
+            await FinishReversalAsync(job,result,ct);return;
+        }
         if(job.Tipo=="NOTA")
         {
             await FinishNoteAsync(job,result,ct);return;
@@ -60,6 +73,107 @@ public sealed class CustomerPostingQueue(TenantConnectionFactory connections)
         q.Parameters.AddWithValue("@F",(object?)result.Fuente??DBNull.Value);q.Parameters.AddWithValue("@N",(object?)result.Documento??DBNull.Value);
         q.Parameters.AddWithValue("@Error",(object?)result.Error??DBNull.Value);
         await q.ExecuteNonQueryAsync(ct);
+    }
+    private async Task FinishReversalAsync(CustomerPostingJob job,ZeusResult result,CancellationToken ct)
+    {
+        await using var c=await connections.OpenAsync(job.EmpresaId,false,ct);
+        await using var tx=(SqlTransaction)await c.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
+        await using var q=ZeusRepository.Command(c,"SELECT Tipo,ZeusEstado,ReversionEstado,Total,ReversionPor FROM cxc.ReciboCaja WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND ReciboCajaId=@Id",job.EmpresaId,tx);
+        ZeusRepository.Add(q,"@Id",job.Id);
+        string type;long user;decimal total;
+        await using(var r=await q.ExecuteReaderAsync(ct))
+        {
+            if(!await r.ReadAsync(ct)||r.GetString(1)!="CONTABILIZADO"||r.GetString(2) is not("ENVIANDO" or "INCIERTO"))
+                throw new InvalidOperationException("El recibo o su reversión cambiaron antes de confirmar Zeus.");
+            type=r.GetString(0);total=r.GetDecimal(3);user=r.GetInt64(4);
+        }
+        if(result.Estado=="CONTABILIZADO")
+        {
+            if(type=="ANTICIPO")
+            {
+                q.CommandText="UPDATE cxc.AnticipoCliente SET Saldo=0 WHERE EmpresaId=@E AND ReciboCajaId=@Id AND Saldo=@Total";
+                ZeusRepository.Add(q,"@Total",total);
+                if(await q.ExecuteNonQueryAsync(ct)!=1)throw new InvalidOperationException("El anticipo fue utilizado mientras se procesaba la reversión; requiere conciliación.");
+            }
+            if(type=="CARTERA")
+            {
+                q.CommandText="SELECT FacturaVentaId,FacturaVentaCuotaId,Valor FROM cxc.ReciboCajaAplicacion WHERE EmpresaId=@E AND ReciboCajaId=@Id ORDER BY ReciboCajaAplicacionId";
+                var lines=new List<(long Invoice,long? Installment,decimal Value)>();
+                await using(var r=await q.ExecuteReaderAsync(ct))while(await r.ReadAsync(ct))
+                    lines.Add((r.GetInt64(0),r.IsDBNull(1)?null:r.GetInt64(1),r.GetDecimal(2)));
+                foreach(var line in lines)
+                {
+                    ZeusRepository.Add(q,"@Invoice",line.Invoice);ZeusRepository.Add(q,"@Value",line.Value);
+                    q.CommandText="UPDATE ven.FacturaVenta SET SaldoPendiente=SaldoPendiente+@Value WHERE EmpresaId=@E AND FacturaVentaId=@Invoice AND RefinanciacionEstado='LIBRE'";
+                    if(await q.ExecuteNonQueryAsync(ct)!=1)throw new InvalidOperationException("La factura fue refinanciada mientras se procesaba la reversión; requiere conciliación.");
+                    if(line.Installment.HasValue)
+                    {
+                        ZeusRepository.Add(q,"@Installment",line.Installment.Value);
+                        q.CommandText="UPDATE ven.FacturaVentaCuota SET SaldoPendiente=SaldoPendiente+@Value WHERE EmpresaId=@E AND FacturaVentaCuotaId=@Installment AND FacturaVentaId=@Invoice AND EstadoPlan='ACTIVA'";
+                        if(await q.ExecuteNonQueryAsync(ct)!=1)throw new InvalidOperationException("La cuota cambió mientras se procesaba la reversión; requiere conciliación.");
+                        q.Parameters.RemoveAt("@Installment");
+                    }
+                    q.Parameters.RemoveAt("@Invoice");q.Parameters.RemoveAt("@Value");
+                }
+            }
+        }
+        q.CommandText="""
+            UPDATE cxc.ReciboCaja SET ReversionEstado=@State,ReversionFuente=@F,ReversionDocumento=@N,
+                ReversionError=@Error,ReversionActualizadoEnUtc=SYSUTCDATETIME(),
+                ZeusEstado=CASE WHEN @State='CONTABILIZADO' THEN 'REVERTIDO' ELSE ZeusEstado END
+            WHERE EmpresaId=@E AND ReciboCajaId=@Id AND ReversionEstado IN('ENVIANDO','INCIERTO')
+            """;
+        ZeusRepository.Add(q,"@State",result.Estado);ZeusRepository.Add(q,"@F",(object?)result.Fuente??DBNull.Value);
+        ZeusRepository.Add(q,"@N",(object?)result.Documento??DBNull.Value);ZeusRepository.Add(q,"@Error",(object?)result.Error??DBNull.Value);
+        if(await q.ExecuteNonQueryAsync(ct)!=1)throw new InvalidOperationException("La reversión cambió de estado.");
+        if(result.Estado=="CONTABILIZADO")
+        {
+            q.CommandText="INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen) VALUES(@E,@User,'REVERTIR_RECIBO_CAJA','cxc.ReciboCaja',CONVERT(varchar(30),@Id),@Audit,'ZEUS')";
+            ZeusRepository.Add(q,"@User",user);ZeusRepository.Add(q,"@Audit",System.Text.Json.JsonSerializer.Serialize(new{fuente=result.Fuente,documento=result.Documento}));
+            await q.ExecuteNonQueryAsync(ct);
+        }
+        await tx.CommitAsync(ct);
+    }
+
+    public async Task<string> RetryReversalAsync(long company,long id,CancellationToken ct)
+    {
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var tx=(SqlTransaction)await c.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
+        await using var q=ZeusRepository.Command(c,"SELECT ReversionSnapshot,SucursalId,s.Nombre FROM cxc.ReciboCaja r WITH(UPDLOCK,HOLDLOCK) JOIN core.Sucursal s ON s.EmpresaId=r.EmpresaId AND s.SucursalId=r.SucursalId WHERE r.EmpresaId=@E AND r.ReciboCajaId=@Id AND r.ReversionEstado='RECHAZADO'",company,tx);
+        ZeusRepository.Add(q,"@Id",id);
+        ZeusSnapshot snapshot;long branch;string branchName;
+        await using(var r=await q.ExecuteReaderAsync(ct))
+        {
+            if(!await r.ReadAsync(ct))throw new ArgumentException("Solo se reintenta una reversión rechazada. Las inciertas se concilian.");
+            snapshot=JsonSerializer.Deserialize<ZeusSnapshot>(r.GetString(0))!;branch=r.GetInt64(1);branchName=r.GetString(2);
+        }
+        q.CommandText="SELECT Configuracion FROM core.ZeusConfiguracion WITH(HOLDLOCK) WHERE EmpresaId=@E";
+        var current=JsonSerializer.Deserialize<ZeusSettings>(await q.ExecuteScalarAsync(ct) as string??throw new ArgumentException("Configura Zeus."))!;
+        if(!current.Habilitado||current.ServidorEsperado!=snapshot.Configuracion.ServidorEsperado||current.BaseEsperada!=snapshot.Configuracion.BaseEsperada)
+            throw new ArgumentException("El destino Zeus cambió o está deshabilitado.");
+        if(!(current.FuentesAutomaticas??[]).Any(x=>x.Movimiento=="RECIBO_CAJA"&&x.SucursalId==branch))
+            throw new ArgumentException("Configura la fuente de recibos de esta sucursal.");
+        var route=ZeusRouting.Resolve(current,branch,"RECIBO_CAJA",branchName);
+        var renewed=snapshot with{Configuracion=snapshot.Configuracion with{Fuente=route.Fuente,Serie=route.Serie,UnidadNegocio=route.UnidadNegocio,TipoFactura=route.TipoFactura,SucursalOperacion=route.SucursalOperacion}};
+        q.CommandText="UPDATE cxc.ReciboCaja SET ReversionSnapshot=@Snapshot,ReversionEstado='PENDIENTE',ReversionError=NULL,ReversionActualizadoEnUtc=SYSUTCDATETIME() WHERE EmpresaId=@E AND ReciboCajaId=@Id AND ReversionEstado='RECHAZADO'";
+        ZeusRepository.Add(q,"@Snapshot",JsonSerializer.Serialize(renewed));
+        if(await q.ExecuteNonQueryAsync(ct)!=1)throw new ArgumentException("La reversión cambió de estado.");
+        await tx.CommitAsync(ct);return route.Fuente;
+    }
+
+    public async Task<ZeusResult> ReconcileReversalAsync(long company,long id,ZeusTransport transport,CancellationToken ct)
+    {
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=ZeusRepository.Command(c,"SELECT ReversionGuid,ReversionSnapshot FROM cxc.ReciboCaja WHERE EmpresaId=@E AND ReciboCajaId=@Id AND ReversionEstado='INCIERTO'",company);
+        ZeusRepository.Add(q,"@Id",id);Guid key;ZeusSnapshot snapshot;
+        await using(var r=await q.ExecuteReaderAsync(ct))
+        {
+            if(!await r.ReadAsync(ct))throw new ArgumentException("La reversión no está en estado incierto.");
+            key=r.GetGuid(0);snapshot=JsonSerializer.Deserialize<ZeusSnapshot>(r.GetString(1))!;
+        }
+        var result=await transport.ReconcileAsync(company,snapshot,key,ct);
+        if(result.Estado=="CONTABILIZADO")await FinishReversalAsync(new("REVERSO",id,company,key,snapshot),result,ct);
+        return result;
     }
     private async Task FinishNoteAsync(CustomerPostingJob job,ZeusResult result,CancellationToken ct)
     {

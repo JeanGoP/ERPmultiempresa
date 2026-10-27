@@ -88,9 +88,10 @@ public static class ZeusXml
             foreach(var invoice in payment.Facturas)PaymentLine(new(new ZeusAccount("PROVEEDOR",invoice.Cuenta),invoice.Valor),invoice);
             foreach(var movement in s.Movimientos.Where(m=>m.Regla.Concepto!="PROVEEDOR"))PaymentLine(movement,null);
         }
-        if(s.ClienteDocumento is { Tipo:"RECIBO" } receipt)
+        if(s.ClienteDocumento is { Tipo:"RECIBO" or "REVERSO_RECIBO" } receipt)
         {
-            var description="RECIBO DE CAJA - "+(origin.ProveedorNombre??s.Proveedor.CodigoTercero);
+            var reversal=receipt.Tipo=="REVERSO_RECIBO";
+            var description=(reversal?"REVERSIÓN RECIBO DE CAJA - ":"RECIBO DE CAJA - ")+(origin.ProveedorNombre??s.Proveedor.CodigoTercero);
             Set(header,"DESCDCTO",description[..Math.Min(120,description.Length)]);
             Set(header,"XmlAdicionales",Marker(key));Set(header,"IDBANCO",receipt.Banco);
             Set(header,"BENEFDCTO",origin.ProveedorNombre??s.Proveedor.CodigoTercero);
@@ -103,7 +104,7 @@ public static class ZeusXml
                 Set(line,"ANOTRA",period);Set(line,"IDFUENTE",config.Fuente);Set(line,"NUMDOCTRA",number);Set(line,"FECHATRA",date);
                 Set(line,"CODICTA",m.Regla.Cuenta);Set(line,"NITTRA",s.Proveedor.CodigoTercero);
                 Set(line,"CLIPRV",invoice is null?"":s.Proveedor.CodigoProveedor);
-                Set(line,"DESCRITRA",invoice is null?receipt.Concepto[..Math.Min(120,receipt.Concepto.Length)]:"RECAUDO FACTURA "+invoice.Numero);
+                Set(line,"DESCRITRA",invoice is null?receipt.Concepto[..Math.Min(120,receipt.Concepto.Length)]:(reversal?"REVERSIÓN RECAUDO FACTURA ":"RECAUDO FACTURA ")+invoice.Numero);
                 Set(line,"BU",invoice?.UnidadNegocio??config.UnidadNegocio);Set(line,"IDUSUARIO",config.UsuarioZeus);
                 Set(line,"STATUSTRA","XA");Set(line,"INDCPITRA",invoice is null?"1":"2");Set(line,"VALORTRA",m.Valor);
                 Set(line,"TasaCambio",1);Set(line,"Aplicacion","CONTABILIDAD");
@@ -120,7 +121,7 @@ public static class ZeusXml
                 }
                 document.Add(line);
             }
-            foreach(var invoice in receipt.Facturas??[])ReceiptLine(new(new ZeusAccount("CLIENTE",invoice.Cuenta),-invoice.Valor),invoice);
+            foreach(var invoice in receipt.Facturas??[])ReceiptLine(new(new ZeusAccount("CLIENTE",invoice.Cuenta),reversal?invoice.Valor:-invoice.Valor),invoice);
             foreach(var movement in s.Movimientos.Where(m=>m.Regla.Concepto!="CLIENTE"))ReceiptLine(movement,null);
         }
         if(s.NotaCartera is { } note)

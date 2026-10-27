@@ -80,6 +80,37 @@
       $('[data-content]').innerHTML=`<div class="customer-list-heading"><strong>Documentos guardados</strong><button type="button" class="button secondary" data-return-create>← Volver a ${mode==='invoice'?'facturación':'recibos'}</button></div><div class="table-wrap"><table><thead><tr><th>Documento</th><th>Fecha</th><th>Cliente</th><th>Total</th><th>Saldo / tipo</th><th>Zeus</th></tr></thead><tbody>${response.items.map(row=>`<tr><td>${mode==='invoice'?`<button type="button" class="customer-document-link" data-view-invoice="${row.id}" aria-label="Ver factura ${esc(row.numero)}">${esc(row.numero)}</button><br><button type="button" class="button secondary" data-print-saved="${row.id}" aria-label="Imprimir comprobante ${esc(row.numero)}">Imprimir</button>`:esc(row.numero||'RC-'+row.id)}</td><td>${esc(row.fecha)}</td><td>${esc(row.cliente)}</td><td>${money(row.total)}</td><td>${mode==='invoice'?money(row.saldo)+' · anticipo '+money(row.anticipo)+'<br><small>'+esc(portfolioLabel(row.claseCartera))+'</small>':esc(row.tipo)+(row.tipo==='ANTICIPO'?` · disponible ${money(row.saldoAnticipo)}`:'')+(row.concepto?`<br><small>${esc(row.concepto)}</small>`:'')}</td><td>${esc(row.zeusEstado)} ${esc([row.fuente,row.documento].filter(Boolean).join(' · '))}<br><small>${esc(row.error||'')}</small>${row.zeusEstado==='RECHAZADO'?(mode==='invoice'?`<button type="button" class="button secondary" data-cost-center="${row.id}">Corregir centro de costo</button>`:'')+`<button type="button" class="button secondary" data-retry="${row.id}">Reintentar Zeus</button>`:''}${row.zeusEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?`<button type="button" class="button secondary" data-reconcile="${row.id}">Conciliar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6">No se encontraron documentos.</td></tr>'}</tbody></table></div>
         <div class="egreso-toolbar"><button type="button" class="button secondary" data-first>Primera página</button><button type="button" class="button secondary" data-next ${next?'':'disabled'}>Siguientes</button></div>`;
       notice('');$('[data-return-create]').onclick=()=>void create();$('[data-first]').onclick=()=>listing();$('[data-next]').onclick=()=>listing(next);
+      if(mode==='receipt'){
+        const rows=Array.from($('[data-content] tbody').rows);
+        response.items.forEach((item,index)=>{
+          const row=rows[index];if(!row)return;
+          const cell=row.cells[row.cells.length-1];
+          if(item.reversionEstado){
+            const detail=document.createElement('small');
+            detail.textContent=`Reversión: ${item.reversionEstado}${item.reversionFuente&&item.reversionDocumento?` · ${item.reversionFuente} · ${item.reversionDocumento}`:''}${item.reversionMotivo?` · ${item.reversionMotivo}`:''}${item.reversionError?` · ${item.reversionError}`:''}`;
+            cell.append(document.createElement('br'),detail);
+          }
+          const action=item.zeusEstado==='CONTABILIZADO'&&!item.reversionEstado?'reverse':item.reversionEstado==='RECHAZADO'?'reverse/retry':item.reversionEstado==='INCIERTO'&&hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')?'reverse/reconcile':null;
+          if(!action)return;
+          const button=document.createElement('button');button.type='button';button.className='button secondary';
+          button.textContent=action==='reverse'?'Revertir recibo':action==='reverse/retry'?'Reintentar reversión':'Conciliar reversión';
+          cell.append(button);
+          button.onclick=async()=>{
+            if(busy)return;
+            let body;
+            if(action==='reverse'){
+              const motivo=prompt(`Motivo para revertir RC-${item.id}:`,'')?.trim();if(!motivo)return;
+              const fechaContable=prompt('Fecha contable de la reversión (AAAA-MM-DD):',today())?.trim();if(!fechaContable)return;
+              if(!confirm(`Se enviará a Zeus un comprobante compensatorio para RC-${item.id}. ¿Continuar?`))return;
+              body=JSON.stringify({fechaContable,motivo});
+            }
+            busy=true;button.disabled=true;
+            try{await apiRequest(endpoint()+`/${item.id}/${action}`,{method:'POST',...(body?{body}:{})});await listing(before);notice(action==='reverse'?'Reversión en proceso. Consulta aquí su resultado en Zeus.':'Solicitud enviada. Consulta aquí su resultado en Zeus.');}
+            catch(error){notice(error.message,true);}
+            finally{busy=false;if(button.isConnected)button.disabled=false;}
+          };
+        });
+      }
       dialog.querySelectorAll('[data-view-invoice]').forEach(button=>button.onclick=()=>void viewInvoice(Number(button.dataset.viewInvoice),before));
       dialog.querySelectorAll('[data-print-saved]').forEach(button=>button.onclick=async()=>{if(busy)return;button.disabled=true;try{await printSavedInvoice(Number(button.dataset.printSaved));}finally{if(button.isConnected)button.disabled=false;}});
       for(const action of ['retry','reconcile'])dialog.querySelectorAll(`[data-${action}]`).forEach(button=>button.onclick=async()=>{

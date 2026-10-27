@@ -242,13 +242,18 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             FROM cxc.ReciboCaja r JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.ClienteId
             WHERE r.EmpresaId=@E AND @Cash=1
             UNION ALL
+            SELECT 'REVERSO_RECIBO',r.ReciboCajaId,NULL,NULL,r.ReversionGuid,r.ReversionEstado,r.ReversionIntentos,r.ReversionFuente,r.ReversionDocumento,r.ReversionError,r.CreadoEnUtc,r.ReversionActualizadoEnUtc,
+                   CONCAT('Reversión RC-',r.ReciboCajaId),t.RazonSocial,r.ReversionFecha,r.Total
+            FROM cxc.ReciboCaja r JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.ClienteId
+            WHERE r.EmpresaId=@E AND @Cash=1 AND r.ReversionEstado IS NOT NULL
+            UNION ALL
             SELECT 'NOTA_CARTERA',n.RefinanciacionCarteraId,NULL,NULL,n.OperacionGuid,n.ZeusEstado,n.ZeusIntentos,n.ZeusFuente,n.ZeusDocumento,n.ZeusError,n.CreadoEnUtc,n.ZeusActualizadoEnUtc,
                    CONCAT(f.Numero,' · NC-',n.RefinanciacionCarteraId),t.RazonSocial,n.FechaContable,n.NuevoSaldo
             FROM ven.RefinanciacionCartera n
             JOIN ven.FacturaVenta f ON f.EmpresaId=n.EmpresaId AND f.FacturaVentaId=n.FacturaVentaId
             JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
             WHERE n.EmpresaId=@E AND @Sales=1)
-            SELECT * FROM Envio WHERE (@S IS NULL OR Estado=@S) AND (@Pending=0 OR Estado NOT IN('CONTABILIZADO','CANCELADO'))
+            SELECT * FROM Envio WHERE (@S IS NULL OR Estado=@S) AND (@Pending=0 OR Estado NOT IN('CONTABILIZADO','CANCELADO','REVERTIDO'))
             ORDER BY FechaContable DESC,TipoDocumento,OrigenId DESC OFFSET @O ROWS FETCH NEXT 100 ROWS ONLY;
             """,company);
         Add(q,"@S",string.IsNullOrWhiteSpace(state)?DBNull.Value:state);Add(q,"@O",Math.Max(0,offset));

@@ -65,6 +65,28 @@ var legacy=XElement.Parse(ZeusXml.Build(snapshot with{ClienteDocumento=snapshot.
 Check(legacy.Descendants("Transac").Where(x=>(string?)x.Element("CODICTA")=="130505")
     .All(x=>(string?)x.Element("NUMEFAC")=="FV-1"),"los snapshots históricos conservan su numeración");
 
+var receiptSource=source with{Factura="RC-7",Total=200m};
+var receiptOriginal=new ZeusSnapshot(settings,receiptSource,new ZeusSupplier(1,"123","123"),
+    [new(new ZeusAccount("CLIENTE","130505"),-200m),new(new ZeusAccount("BANCO_CAJA","111005"),200m)],
+    ClienteDocumento:new ZeusCustomerDocument("RECIBO","Cobro","","001","111005","","COP",
+        [new ZeusCustomerInvoice(1,"130505","FA","0000000060","Local",new DateTime(2026,10,3),200m)]));
+var receiptReversal=receiptOriginal with
+{
+    Origen=receiptSource with{Factura="RC-7-REV"},
+    Movimientos=receiptOriginal.Movimientos.Select(m=>m with{Valor=-m.Valor}).ToArray(),
+    ClienteDocumento=receiptOriginal.ClienteDocumento! with{Tipo="REVERSO_RECIBO",Concepto="Reversión RC-7"}
+};
+var reversalXml=XElement.Parse(ZeusXml.Build(receiptReversal,Guid.NewGuid()));
+var reversalLines=reversalXml.Descendants("Transac").ToArray();
+Check(reversalLines.Length==2&&reversalLines.Sum(x=>decimal.Parse((string)x.Element("VALORTRA")!,System.Globalization.CultureInfo.InvariantCulture))==0m,
+    "la reversión del recibo conserva un comprobante balanceado");
+Check(reversalLines.Single(x=>(string?)x.Element("CODICTA")=="130505").Element("VALORTRA")!.Value=="200"
+    &&(string?)reversalLines.Single(x=>(string?)x.Element("CODICTA")=="130505").Element("NUMEFAC")=="0000000060"
+    &&(string?)reversalLines.Single(x=>(string?)x.Element("CODICTA")=="130505").Element("VENCEFAC")=="2026/10/03",
+    "la reversión reabre la misma factura y vencimiento de cartera en Zeus");
+Check(reversalLines.Single(x=>(string?)x.Element("CODICTA")=="111005").Element("VALORTRA")!.Value=="-200",
+    "la reversión descarga caja o banco por el mismo valor");
+
 var noteSnapshot=new ZeusSnapshot(settings with{Fuente="09"},source,new ZeusSupplier(1,"BUR0002","1063281836"),
     [new(new ZeusAccount("CLIENTE","130505001"),-150800m,VencimientoCartera:new DateTime(2026,10,25),NumeroCuota:1),
      new(new ZeusAccount("CLIENTE","130505001"),-233000m,VencimientoCartera:new DateTime(2026,11,25),NumeroCuota:2),

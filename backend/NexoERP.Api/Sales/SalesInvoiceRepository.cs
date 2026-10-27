@@ -466,9 +466,9 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         foreach(var advance in advances.OrderBy(x=>x.ReciboCajaId))
         {
             q.Parameters.Add("@Receipt",SqlDbType.BigInt).Value=advance.ReciboCajaId;
-            q.CommandText="SELECT a.Saldo,r.ZeusEstado FROM cxc.AnticipoCliente a WITH(UPDLOCK,HOLDLOCK) JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId WHERE a.EmpresaId=@E AND a.ReciboCajaId=@Receipt AND a.ClienteId=@C";
+            q.CommandText="SELECT a.Saldo,r.ZeusEstado,r.ReversionEstado FROM cxc.AnticipoCliente a WITH(UPDLOCK,HOLDLOCK) JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId WHERE a.EmpresaId=@E AND a.ReciboCajaId=@Receipt AND a.ClienteId=@C";
             await using(var r=await q.ExecuteReaderAsync(ct))
-                if(!await r.ReadAsync(ct)||r.GetDecimal(0)<advance.Valor||r.GetString(1)!="CONTABILIZADO")
+                if(!await r.ReadAsync(ct)||r.GetDecimal(0)<advance.Valor||r.GetString(1)!="CONTABILIZADO"||!r.IsDBNull(2))
                     throw new ArgumentException("El anticipo no pertenece al cliente, no tiene saldo o no está confirmado en Zeus.");
             q.Parameters.RemoveAt("@Receipt");
         }

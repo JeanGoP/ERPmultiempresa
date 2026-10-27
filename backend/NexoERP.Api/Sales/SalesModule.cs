@@ -102,6 +102,18 @@ public static class SalesModule
         }).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
         group.MapPost("/cash-receipts/{id:long}/reconcile",async(long empresaId,long id,CustomerPostingQueue queue,ZeusTransport zeus,CancellationToken ct)=>
             Results.Ok(await queue.ReconcileAsync(empresaId,"RECIBO",id,zeus,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
+        group.MapPost("/cash-receipts/{id:long}/reverse",async(long empresaId,long id,CashReceiptReversalInput input,HttpContext http,CashReceiptReversalRepository reversals,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await reversals.RequestAsync(empresaId,id,input,Convert.ToInt64(http.Items["UsuarioId"]),ct));}
+            catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
+        }).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
+        group.MapPost("/cash-receipts/{id:long}/reverse/retry",async(long empresaId,long id,CustomerPostingQueue queue,CancellationToken ct)=>
+        {
+            try{return Results.Ok(new{fuente=await queue.RetryReversalAsync(empresaId,id,ct)});}
+            catch(ArgumentException e){return Results.Conflict(new{error=e.Message});}
+        }).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
+        group.MapPost("/cash-receipts/{id:long}/reverse/reconcile",async(long empresaId,long id,CustomerPostingQueue queue,ZeusTransport zeus,CancellationToken ct)=>
+            Results.Ok(await queue.ReconcileReversalAsync(empresaId,id,zeus,ct))).RequireErpPermission("SEGURIDAD.PERMISOS.ADMINISTRAR");
 
         group.MapGet("/sales-invoices",async(long empresaId,string? q,long? antes,SalesInvoiceRepository sales,CancellationToken ct)=>
             Results.Ok(await sales.ListAsync(empresaId,q,antes,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");

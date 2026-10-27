@@ -35,6 +35,7 @@ builder.Services.AddScoped<CrmApprovedCreditRepository>();
 builder.Services.AddHttpClient("CrmIntegrationVerification", client => client.Timeout = TimeSpan.FromSeconds(5))
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<CustomerCashRepository>();
+builder.Services.AddScoped<CashReceiptReversalRepository>();
 builder.Services.AddScoped<SalesInvoiceRepository>();
 builder.Services.AddScoped<SalesPriceApprovalRepository>();
 builder.Services.AddScoped<PortfolioRefinancingRepository>();

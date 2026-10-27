@@ -157,7 +157,7 @@ public sealed class PortfolioRefinancingRepository(TenantConnectionFactory conne
         q.CommandText="""
             SELECT COUNT(*) FROM cxc.ReciboCajaAplicacion a
             JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
-            WHERE a.EmpresaId=@E AND a.FacturaVentaId=@Invoice AND r.ZeusEstado<>'CONTABILIZADO'
+            WHERE a.EmpresaId=@E AND a.FacturaVentaId=@Invoice AND (r.ZeusEstado NOT IN('CONTABILIZADO','REVERTIDO') OR r.ReversionEstado IN('PENDIENTE','ENVIANDO','INCIERTO'))
             """;
         if(Convert.ToInt32(await q.ExecuteScalarAsync(ct))!=0)
             throw new ArgumentException("Hay recaudos de esta factura sin confirmar en Zeus. Concílialos antes de refinanciar.");

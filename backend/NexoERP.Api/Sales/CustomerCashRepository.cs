@@ -42,7 +42,8 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         if(type is not("" or "ANTICIPO" or "CARTERA" or "NORMAL"))throw new ArgumentException("El tipo de recibo no es válido.");
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=ZeusRepository.Command(c,"""
-            SELECT TOP(51) r.ReciboCajaId,r.FechaContable,r.Tipo,t.RazonSocial,r.Total,r.ZeusEstado,r.ZeusFuente,r.ZeusDocumento,r.ZeusError,r.Concepto,a.Saldo
+            SELECT TOP(51) r.ReciboCajaId,r.FechaContable,r.Tipo,t.RazonSocial,r.Total,r.ZeusEstado,r.ZeusFuente,r.ZeusDocumento,r.ZeusError,r.Concepto,a.Saldo,
+                r.ReversionEstado,r.ReversionFuente,r.ReversionDocumento,r.ReversionError,r.ReversionMotivo
             FROM cxc.ReciboCaja r JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.ClienteId
             LEFT JOIN cxc.AnticipoCliente a ON a.EmpresaId=r.EmpresaId AND a.ReciboCajaId=r.ReciboCajaId
             WHERE r.EmpresaId=@E AND (@Type='' OR r.Tipo=@Type) AND (@Before IS NULL OR r.ReciboCajaId<@Before)
@@ -58,7 +59,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         while(await r.ReadAsync(ct))
         {
             if(list.Count==50)return new{items=list,siguiente=next};
-            next=r.GetInt64(0);list.Add(new{id=next,fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),tipo=r.GetString(2),cliente=r.GetString(3),total=r.GetDecimal(4),zeusEstado=r.GetString(5),fuente=r.IsDBNull(6)?null:r.GetString(6),documento=r.IsDBNull(7)?null:r.GetString(7),error=r.IsDBNull(8)?null:r.GetString(8),concepto=r.GetString(9),saldoAnticipo=r.IsDBNull(10)?(decimal?)null:r.GetDecimal(10)});
+            next=r.GetInt64(0);list.Add(new{id=next,fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),tipo=r.GetString(2),cliente=r.GetString(3),total=r.GetDecimal(4),zeusEstado=r.GetString(5),fuente=r.IsDBNull(6)?null:r.GetString(6),documento=r.IsDBNull(7)?null:r.GetString(7),error=r.IsDBNull(8)?null:r.GetString(8),concepto=r.GetString(9),saldoAnticipo=r.IsDBNull(10)?(decimal?)null:r.GetDecimal(10),reversionEstado=r.IsDBNull(12)?null:r.GetString(12),reversionFuente=r.IsDBNull(13)?null:r.GetString(13),reversionDocumento=r.IsDBNull(14)?null:r.GetString(14),reversionError=r.IsDBNull(15)?null:r.GetString(15),reversionMotivo=r.IsDBNull(16)?null:r.GetString(16)});
         }
         return new{items=list,siguiente=(long?)null};
     }
@@ -321,6 +322,9 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         {
             ZeusRepository.Add(q,"@Invoice",line.FacturaVentaId);ZeusRepository.Add(q,"@Value",line.Valor);
             ZeusRepository.Add(q,"@Installment",(object?)line.FacturaVentaCuotaId??DBNull.Value);
+            q.CommandText="SELECT COUNT(*) FROM cxc.ReciboCajaAplicacion a JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId WHERE a.EmpresaId=@E AND a.FacturaVentaId=@Invoice AND r.ReversionEstado IN('PENDIENTE','ENVIANDO','INCIERTO')";
+            if(Convert.ToInt32(await q.ExecuteScalarAsync(ct))!=0)
+                throw new ArgumentException("Hay una reversión de recaudo en curso para esta factura. Espera su confirmación en Zeus.");
             q.CommandText="""
                 SELECT f.SaldoPendiente,f.ZeusEstado,f.Numero,f.Vencimiento,f.Snapshot,c.SaldoPendiente,c.FechaVencimiento,
                     f.ZeusDocumento,
