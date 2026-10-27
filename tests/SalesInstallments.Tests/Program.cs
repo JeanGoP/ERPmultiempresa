@@ -94,6 +94,14 @@ var receiptOriginal=new ZeusSnapshot(settings,receiptSource,new ZeusSupplier(1,"
     [new(new ZeusAccount("CLIENTE","130505"),-200m),new(new ZeusAccount("BANCO_CAJA","111005"),200m)],
     ClienteDocumento:new ZeusCustomerDocument("RECIBO","Cobro","","001","111005","","COP",
         [new ZeusCustomerInvoice(1,"130505","FA","0000000060","Local",new DateTime(2026,10,3),200m)]));
+var retentionRule=new ZeusAccount("INGRESO_RETENCION_MOTO","413505001",CentroCosto:"CC01");
+var extraIncomeReceipt=receiptOriginal with{Origen=receiptSource with{Total=235m},Movimientos=[
+    new(new ZeusAccount("CLIENTE","130505"),-200m),new(retentionRule,-35m),new(new ZeusAccount("BANCO_CAJA","111005"),235m)]};
+var extraIncomeLines=XElement.Parse(ZeusXml.Build(extraIncomeReceipt,Guid.NewGuid())).Descendants("Transac").ToArray();
+Check(extraIncomeLines.Sum(x=>decimal.Parse((string)x.Element("VALORTRA")!,System.Globalization.CultureInfo.InvariantCulture))==0m
+    &&(string?)extraIncomeLines.Single(x=>(string?)x.Element("CODICTA")=="413505001").Element("IDCENCO")=="CC01"
+    &&(string?)extraIncomeLines.Single(x=>(string?)x.Element("CODICTA")=="413505001").Element("DESCRITRA")=="INGRESO POR RETENCIÓN DE MOTO",
+    "la retención de moto va a su ingreso Zeus sin reducir el abono de cartera");
 var receiptReversal=receiptOriginal with
 {
     Origen=receiptSource with{Factura="RC-7-REV"},

@@ -104,7 +104,9 @@ public static class ZeusXml
                 Set(line,"ANOTRA",period);Set(line,"IDFUENTE",config.Fuente);Set(line,"NUMDOCTRA",number);Set(line,"FECHATRA",date);
                 Set(line,"CODICTA",m.Regla.Cuenta);Set(line,"NITTRA",s.Proveedor.CodigoTercero);
                 Set(line,"CLIPRV",invoice is null?"":s.Proveedor.CodigoProveedor);
-                Set(line,"DESCRITRA",invoice is null?receipt.Concepto[..Math.Min(120,receipt.Concepto.Length)]:(reversal?"REVERSIÓN RECAUDO FACTURA ":"RECAUDO FACTURA ")+invoice.Numero);
+                Set(line,"DESCRITRA",m.Regla.Concepto=="INGRESO_RETENCION_MOTO"
+                    ?reversal?"REVERSIÓN INGRESO RETENCIÓN DE MOTO":"INGRESO POR RETENCIÓN DE MOTO"
+                    :invoice is null?receipt.Concepto[..Math.Min(120,receipt.Concepto.Length)]:(reversal?"REVERSIÓN RECAUDO FACTURA ":"RECAUDO FACTURA ")+invoice.Numero);
                 Set(line,"BU",invoice?.UnidadNegocio??config.UnidadNegocio);Set(line,"IDUSUARIO",config.UsuarioZeus);
                 Set(line,"STATUSTRA","XA");Set(line,"INDCPITRA",invoice is null?"1":"2");Set(line,"VALORTRA",m.Valor);
                 Set(line,"IDCENCO",m.Regla.CentroCosto);Set(line,"AUXIAUX",m.Regla.Auxiliar);

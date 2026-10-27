@@ -84,8 +84,16 @@ public static class ZeusJournal
             throw new ArgumentException("El interés de mora requiere una única cuenta general de ingreso en Zeus.");
         return rules.SingleOrDefault();
     }
+    public static ZeusAccount? GeneralMotorcycleRetentionIncomeAccount(ZeusSettings settings)
+    {
+        Validate(settings);
+        var rules=settings.Cuentas.Where(a=>a.Concepto=="INGRESO_RETENCION_MOTO").ToArray();
+        if(rules.Length>1||rules.Any(a=>a.ArticuloId is not null||a.ProveedorId is not null||a.Tarifa is not null))
+            throw new ArgumentException("El ingreso por retención de moto requiere una única cuenta general de Zeus.");
+        return rules.SingleOrDefault();
+    }
     public static readonly string[] Concepts = ["INVENTARIO", "PROVEEDOR", "CUENTA_POR_COBRAR", "IVA",
-        "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "ANTICIPO_SOAT", "ANTICIPO_MATRICULA", "ANTICIPO_OTROS", "INTERES_MORA", "DESCUENTO", "REDONDEO"];
+        "OTRO_IMPUESTO", "RETEFUENTE", "RETEIVA", "RETEICA", "GASTO", "FLETE", "ANTICIPO", "ANTICIPO_SOAT", "ANTICIPO_MATRICULA", "ANTICIPO_OTROS", "INTERES_MORA", "INGRESO_RETENCION_MOTO", "DESCUENTO", "REDONDEO"];
     public static void Validate(ZeusSettings s)
     {
         ZeusRouting.Validate(s.FuentesAutomaticas);

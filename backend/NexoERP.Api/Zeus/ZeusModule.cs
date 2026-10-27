@@ -150,22 +150,25 @@ public static class ZeusModule
                 }
                 catch(SqlException){return Results.Json(new{error="No se pudo validar la cuenta de anticipos en Zeus. No se guardaron cambios."},statusCode:502);}
             }
-            var lateInterest=ZeusJournal.GeneralLateInterestAccount(input.Configuracion);
-            if(lateInterest is not null)
+            var receiptIncomes=new[]{
+                (Account:ZeusJournal.GeneralLateInterestAccount(input.Configuracion),Name:"interés de mora"),
+                (Account:ZeusJournal.GeneralMotorcycleRetentionIncomeAccount(input.Configuracion),Name:"retención de moto")};
+            foreach(var (income,name) in receiptIncomes)
             {
-                if(!lateInterest.Cuenta.StartsWith('4'))throw new ArgumentException("El interés de mora debe ir a una cuenta de ingreso de Zeus (clase 4).");
+                if(income is null)continue;
+                if(!income.Cuenta.StartsWith('4'))throw new ArgumentException($"El {name} debe ir a una cuenta de ingreso de Zeus (clase 4).");
                 try
                 {
                     var chart=await transport.AdvanceAccountsAsync(empresaId,input.Configuracion,ct);
-                    if(!chart.Any(a=>a.Codigo==lateInterest.Cuenta))
-                        throw new ArgumentException("La cuenta de interés de mora debe estar habilitada y ser de detalle en Zeus.");
+                    if(!chart.Any(a=>a.Codigo==income.Cuenta))
+                        throw new ArgumentException($"La cuenta de {name} debe estar habilitada y ser de detalle en Zeus.");
                     var dimensions=await transport.AccountingDimensionsAsync(empresaId,input.Configuracion,ct);
-                    if(!string.IsNullOrWhiteSpace(lateInterest.CentroCosto)&&!dimensions.CentrosCosto.Any(x=>x.Codigo==lateInterest.CentroCosto))
-                        throw new ArgumentException("El centro de costo del interés de mora no está habilitado en Zeus.");
-                    if(string.IsNullOrWhiteSpace(lateInterest.CentroCosto)&&dimensions.CuentasRequierenCentroCosto.Contains(lateInterest.Cuenta,StringComparer.OrdinalIgnoreCase))
-                        throw new ArgumentException("La cuenta de interés de mora exige centro de costo en Zeus.");
+                    if(!string.IsNullOrWhiteSpace(income.CentroCosto)&&!dimensions.CentrosCosto.Any(x=>x.Codigo==income.CentroCosto))
+                        throw new ArgumentException($"El centro de costo de {name} no está habilitado en Zeus.");
+                    if(string.IsNullOrWhiteSpace(income.CentroCosto)&&dimensions.CuentasRequierenCentroCosto.Contains(income.Cuenta,StringComparer.OrdinalIgnoreCase))
+                        throw new ArgumentException($"La cuenta de {name} exige centro de costo en Zeus.");
                 }
-                catch(SqlException){return Results.Json(new{error="No se pudo validar la cuenta de interés de mora en Zeus. No se guardaron cambios."},statusCode:502);}
+                catch(SqlException){return Results.Json(new{error=$"No se pudo validar la cuenta de {name} en Zeus. No se guardaron cambios."},statusCode:502);}
             }
             if(input.Configuracion.Cuentas.Any(a=>ZeusJournal.IsRetention(a.Concepto)))
             {
