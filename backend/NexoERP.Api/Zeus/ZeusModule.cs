@@ -152,7 +152,7 @@ public static class ZeusModule
             }
             var receiptIncomes=new[]{
                 (Account:ZeusJournal.GeneralLateInterestAccount(input.Configuracion),Name:"interés de mora"),
-                (Account:ZeusJournal.GeneralMotorcycleRetentionIncomeAccount(input.Configuracion),Name:"retención de moto")};
+                (Account:ZeusJournal.GeneralMotorcycleRetentionIncomeAccount(input.Configuracion),Name:"otros ingresos")};
             foreach(var (income,name) in receiptIncomes)
             {
                 if(income is null)continue;

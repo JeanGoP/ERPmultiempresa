@@ -220,7 +220,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         if(input.InteresMora<0||input.InteresMora>input.Total||decimal.Round(input.InteresMora,2)!=input.InteresMora)
             throw new ArgumentException("El interés de mora debe ser un valor positivo o cero, con máximo dos decimales.");
         if(input.IngresoRetencionMoto<0||input.IngresoRetencionMoto>input.Total||decimal.Round(input.IngresoRetencionMoto,2)!=input.IngresoRetencionMoto)
-            throw new ArgumentException("El ingreso por retención de moto debe ser un valor positivo o cero, con máximo dos decimales.");
+            throw new ArgumentException("Otros ingresos debe ser un valor positivo o cero, con máximo dos decimales.");
         if(input.DescuentoProntoPago<0||decimal.Round(input.DescuentoProntoPago,2)!=input.DescuentoProntoPago)
             throw new ArgumentException("El descuento por pronto pago debe ser positivo o cero, con máximo dos decimales.");
         if(string.IsNullOrWhiteSpace(input.Concepto)||input.Concepto.Length>300||input.Referencia?.Length>20)
@@ -238,7 +238,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         }
         else if(applications.Length!=0)throw new ArgumentException("Solo un recaudo de cartera puede aplicar facturas.");
         if(input.Tipo!="CARTERA"&&input.InteresMora!=0)throw new ArgumentException("El interés de mora solo se cobra al recaudar cuotas.");
-        if(input.Tipo!="CARTERA"&&input.IngresoRetencionMoto!=0)throw new ArgumentException("El ingreso por retención de moto solo se cobra al recaudar cuotas.");
+        if(input.Tipo!="CARTERA"&&input.IngresoRetencionMoto!=0)throw new ArgumentException("Otros ingresos solo se cobran al recaudar cuotas.");
         if(input.Tipo!="CARTERA"&&input.DescuentoProntoPago!=0)throw new ArgumentException("El descuento por pronto pago solo se aplica al recaudar cuotas.");
         if(input.Tipo=="NORMAL"&&string.IsNullOrWhiteSpace(input.CuentaContrapartida))
             throw new ArgumentException("Selecciona la cuenta de ingreso para el recibo normal.");
@@ -404,7 +404,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         {
             var retentionAccount=ZeusJournal.GeneralMotorcycleRetentionIncomeAccount(settings);
             if(retentionAccount is null||!retentionAccount.Cuenta.StartsWith('4'))
-                throw new ArgumentException("Configura una cuenta de ingreso para retención de moto en Integración → Configuración de empresa.");
+                throw new ArgumentException("Configura la cuenta de otros ingresos en Integración → Configuración de empresa.");
         }
         if(input.DescuentoProntoPago>0)
         {

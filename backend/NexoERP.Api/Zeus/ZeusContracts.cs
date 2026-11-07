@@ -90,7 +90,7 @@ public static class ZeusJournal
         Validate(settings);
         var rules=settings.Cuentas.Where(a=>a.Concepto=="INGRESO_RETENCION_MOTO").ToArray();
         if(rules.Length>1||rules.Any(a=>a.ArticuloId is not null||a.ProveedorId is not null||a.Tarifa is not null))
-            throw new ArgumentException("El ingreso por retención de moto requiere una única cuenta general de Zeus.");
+            throw new ArgumentException("Otros ingresos requiere una única cuenta general de Zeus.");
         return rules.SingleOrDefault();
     }
     public static ZeusAccount? GeneralEarlyPaymentDiscountAccount(ZeusSettings settings)

@@ -20,7 +20,7 @@ function zeusInterestCostCenterSection(settings){
 }
 function zeusMotorcycleRetentionAccountSection(settings){
   const rule=settings.cuentas.find(r=>r.concepto==='INGRESO_RETENCION_MOTO');
-  return `<section class="zeus-card"><h3>Ingresos varios en recaudo de cartera</h3><div class="zeus-grid"><label>Cuenta de ingreso por retención de moto<input name="cuentaIngresoRetencionMoto" maxlength="16" list="zeusAdvanceChart" autocomplete="off" placeholder="Seleccionar cuenta de Zeus" value="${zeusEscape(rule?.cuenta||'')}"></label><label>Centro de costo Zeus<input name="centroCostoRetencionMoto" maxlength="20" list="zeusInterestCostCenters" autocomplete="off" value="${zeusEscape(rule?.centroCosto||'')}"></label></div></section>`;
+  return `<section class="zeus-card"><h3>Otros ingresos en recaudo de cartera</h3><div class="zeus-grid"><label>Cuenta de otros ingresos<input name="cuentaIngresoRetencionMoto" maxlength="16" list="zeusAdvanceChart" autocomplete="off" placeholder="Seleccionar cuenta de Zeus" value="${zeusEscape(rule?.cuenta||'')}"></label><label>Centro de costo Zeus<input name="centroCostoRetencionMoto" maxlength="20" list="zeusInterestCostCenters" autocomplete="off" value="${zeusEscape(rule?.centroCosto||'')}"></label></div></section>`;
 }
 async function zeusAutoLoadAdvanceChart(scope){
   if(!zeusUI.version||!$('#zeusAdvanceChart'))return;

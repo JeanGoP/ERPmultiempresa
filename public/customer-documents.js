@@ -97,7 +97,7 @@
           }
           if(item.tipo==='CARTERA'&&item.ingresoRetencionMoto>0){
             const income=document.createElement('small');
-            income.textContent=`Ingreso por retención de moto: ${money(item.ingresoRetencionMoto)}`;
+            income.textContent=`Otros ingresos: ${money(item.ingresoRetencionMoto)}`;
             row.cells[4].append(document.createElement('br'),income);
           }
           if(item.tipo==='CARTERA'&&item.descuentoProntoPago>0){
@@ -424,7 +424,7 @@
       <section class="customer-receipt-card customer-receipt-charges" data-late-interest hidden>
         <h3>Ajustes del recaudo</h3><div class="customer-receipt-charge-grid">
           <div><label>Interés de mora<input name="interesMora" type="number" min="0" step="0.01" value="0"></label><small>Tasa mensual <span data-late-rate></span> % · Sugerido: <b data-late-suggested></b></small></div>
-          <div><label>Retención de moto<input name="ingresoRetencionMoto" type="number" min="0" step="0.01" value="0"></label><small>Ingreso adicional; no reduce la cartera.</small></div>
+          <div><label>Otros ingresos<input name="ingresoRetencionMoto" type="number" min="0" step="0.01" value="0"></label><small>Ingreso adicional; no reduce la cartera.</small></div>
           <div><label>Descuento por pronto pago<input name="descuentoProntoPago" type="number" min="0" step="0.01" value="0"></label><small>Reduce el valor recibido y cancela el mismo valor de cartera.</small></div>
         </div>
       </section>
@@ -556,7 +556,7 @@
       }
       if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=String(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].reduce((s,x)=>s+Math.round(Number(x.value||0)*100),0))/100||'');
       $('[data-summary]').textContent=f.elements.tipo.value==='CARTERA'
-        ?`Cuotas ${money(applications.reduce((s,x)=>s+Number(x.valor||0),0))} · Mora ${money(Number(f.elements.interesMora.value||0))} · Retención ${money(Number(f.elements.ingresoRetencionMoto.value||0))} · Descuento ${money(Number(f.elements.descuentoProntoPago.value||0))}`
+        ?`Cuotas ${money(applications.reduce((s,x)=>s+Number(x.valor||0),0))} · Mora ${money(Number(f.elements.interesMora.value||0))} · Otros ingresos ${money(Number(f.elements.ingresoRetencionMoto.value||0))} · Descuento ${money(Number(f.elements.descuentoProntoPago.value||0))}`
         :`Total recibido: ${money(Number(f.elements.total.value))}`;
     }else invoiceSummary();
   }

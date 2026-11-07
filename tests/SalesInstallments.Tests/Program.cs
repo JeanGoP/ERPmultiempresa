@@ -100,8 +100,8 @@ var extraIncomeReceipt=receiptOriginal with{Origen=receiptSource with{Total=235m
 var extraIncomeLines=XElement.Parse(ZeusXml.Build(extraIncomeReceipt,Guid.NewGuid())).Descendants("Transac").ToArray();
 Check(extraIncomeLines.Sum(x=>decimal.Parse((string)x.Element("VALORTRA")!,System.Globalization.CultureInfo.InvariantCulture))==0m
     &&(string?)extraIncomeLines.Single(x=>(string?)x.Element("CODICTA")=="413505001").Element("IDCENCO")=="CC01"
-    &&(string?)extraIncomeLines.Single(x=>(string?)x.Element("CODICTA")=="413505001").Element("DESCRITRA")=="INGRESO POR RETENCIÓN DE MOTO",
-    "la retención de moto va a su ingreso Zeus sin reducir el abono de cartera");
+    &&(string?)extraIncomeLines.Single(x=>(string?)x.Element("CODICTA")=="413505001").Element("DESCRITRA")=="OTROS INGRESOS",
+    "otros ingresos van a su cuenta Zeus sin reducir el abono de cartera");
 var discountRule=new ZeusAccount("DESCUENTO_PRONTO_PAGO","530505001",CentroCosto:"CC01");
 var discountReceipt=receiptOriginal with{Origen=receiptSource with{Total=180m},Movimientos=[
     new(new ZeusAccount("CLIENTE","130505"),-200m),new(discountRule,20m),new(new ZeusAccount("BANCO_CAJA","111005"),180m)]};
