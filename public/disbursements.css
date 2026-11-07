@@ -119,6 +119,8 @@
 .customer-documents-dialog .customer-receipt-charge-grid>div{padding:12px;border:1px solid #dce7e1;border-radius:8px;background:#f8faf8}
 .customer-documents-dialog .customer-receipt-charge-grid label{display:grid;gap:6px;max-width:260px;font-size:12px;font-weight:700}
 .customer-documents-dialog .customer-receipt-charge-grid small{display:block;margin-top:7px;color:#60746a;font-size:11px}
+.customer-documents-dialog [data-normal-withholding] .customer-receipt-charge-grid label{max-width:none}
+.customer-documents-dialog [data-normal-withholding-summary]{display:block;margin-top:10px;color:#31584b;font-weight:700}
 @media(max-width:900px){.customer-documents-dialog .customer-receipt-charge-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .customer-documents-dialog .customer-receipt-footer{position:sticky;bottom:0;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:16px;margin:16px 0 0;padding:14px 18px;border:1px solid #cdded2;border-radius:9px;background:#f1f7f2;box-shadow:0 -7px 18px #173e3314}
 .customer-documents-dialog .customer-receipt-footer .customer-receipt-total{display:block;min-width:0;margin:0}
@@ -127,6 +129,8 @@
 .customer-documents-dialog .customer-receipt-footer .button{flex:none;min-height:38px}
 @media(max-width:850px){.customer-documents-dialog .customer-receipt-fields>label{grid-column:span 6}.customer-documents-dialog .customer-receipt-fields>.egreso-wide{grid-column:1/-1}.customer-documents-dialog .customer-receipt-account{grid-column:span 6}}
 @media(max-width:600px){.customer-documents-dialog .customer-receipt-card{padding:12px}.customer-documents-dialog .customer-receipt-fields>label,.customer-documents-dialog .customer-receipt-fields>.egreso-wide,.customer-documents-dialog .customer-receipt-account{grid-column:1/-1}.customer-documents-dialog .customer-receipt-section-heading{align-items:stretch;flex-direction:column}.customer-documents-dialog .customer-receipt-section-heading .customer-portfolio-filter{flex:auto;width:100%}.customer-documents-dialog .customer-receipt-charge-grid{grid-template-columns:1fr}.customer-documents-dialog .customer-receipt-footer{align-items:stretch;flex-direction:column;padding:12px}.customer-documents-dialog .customer-receipt-footer .customer-receipt-total label{width:100%}.customer-documents-dialog .customer-receipt-footer .button{width:100%}}
+.customer-documents-dialog [data-normal-withholding] .customer-receipt-charge-grid{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}
+@media(max-width:600px){.customer-documents-dialog [data-normal-withholding] .customer-receipt-charge-grid{grid-template-columns:1fr}}
 .customer-documents-dialog .customer-invoice-settings{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,3fr);gap:18px;align-items:start;margin:18px 0;padding:15px;border:1px solid #d9e5de;border-radius:10px;background:#fbfdfb}
 .customer-documents-dialog .customer-invoice-settings label{display:grid;align-content:start;gap:6px;min-width:0;font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-invoice-settings small{display:block;color:#63766d;font-size:11px;font-weight:400;line-height:1.4}

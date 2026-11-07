@@ -94,6 +94,25 @@ var receiptOriginal=new ZeusSnapshot(settings,receiptSource,new ZeusSupplier(1,"
     [new(new ZeusAccount("CLIENTE","130505"),-200m),new(new ZeusAccount("BANCO_CAJA","111005"),200m)],
     ClienteDocumento:new ZeusCustomerDocument("RECIBO","Cobro","","001","111005","","COP",
         [new ZeusCustomerInvoice(1,"130505","FA","0000000060","Local",new DateTime(2026,10,3),200m)]));
+var normalWithholdingReceipt=receiptOriginal with{Origen=receiptSource with{Total=975_000m},Movimientos=[
+    new(new ZeusAccount("INGRESO","413501001"),-1_000_000m),
+    new(new ZeusAccount("RETENCION_CLIENTE","135515001"),25_000m),
+    new(new ZeusAccount("BANCO_CAJA","111005"),975_000m)],
+    ClienteDocumento=receiptOriginal.ClienteDocumento! with{Facturas=[]}};
+var normalWithholdingLines=XElement.Parse(ZeusXml.Build(normalWithholdingReceipt,Guid.NewGuid())).Descendants("Transac").ToArray();
+Check(normalWithholdingLines.Sum(x=>decimal.Parse((string)x.Element("VALORTRA")!,System.Globalization.CultureInfo.InvariantCulture))==0m
+    &&(string?)normalWithholdingLines.Single(x=>(string?)x.Element("CODICTA")=="413501001").Element("VALORTRA")=="-1000000"
+    &&(string?)normalWithholdingLines.Single(x=>(string?)x.Element("CODICTA")=="135515001").Element("VALORTRA")=="25000"
+    &&(string?)normalWithholdingLines.Single(x=>(string?)x.Element("CODICTA")=="135515001").Element("DESCRITRA")=="RETENCIÓN PRACTICADA POR CLIENTE"
+    &&(string?)normalWithholdingLines.Single(x=>(string?)x.Element("CODICTA")=="111005").Element("VALORTRA")=="975000",
+    "recibo normal registra ingreso bruto, retención elegida y dinero recibido en Zeus");
+var withholdingReversal=normalWithholdingReceipt with{Movimientos=normalWithholdingReceipt.Movimientos.Select(m=>m with{Valor=-m.Valor}).ToArray(),
+    ClienteDocumento=normalWithholdingReceipt.ClienteDocumento! with{Tipo="REVERSO_RECIBO",Concepto="Reversión recibo normal"}};
+var withholdingReversalLines=XElement.Parse(ZeusXml.Build(withholdingReversal,Guid.NewGuid())).Descendants("Transac").ToArray();
+Check(withholdingReversalLines.Sum(x=>decimal.Parse((string)x.Element("VALORTRA")!,System.Globalization.CultureInfo.InvariantCulture))==0m
+    &&(string?)withholdingReversalLines.Single(x=>(string?)x.Element("CODICTA")=="135515001").Element("VALORTRA")=="-25000"
+    &&(string?)withholdingReversalLines.Single(x=>(string?)x.Element("CODICTA")=="111005").Element("VALORTRA")=="-975000",
+    "la reversión del recibo normal compensa retención y dinero recibido");
 var retentionRule=new ZeusAccount("INGRESO_RETENCION_MOTO","413505001",CentroCosto:"CC01");
 var extraIncomeReceipt=receiptOriginal with{Origen=receiptSource with{Total=235m},Movimientos=[
     new(new ZeusAccount("CLIENTE","130505"),-200m),new(retentionRule,-35m),new(new ZeusAccount("BANCO_CAJA","111005"),235m)]};

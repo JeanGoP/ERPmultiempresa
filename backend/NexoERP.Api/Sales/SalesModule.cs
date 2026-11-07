@@ -80,6 +80,11 @@ public static class SalesModule
             var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus para esta empresa.")).Configuracion;
             return Results.Ok(await zeus.AdvanceAccountsAsync(empresaId,config,ct));
         }).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
+        group.MapGet("/cash-receipts/withholding-accounts",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
+        {
+            var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus para esta empresa.")).Configuracion;
+            return Results.Ok(await zeus.CustomerWithholdingAccountsAsync(empresaId,config,ct));
+        }).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
         group.MapPost("/cash-receipts",async(long empresaId,CashReceiptInput input,HttpContext http,CustomerCashRepository receipts,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
         {
             try
@@ -89,6 +94,9 @@ public static class SalesModule
                     var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus.")).Configuracion;
                     if(!(await zeus.AdvanceAccountsAsync(empresaId,config,ct)).Any(a=>a.Codigo==input.CuentaContrapartida))
                         throw new ArgumentException("Selecciona una cuenta de detalle habilitada de Zeus para el recibo normal.");
+                    if(input.RetencionClienteValor>0&&!(await zeus.CustomerWithholdingAccountsAsync(empresaId,config,ct))
+                        .Any(a=>a.Codigo==input.CuentaRetencionCliente?.Trim()))
+                        throw new ArgumentException("Selecciona una cuenta de retención de clase 13 habilitada en Zeus.");
                 }
                 return Results.Ok(await receipts.PostAsync(empresaId,input,Convert.ToInt64(http.Items["UsuarioId"]),ct));
             }

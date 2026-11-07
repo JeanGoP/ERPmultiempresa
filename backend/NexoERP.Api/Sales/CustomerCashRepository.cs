@@ -15,7 +15,9 @@ public sealed record CashReceiptInput(Guid OperacionGuid,long SucursalId,long Cl
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] CashReceiptConcept[]? Conceptos=null,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] decimal InteresMora=0,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] decimal IngresoRetencionMoto=0,
-    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] decimal DescuentoProntoPago=0);
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] decimal DescuentoProntoPago=0,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] decimal RetencionClienteValor=0,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] string? CuentaRetencionCliente=null);
 
 public sealed record ExtraordinaryRefinancingPaymentInput(Guid OperacionGuid,DateOnly FechaContable,
     string MedioPago,string? Referencia,string Concepto,decimal Valor);
@@ -50,7 +52,8 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             SELECT TOP(51) r.ReciboCajaId,r.FechaContable,r.Tipo,t.RazonSocial,r.Total,r.ZeusEstado,r.ZeusFuente,r.ZeusDocumento,r.ZeusError,r.Concepto,a.Saldo,
                 r.ReversionEstado,r.ReversionFuente,r.ReversionDocumento,r.ReversionError,r.ReversionMotivo,
                 (SELECT d.Codigo codigo,d.Valor valor FROM cxc.ReciboCajaConcepto d WHERE d.EmpresaId=r.EmpresaId AND d.ReciboCajaId=r.ReciboCajaId FOR JSON PATH) AS ConceptosJson,
-                r.MoraTasaPct,r.MoraCalculada,r.MoraValor,r.IngresoRetencionMoto,r.DescuentoProntoPago
+                r.MoraTasaPct,r.MoraCalculada,r.MoraValor,r.IngresoRetencionMoto,r.DescuentoProntoPago,
+                r.RetencionClienteValor,r.CuentaRetencionCliente
             FROM cxc.ReciboCaja r JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.ClienteId
             LEFT JOIN cxc.AnticipoCliente a ON a.EmpresaId=r.EmpresaId AND a.ReciboCajaId=r.ReciboCajaId
             WHERE r.EmpresaId=@E AND (@Type='' OR r.Tipo=@Type) AND (@Before IS NULL OR r.ReciboCajaId<@Before)
@@ -66,7 +69,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         while(await r.ReadAsync(ct))
         {
             if(list.Count==50)return new{items=list,siguiente=next};
-            next=r.GetInt64(0);list.Add(new{id=next,fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),tipo=r.GetString(2),cliente=r.GetString(3),total=r.GetDecimal(4),zeusEstado=r.GetString(5),fuente=r.IsDBNull(6)?null:r.GetString(6),documento=r.IsDBNull(7)?null:r.GetString(7),error=r.IsDBNull(8)?null:r.GetString(8),concepto=r.GetString(9),saldoAnticipo=r.IsDBNull(10)?(decimal?)null:r.GetDecimal(10),reversionEstado=r.IsDBNull(11)?null:r.GetString(11),reversionFuente=r.IsDBNull(12)?null:r.GetString(12),reversionDocumento=r.IsDBNull(13)?null:r.GetString(13),reversionError=r.IsDBNull(14)?null:r.GetString(14),reversionMotivo=r.IsDBNull(15)?null:r.GetString(15),conceptos=r.IsDBNull(16)?[]:JsonSerializer.Deserialize<CashReceiptConcept[]>(r.GetString(16),new JsonSerializerOptions(JsonSerializerDefaults.Web))??[],moraTasaPct=r.GetDecimal(17),moraCalculada=r.GetDecimal(18),moraValor=r.GetDecimal(19),ingresoRetencionMoto=r.GetDecimal(20),descuentoProntoPago=r.GetDecimal(21)});
+            next=r.GetInt64(0);list.Add(new{id=next,fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),tipo=r.GetString(2),cliente=r.GetString(3),total=r.GetDecimal(4),zeusEstado=r.GetString(5),fuente=r.IsDBNull(6)?null:r.GetString(6),documento=r.IsDBNull(7)?null:r.GetString(7),error=r.IsDBNull(8)?null:r.GetString(8),concepto=r.GetString(9),saldoAnticipo=r.IsDBNull(10)?(decimal?)null:r.GetDecimal(10),reversionEstado=r.IsDBNull(11)?null:r.GetString(11),reversionFuente=r.IsDBNull(12)?null:r.GetString(12),reversionDocumento=r.IsDBNull(13)?null:r.GetString(13),reversionError=r.IsDBNull(14)?null:r.GetString(14),reversionMotivo=r.IsDBNull(15)?null:r.GetString(15),conceptos=r.IsDBNull(16)?[]:JsonSerializer.Deserialize<CashReceiptConcept[]>(r.GetString(16),new JsonSerializerOptions(JsonSerializerDefaults.Web))??[],moraTasaPct=r.GetDecimal(17),moraCalculada=r.GetDecimal(18),moraValor=r.GetDecimal(19),ingresoRetencionMoto=r.GetDecimal(20),descuentoProntoPago=r.GetDecimal(21),retencionClienteValor=r.GetDecimal(22),cuentaRetencionCliente=r.IsDBNull(23)?null:r.GetString(23)});
         }
         return new{items=list,siguiente=(long?)null};
     }
@@ -223,6 +226,17 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             throw new ArgumentException("Otros ingresos debe ser un valor positivo o cero, con máximo dos decimales.");
         if(input.DescuentoProntoPago<0||decimal.Round(input.DescuentoProntoPago,2)!=input.DescuentoProntoPago)
             throw new ArgumentException("El descuento por pronto pago debe ser positivo o cero, con máximo dos decimales.");
+        if(input.RetencionClienteValor<0||input.RetencionClienteValor>1_000_000_000_000m||decimal.Round(input.RetencionClienteValor,2)!=input.RetencionClienteValor)
+            throw new ArgumentException("La retención del cliente debe ser positiva o cero, con máximo dos decimales.");
+        if(input.Tipo!="NORMAL"&&(input.RetencionClienteValor!=0||!string.IsNullOrWhiteSpace(input.CuentaRetencionCliente)))
+            throw new ArgumentException("La retención practicada por el cliente solo corresponde a recibos normales.");
+        if(input.Tipo=="NORMAL"&&(input.RetencionClienteValor>0)!=!string.IsNullOrWhiteSpace(input.CuentaRetencionCliente))
+            throw new ArgumentException("Indica el valor retenido y su cuenta de Zeus, o deja ambos campos vacíos.");
+        if(input.Tipo=="NORMAL"&&input.RetencionClienteValor>0&&
+            (input.Total+input.RetencionClienteValor>1_000_000_000_000m||input.CuentaRetencionCliente!.Trim().Length>16||
+             !input.CuentaRetencionCliente.Trim().StartsWith("13",StringComparison.Ordinal)||
+             input.CuentaRetencionCliente.Trim()==input.CuentaContrapartida?.Trim()))
+            throw new ArgumentException("Selecciona una cuenta de retención de clase 13, distinta de la contrapartida, y verifica el valor del recibo.");
         if(string.IsNullOrWhiteSpace(input.Concepto)||input.Concepto.Length>300||input.Referencia?.Length>20)
             throw new ArgumentException("Escribe un concepto y una referencia válida.");
         if(input.MedioPago!="EFECTIVO"&&string.IsNullOrWhiteSpace(input.Referencia))
@@ -293,6 +307,8 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                 throw new ArgumentException($"Configura la cuenta de {line.Codigo} en Integración → Configuración de empresa.");
         if(input.Tipo=="NORMAL"&&(input.CuentaContrapartida!.Length>16||input.CuentaContrapartida==cashAccount))
             throw new ArgumentException("Selecciona una cuenta de ingreso válida, diferente de caja/banco.");
+        if(input.RetencionClienteValor>0&&input.CuentaRetencionCliente!.Trim()==cashAccount)
+            throw new ArgumentException("La cuenta de retención debe ser diferente de caja o banco.");
         q.CommandText="SELECT OrdenCobroCartera,MoraMensualPct FROM core.Empresa WITH(HOLDLOCK) WHERE EmpresaId=@E";
         string collectionOrder;decimal lateRate;
         await using(var companyReader=await q.ExecuteReaderAsync(ct))
@@ -417,8 +433,10 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         ZeusRepository.Add(q,"@LateRate",input.Tipo=="CARTERA"?lateRate:0m);ZeusRepository.Add(q,"@LateCalculated",calculatedMora);ZeusRepository.Add(q,"@LateValue",input.InteresMora);
         ZeusRepository.Add(q,"@RetentionIncome",input.IngresoRetencionMoto);
         ZeusRepository.Add(q,"@EarlyDiscount",input.DescuentoProntoPago);
+        ZeusRepository.Add(q,"@CustomerWithholding",input.RetencionClienteValor);
+        ZeusRepository.Add(q,"@CustomerWithholdingAccount",string.IsNullOrWhiteSpace(input.CuentaRetencionCliente)?DBNull.Value:input.CuentaRetencionCliente.Trim());
         ZeusRepository.Add(q,"@Contra",input.CuentaContrapartida?.Trim()??"");ZeusRepository.Add(q,"@Json",JsonSerializer.Serialize(input));ZeusRepository.Add(q,"@User",user);
-        q.CommandText="INSERT cxc.ReciboCaja(EmpresaId,OperacionGuid,SucursalId,ClienteId,FechaContable,Tipo,MedioPago,Referencia,Concepto,CuentaContrapartida,Total,MoraTasaPct,MoraCalculada,MoraValor,IngresoRetencionMoto,DescuentoProntoPago,Contenido,CreadoPor) OUTPUT inserted.ReciboCajaId VALUES(@E,@Key,@B,@C,@Date,@Type,@Method,@Ref,@Concept,NULLIF(@Contra,''),@Total,@LateRate,@LateCalculated,@LateValue,@RetentionIncome,@EarlyDiscount,@Json,@User)";
+        q.CommandText="INSERT cxc.ReciboCaja(EmpresaId,OperacionGuid,SucursalId,ClienteId,FechaContable,Tipo,MedioPago,Referencia,Concepto,CuentaContrapartida,Total,MoraTasaPct,MoraCalculada,MoraValor,IngresoRetencionMoto,DescuentoProntoPago,RetencionClienteValor,CuentaRetencionCliente,Contenido,CreadoPor) OUTPUT inserted.ReciboCajaId VALUES(@E,@Key,@B,@C,@Date,@Type,@Method,@Ref,@Concept,NULLIF(@Contra,''),@Total,@LateRate,@LateCalculated,@LateValue,@RetentionIncome,@EarlyDiscount,@CustomerWithholding,@CustomerWithholdingAccount,@Json,@User)";
         var id=Convert.ToInt64(await q.ExecuteScalarAsync(ct));ZeusRepository.Add(q,"@Id",id);
         if(input.Tipo=="ANTICIPO")
         {
@@ -461,7 +479,11 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             var concept=line.Codigo=="ANTICIPO"?"ANTICIPO":"ANTICIPO_"+line.Codigo;
             movements.Add(new(new ZeusAccount(concept,ZeusJournal.GeneralAdvanceAccount(settings,concept)!.Cuenta),-line.Valor));
         }
-        if(input.Tipo=="NORMAL")movements.Add(new(new ZeusAccount("INGRESO",input.CuentaContrapartida!.Trim()),-input.Total));
+        if(input.Tipo=="NORMAL")
+        {
+            movements.Add(new(new ZeusAccount("INGRESO",input.CuentaContrapartida!.Trim()),-(input.Total+input.RetencionClienteValor)));
+            if(input.RetencionClienteValor>0)movements.Add(new(new ZeusAccount("RETENCION_CLIENTE",input.CuentaRetencionCliente!.Trim()),input.RetencionClienteValor));
+        }
         if(input.InteresMora>0)movements.Add(new(ZeusJournal.GeneralLateInterestAccount(settings)!,-input.InteresMora));
         if(input.IngresoRetencionMoto>0)movements.Add(new(ZeusJournal.GeneralMotorcycleRetentionIncomeAccount(settings)!,-input.IngresoRetencionMoto));
         if(input.DescuentoProntoPago>0)movements.Add(new(ZeusJournal.GeneralEarlyPaymentDiscountAccount(settings)!,input.DescuentoProntoPago));

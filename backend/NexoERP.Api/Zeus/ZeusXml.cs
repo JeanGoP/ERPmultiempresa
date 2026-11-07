@@ -106,6 +106,8 @@ public static class ZeusXml
                 Set(line,"CLIPRV",invoice is null?"":s.Proveedor.CodigoProveedor);
                 Set(line,"DESCRITRA",m.Regla.Concepto=="INGRESO_RETENCION_MOTO"
                     ?reversal?"REVERSIÓN OTROS INGRESOS":"OTROS INGRESOS"
+                    :m.Regla.Concepto=="RETENCION_CLIENTE"
+                        ?reversal?"REVERSIÓN RETENCIÓN PRACTICADA POR CLIENTE":"RETENCIÓN PRACTICADA POR CLIENTE"
                     :m.Regla.Concepto=="DESCUENTO_PRONTO_PAGO"
                         ?reversal?"REVERSIÓN DESCUENTO POR PRONTO PAGO":"DESCUENTO POR PRONTO PAGO"
                         :invoice is null?receipt.Concepto[..Math.Min(120,receipt.Concepto.Length)]:(reversal?"REVERSIÓN RECAUDO FACTURA ":"RECAUDO FACTURA ")+invoice.Numero);

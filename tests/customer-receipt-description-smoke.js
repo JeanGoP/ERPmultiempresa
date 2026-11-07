@@ -59,4 +59,6 @@ const totalsContext={mode:'receipt',applications:[{facturaVentaId:9,facturaVenta
 vm.createContext(totalsContext);vm.runInContext(totalsSource,totalsContext);
 totalsContext.summary();assert.equal(totalForm.elements.total.value,'180');assert.match(nodes['[data-summary]'].textContent,/Descuento 20/);
 totalForm.elements.interesMora.value='5';totalForm.elements.ingresoRetencionMoto.value='10';totalsContext.summary();assert.equal(totalForm.elements.total.value,'195');
+totalForm.elements.tipo.value='NORMAL';totalForm.elements.total.value='975000';totalForm.elements.retencionClienteValor={value:'25000'};totalForm.elements.cuentaRetencionCliente={required:false};nodes['[data-normal-withholding-summary]']={};
+totalsContext.summary();assert.equal(totalForm.elements.cuentaRetencionCliente.required,true);assert.match(nodes['[data-normal-withholding-summary]'].textContent,/Pago registrado: 1000000/);
 console.log('Recibos de caja: descripción, artículos, chasis/VIN y ambos modos de orden de cobro correctos.');

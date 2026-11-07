@@ -6,7 +6,7 @@
   const dialog=document.createElement('dialog');dialog.className='erp-dialog egreso-dialog customer-documents-dialog';document.body.append(dialog);
   const serialDialog=document.createElement('dialog');serialDialog.className='erp-dialog customer-serial-dialog';document.body.append(serialDialog);
   const $=selector=>dialog.querySelector(selector);
-  let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='',portfolioTypes=[];
+  let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],withholdingAccounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='',portfolioTypes=[];
   let operation='',client=null,lines=[],conceptLines=[],applications=[],advances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8;
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='receipt'?'cash-receipts':'sales-invoices'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
@@ -104,6 +104,11 @@
             const discount=document.createElement('small');
             discount.textContent=`Descuento por pronto pago: ${money(item.descuentoProntoPago)}`;
             row.cells[4].append(document.createElement('br'),discount);
+          }
+          if(item.tipo==='NORMAL'&&item.retencionClienteValor>0){
+            const withholding=document.createElement('small');
+            withholding.textContent=`Retención del cliente: ${money(item.retencionClienteValor)} · cuenta ${item.cuentaRetencionCliente}`;
+            row.cells[4].append(document.createElement('br'),withholding);
           }
           const cell=row.cells[row.cells.length-1];
           if(item.reversionEstado){
@@ -361,8 +366,8 @@
   async function create(){
     const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];advances=[];extraInstallments=[];receiptVisibleRows=8;dimensions=null;dimensionsError='';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
     try{
-      const [opts,chart,dims,types]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions').catch(error=>({error:error.message})):Promise.resolve(null),loadPortfolioTypes()]);
-      if(!current(t))return;options=opts;accounts=chart;dimensions=dims?.error?null:dims;dimensionsError=dims?.error||'';portfolioTypes=types;
+      const [opts,chart,withholdingChart,dims,types]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='receipt'?apiRequest(endpoint()+'/withholding-accounts'):Promise.resolve([]),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions').catch(error=>({error:error.message})):Promise.resolve(null),loadPortfolioTypes()]);
+      if(!current(t))return;options=opts;accounts=chart;withholdingAccounts=withholdingChart;dimensions=dims?.error?null:dims;dimensionsError=dims?.error||'';portfolioTypes=types;
       if(mode==='invoice')invoiceForm();else receiptForm();notice(dimensionsError?`No se pudieron consultar los centros de costo de Zeus: ${dimensionsError}`:'',Boolean(dimensionsError));
     }catch(error){if(current(t))notice(error.message,true);}
   }
@@ -417,6 +422,10 @@
         <label class="customer-receipt-description" data-contra-wrap hidden>Cuenta de contrapartida en Zeus<select name="cuentaContrapartida"><option value="">Selecciona cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label>
       </div></section>
       <section class="customer-receipt-card" data-advance-concepts hidden></section>
+      <section class="customer-receipt-card" data-normal-withholding hidden><h3>Retención practicada por el cliente</h3>
+        <div class="customer-receipt-charge-grid"><div><label>Valor retenido<input name="retencionClienteValor" type="number" min="0" step="0.01" value="0"></label></div>
+        <div><label>Cuenta de retención en Zeus<select name="cuentaRetencionCliente"><option value="">Selecciona cuenta…</option>${withholdingAccounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label></div></div>
+        <small data-normal-withholding-summary></small></section>
       <section class="customer-receipt-card customer-receipt-portfolio" data-portfolio-section hidden>
         <div class="customer-receipt-section-heading"><div><h3>Cuotas pendientes</h3><p class="egreso-help">Selecciona la cuota y ajusta el abono si corresponde.</p></div><label class="customer-portfolio-filter" data-portfolio-filter-wrap>Tipo de cartera<select name="claseCarteraFiltro"><option value="">Todas las facturas</option>${portfolioOptions()}</select></label></div>
         <div data-allocations></div>
@@ -431,7 +440,7 @@
       <div class="customer-receipt-footer"><div class="customer-receipt-total"><label>Valor total a recibir<input name="total" type="number" min="0.01" step="0.01" required></label><small data-summary></small></div><button class="button primary" type="submit">Contabilizar recibo</button></div>
     </fieldset></form>`;
     wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
-    f.elements.tipo.onchange=()=>{applications=[];receiptVisibleRows=8;f.elements.total.value='';f.elements.interesMora.value='0';f.elements.interesMora.dataset.edited='';f.elements.ingresoRetencionMoto.value='0';f.elements.descuentoProntoPago.value='0';renderAllocations();};
+    f.elements.tipo.onchange=()=>{applications=[];receiptVisibleRows=8;f.elements.total.value='';f.elements.interesMora.value='0';f.elements.interesMora.dataset.edited='';f.elements.ingresoRetencionMoto.value='0';f.elements.descuentoProntoPago.value='0';f.elements.retencionClienteValor.value='0';f.elements.cuentaRetencionCliente.value='';renderAllocations();};
     f.elements.interesMora.oninput=()=>{f.elements.interesMora.dataset.edited='yes';dirty=true;summary();};
     f.elements.claseCarteraFiltro.onchange=()=>{receiptVisibleRows=8;renderAllocations();};
     f.elements.sucursalId.onchange=accountHint;f.elements.medioPago.onchange=()=>{accountHint();syncReceiptReference();};
@@ -497,6 +506,8 @@
     const area=$('[data-allocations]');if(!area)return;
     if(mode==='invoice'){renderAdvances();return;}
     const f=$('[data-document]'),kind=f.elements.tipo.value;
+    $('[data-normal-withholding]').hidden=kind!=='NORMAL';
+    f.elements.cuentaRetencionCliente.required=kind==='NORMAL'&&Number(f.elements.retencionClienteValor.value||0)>0;
     $('[data-late-interest]').hidden=kind!=='CARTERA';
     $('[data-portfolio-section]').hidden=kind!=='CARTERA';
     $('[data-contra-wrap]').hidden=kind!=='NORMAL';f.elements.cuentaContrapartida.required=kind==='NORMAL';
@@ -555,6 +566,11 @@
         f.elements.total.value=String((applications.reduce((s,x)=>s+Math.round(Number(x.valor||0)*100),0)+Math.round(Number(interest.value||0)*100)+Math.round(Number(f.elements.ingresoRetencionMoto.value||0)*100)-Math.round(Number(f.elements.descuentoProntoPago.value||0)*100))/100||'');
       }
       if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=String(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].reduce((s,x)=>s+Math.round(Number(x.value||0)*100),0))/100||'');
+      if(f.elements.tipo.value==='NORMAL'){
+        const retained=Number(f.elements.retencionClienteValor.value||0),received=Number(f.elements.total.value||0);
+        f.elements.cuentaRetencionCliente.required=retained>0;
+        $('[data-normal-withholding-summary]').textContent=retained>0?`Pago registrado: ${money(received+retained)} · Recibido: ${money(received)} · Retenido: ${money(retained)}`:'';
+      }
       $('[data-summary]').textContent=f.elements.tipo.value==='CARTERA'
         ?`Cuotas ${money(applications.reduce((s,x)=>s+Number(x.valor||0),0))} · Mora ${money(Number(f.elements.interesMora.value||0))} · Otros ingresos ${money(Number(f.elements.ingresoRetencionMoto.value||0))} · Descuento ${money(Number(f.elements.descuentoProntoPago.value||0))}`
         :`Total recibido: ${money(Number(f.elements.total.value))}`;
@@ -569,10 +585,13 @@
     const interesMora=kind==='CARTERA'?Number(f.elements.interesMora.value||0):0;
     const ingresoRetencionMoto=kind==='CARTERA'?Number(f.elements.ingresoRetencionMoto.value||0):0;
     const descuentoProntoPago=kind==='CARTERA'?Number(f.elements.descuentoProntoPago.value||0):0;
+    const retencionClienteValor=kind==='NORMAL'?Number(f.elements.retencionClienteValor.value||0):0;
+    const cuentaRetencionCliente=kind==='NORMAL'&&retencionClienteValor>0?f.elements.cuentaRetencionCliente.value:null;
     const cuotas=applications.reduce((s,a)=>s+Number(a.valor||0),0);
     if(kind==='CARTERA'&&(!applications.length||!Number.isFinite(interesMora)||interesMora<0||!Number.isFinite(ingresoRetencionMoto)||ingresoRetencionMoto<0||!Number.isFinite(descuentoProntoPago)||descuentoProntoPago<0||descuentoProntoPago>=cuotas||Math.round((cuotas+interesMora+ingresoRetencionMoto-descuentoProntoPago)*100)!==Math.round(total*100))){notice('Revisa las cuotas y el descuento: el valor recibido debe ser igual a cuotas más cargos menos descuento.',true);return;}
+    if(kind==='NORMAL'&&(!Number.isFinite(retencionClienteValor)||retencionClienteValor<0||retencionClienteValor>0&&!cuentaRetencionCliente)){notice('Selecciona la cuenta de Zeus para la retención del cliente.',true);return;}
     if(!options.cuentas.some(x=>String(x.sucursalId)===f.elements.sucursalId.value&&x.medioPago===f.elements.medioPago.value)){notice('Configura la caja o el banco de esta sucursal.',true);return;}
-    const body={operacionGuid:operation,sucursalId:Number(f.elements.sucursalId.value),clienteId:client.id,fechaContable:f.elements.fechaContable.value,tipo:kind,medioPago:f.elements.medioPago.value,referencia:f.elements.referencia.value,concepto:f.elements.concepto.value,total,interesMora,ingresoRetencionMoto,descuentoProntoPago,cuentaContrapartida:kind==='NORMAL'?f.elements.cuentaContrapartida.value:null,aplicaciones:kind==='CARTERA'?applications:[],conceptos:kind==='ANTICIPO'?conceptos:null};
+    const body={operacionGuid:operation,sucursalId:Number(f.elements.sucursalId.value),clienteId:client.id,fechaContable:f.elements.fechaContable.value,tipo:kind,medioPago:f.elements.medioPago.value,referencia:f.elements.referencia.value,concepto:f.elements.concepto.value,total,interesMora,ingresoRetencionMoto,descuentoProntoPago,retencionClienteValor,cuentaRetencionCliente,cuentaContrapartida:kind==='NORMAL'?f.elements.cuentaContrapartida.value:null,aplicaciones:kind==='CARTERA'?applications:[],conceptos:kind==='ANTICIPO'?conceptos:null};
     await send(body,'Recibo');
   }
   function invoiceForm(){
