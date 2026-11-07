@@ -52,7 +52,7 @@ public sealed class CompanyMasterRepository(TenantConnectionFactory connections,
         q.Parameters.Add(new SqlParameter("@Discount",SqlDbType.Decimal){Precision=5,Scale=2,Value=input.MaxDescuentoVentaPct});
         q.Parameters.Add("@OrdenCobro",SqlDbType.VarChar,24).Value=(object?)input.OrdenCobroCartera??DBNull.Value;
         q.Parameters.Add(new SqlParameter("@Mora",SqlDbType.Decimal){Precision=7,Scale=4,Value=(object?)input.MoraMensualPct??DBNull.Value});
-        q.Parameters.Add("@Dv",SqlDbType.Char,1).Value=string.IsNullOrWhiteSpace(input.DigitoVerificacion)?DBNull.Value:input.DigitoVerificacion.Trim();
+        q.Parameters.Add("@Dv",SqlDbType.Char,1).Value=(object?)NitVerification.Calculate(input.Nit)??DBNull.Value;
         q.Parameters.AddWithValue("@Json",JsonSerializer.Serialize(new{input.Codigo,input.Nit,input.DigitoVerificacion,input.RazonSocial,input.MaxDescuentoVentaPct,input.OrdenCobroCartera,input.MoraMensualPct}));await q.ExecuteNonQueryAsync(ct);
         if(input.Zeus is not null)await (zeusConnections??throw new ArgumentException("Servicio de conexión Zeus no disponible.")).SaveAsync(c,tx,id,actor,input.Zeus,ct);
         await tx.CommitAsync(ct);

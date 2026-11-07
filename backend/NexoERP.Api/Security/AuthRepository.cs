@@ -192,7 +192,7 @@ public sealed class AuthRepository(TenantConnectionFactory connections,NexoERP.A
                 """;
             command.Parameters.Add(new SqlParameter("@Codigo",SqlDbType.NVarChar,20){Value=code});
             command.Parameters.Add(new SqlParameter("@Nit",SqlDbType.NVarChar,20){Value=nit});
-            command.Parameters.Add(new SqlParameter("@Dv",SqlDbType.Char,1){Value=string.IsNullOrWhiteSpace(input.DigitoVerificacion)?DBNull.Value:input.DigitoVerificacion.Trim()[..1]});
+            command.Parameters.Add(new SqlParameter("@Dv",SqlDbType.Char,1){Value=(object?)NitVerification.Calculate(nit)??DBNull.Value});
             command.Parameters.Add(new SqlParameter("@Nombre",SqlDbType.NVarChar,200){Value=name});
             command.Parameters.Add(new SqlParameter("@Moneda",SqlDbType.Char,3){Value=currency});
             command.Parameters.Add(new SqlParameter("@Zona",SqlDbType.NVarChar,80){Value=timezone});

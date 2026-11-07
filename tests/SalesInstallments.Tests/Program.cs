@@ -1,4 +1,5 @@
 using NexoERP.Api.Sales;
+using NexoERP.Api.Security;
 using NexoERP.Api.Zeus;
 using System.Xml.Linq;
 
@@ -7,6 +8,14 @@ static void Check(bool condition,string description)
     if(!condition)throw new Exception(description);
     Console.WriteLine("OK: "+description);
 }
+
+Check(NitVerification.Calculate("901436467")=="6"
+    &&NitVerification.Calculate("900499748")=="7"
+    &&NitVerification.Calculate("811043597")=="1"
+    &&NitVerification.Calculate("901437902")=="3"
+    &&NitVerification.Calculate("900228870")=="6"
+    &&NitVerification.Calculate("900.499.748") is null,
+    "el backend calcula el dígito de verificación al crear y editar empresas");
 
 var mixedAdvance=CashReceiptAdvancePolicy.Normalize([new("ANTICIPO",500m),new("SOAT",200m),new("MATRICULA",100m),new("OTROS",50m)],850m);
 Check(LateInterestPolicy.Calculate(new DateOnly(2026,10,31),2m,[(new DateOnly(2026,10,1),1_000_000m)])==20_000m,
