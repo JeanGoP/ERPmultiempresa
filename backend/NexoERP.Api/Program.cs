@@ -16,6 +16,7 @@ using NexoERP.Api.Zeus;
 using NexoERP.Api.Treasury;
 using NexoERP.Api.Sales;
 using NexoERP.Api.CrmIntegration;
+using NexoERP.Api.Accounting;
 
 LoadDotEnv();
 var builder = WebApplication.CreateBuilder(args);
@@ -46,6 +47,7 @@ builder.Services.AddHostedService<CustomerPostingWorker>();
 builder.Services.AddHostedService<CustomerZeusWorker>();
 builder.Services.AddScoped<BrandCatalogRepository>();
 builder.Services.AddScoped<PurchasingRepository>();
+builder.Services.AddScoped<AccountingReports>();
 builder.Services.AddScoped<DisbursementRepository>();
 builder.Services.AddScoped<DisbursementPosting>();
 builder.Services.AddScoped<DisbursementDocumentReader>();
@@ -754,6 +756,7 @@ app.MapPostedDisbursements();
 app.MapSales();
 app.MapBranches();
 app.MapCompanyMaster();
+app.MapAccountingReports();
 app.Run();
 
 static async Task<bool> IsAuthorizedCrmIntegrationAsync(HttpContext context, CancellationToken ct)

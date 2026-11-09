@@ -1,0 +1,25 @@
+.accounting-reports-module{display:grid;gap:18px;min-width:0}
+.accounting-reports-module[hidden]{display:none}
+.accounting-reports-heading{padding:8px 0 2px}
+.accounting-reports-heading h1{margin:5px 0 8px;font-size:clamp(1.7rem,3vw,2.4rem)}
+.accounting-reports-heading p:last-child{margin:0;color:#61736c}
+.accounting-reports-filters,.accounting-reports-results{background:#fff;border:1px solid #d7e2dc;border-radius:14px;padding:20px;min-width:0}
+.accounting-reports-filters{display:grid;grid-template-columns:minmax(220px,2fr) repeat(2,minmax(135px,1fr));gap:14px;align-items:end}
+.accounting-reports-filters label{display:grid;gap:6px;min-width:0;font-weight:600;color:#183e34;font-size:.86rem}
+.accounting-reports-filters label[hidden]{display:none}
+.accounting-reports-filters input,.accounting-reports-filters select{width:100%;min-width:0;min-height:40px;border:1px solid #cbdad1;border-radius:8px;padding:8px 10px;background:#fff;color:#19382f;font:inherit}
+.accounting-report-buttons{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.accounting-report-buttons button{min-height:40px;white-space:nowrap}
+.accounting-reports-disclosure{margin:0;padding:12px 15px;border:1px solid #e6d9b9;border-radius:10px;background:#fffaf0;color:#665638;font-size:.85rem;line-height:1.45}
+.accounting-reports-result-head{display:flex;align-items:start;justify-content:space-between;gap:16px;margin-bottom:15px}
+.accounting-reports-result-head h2{margin:0 0 5px;font-size:1.2rem}
+.accounting-reports-result-head p{margin:0;color:#64776f;font-size:.86rem}
+.accounting-reports-result-head strong{white-space:nowrap;color:#12664e;font-size:.86rem}
+.accounting-reports-table{max-height:min(65vh,720px);overflow:auto;border:1px solid #dce5df;border-radius:8px}
+.accounting-reports-table table{width:100%;border-collapse:collapse;font-size:.84rem}
+.accounting-reports-table th,.accounting-reports-table td{padding:9px 11px;border-bottom:1px solid #e5ebe7;text-align:left;white-space:nowrap}
+.accounting-reports-table th{position:sticky;top:0;background:#eaf2ed;color:#225447;z-index:1}
+.accounting-reports-table td.number{text-align:right;font-variant-numeric:tabular-nums}
+.accounting-reports-table tr:nth-child(even){background:#f8faf9}
+@media(max-width:1000px){.accounting-reports-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.accounting-report-type,.accounting-report-buttons{grid-column:1/-1}}
+@media(max-width:620px){.accounting-reports-filters{grid-template-columns:1fr;padding:14px}.accounting-report-type,.accounting-report-buttons{grid-column:auto}.accounting-reports-results{padding:14px}.accounting-reports-result-head{flex-direction:column}.accounting-report-buttons button{flex:1}}

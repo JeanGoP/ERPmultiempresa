@@ -19,7 +19,7 @@ const elements = {
   breadcrumbCurrent: $('#breadcrumbCurrent'), moduleHeadingTitle: $('#moduleHeadingTitle'), topbarDate: $('#topbarDate'),
   purchaseModule: $('#purchaseModule'), masterDataModule: $('#masterDataModule'), inventoryModule: $('#inventoryModule'), inventoryNav: $('#inventoryNav'), inventoryStats: $('#inventoryStats'), inventoryTable: $('#inventoryTable'), inventorySearch: $('#inventorySearch'), inventoryWarehouse: $('#inventoryWarehouse'), inventoryIssueType: $('#inventoryIssueType'), inventoryIssueTypeField: $('#inventoryIssueTypeField'), inventoryDateFrom: $('#inventoryDateFrom'), inventoryDateTo: $('#inventoryDateTo'), inventoryDateFromField: $('#inventoryDateFromField'), inventoryDateToField: $('#inventoryDateToField'), inventoryNotice: $('#inventoryNotice'), inventoryOperationPanel: $('#inventoryOperationPanel'), inventoryStatus: $('#inventoryStatus'),
   savedPurchasesModule:$('#savedPurchasesModule'),savedPurchasesNav:$('#savedPurchasesNav'),savedPurchasesStats:$('#savedPurchasesStats'),savedPurchasesStatus:$('#savedPurchasesStatus'),savedPurchasesSearch:$('#savedPurchasesSearch'),savedPurchasesState:$('#savedPurchasesState'),savedPurchasesTable:$('#savedPurchasesTable'),savedPurchasesNotice:$('#savedPurchasesNotice'),savedPurchaseDetail:$('#savedPurchaseDetail'),refreshSavedPurchases:$('#refreshSavedPurchases'),
-  accountsPayableModule:$('#accountsPayableModule'),accountsPayableNav:$('#accountsPayableNav'),accountsPayableStats:$('#accountsPayableStats'),accountsPayableStatus:$('#accountsPayableStatus'),accountsPayableSearch:$('#accountsPayableSearch'),accountsPayableSupplier:$('#accountsPayableSupplier'),accountsPayableState:$('#accountsPayableState'),accountsPayableFrom:$('#accountsPayableFrom'),accountsPayableTo:$('#accountsPayableTo'),accountsPayableTable:$('#accountsPayableTable'),accountsPayableNotice:$('#accountsPayableNotice'),refreshAccountsPayable:$('#refreshAccountsPayable'),
+  accountsPayableModule:$('#accountsPayableModule'),accountsPayableNav:$('#accountsPayableNav'),accountsPayableStats:$('#accountsPayableStats'),accountsPayableStatus:$('#accountsPayableStatus'),accountsPayableSearch:$('#accountsPayableSearch'),accountsPayableSupplier:$('#accountsPayableSupplier'),accountsPayableState:$('#accountsPayableState'),accountsPayableFrom:$('#accountsPayableFrom'),accountsPayableTo:$('#accountsPayableTo'),accountsPayableTable:$('#accountsPayableTable'),accountsPayableNotice:$('#accountsPayableNotice'),refreshAccountsPayable:$('#refreshAccountsPayable'),accountingReportsModule:$('#accountingReportsModule'),
   advancedControlsModule:$('#advancedControlsModule'),controlsNav:$('#controlsNav'),advancedStats:$('#advancedStats'),advancedTable:$('#advancedTable'),advancedAction:$('#advancedAction'),advancedNotice:$('#advancedNotice'),advancedAudit:$('#advancedAudit'),advancedStatus:$('#advancedStatus'),advancedViewKicker:$('#advancedViewKicker'),advancedViewTitle:$('#advancedViewTitle'),advancedViewSubtitle:$('#advancedViewSubtitle'),
   securityModule:$('#securityModule'),securityAdminNav:$('#securityAdminNav'),securityStats:$('#securityStats'),securityStatus:$('#securityStatus'),securityTable:$('#securityTable'),securityNotice:$('#securityNotice'),securityViewKicker:$('#securityViewKicker'),securityViewTitle:$('#securityViewTitle'),securityViewSubtitle:$('#securityViewSubtitle'),addSecurityRecord:$('#addSecurityRecord'),
   securityUserDialog:$('#securityUserDialog'),securityUserForm:$('#securityUserForm'),securityUserIdentity:$('#securityUserIdentity'),securityUserRoles:$('#securityUserRoles'),securityUserError:$('#securityUserError'),
@@ -179,10 +179,12 @@ function firstAllowedInventoryView() {
 }
 function hideWorkspaces() {
   window.closeZeus?.();
+  document.querySelector('#accountingReportsNav')?.classList.remove('active');
   elements.purchaseModule.hidden = true;
   elements.masterDataModule.hidden = true;
   elements.savedPurchasesModule.hidden = true;
   elements.accountsPayableModule.hidden = true;
+  elements.accountingReportsModule.hidden = true;
   elements.inventoryModule.hidden = true;
   elements.advancedControlsModule.hidden = true;
   elements.securityModule.hidden = true;
@@ -203,6 +205,7 @@ function isCurrentWorkspaceAllowed() {
   if (!elements.purchaseModule.hidden) return canPurchaseMode(state.registrationMode);
   if (!elements.savedPurchasesModule.hidden) return canUseSavedPurchases();
   if (!elements.accountsPayableModule.hidden) return canUseAccountsPayable();
+  if (!elements.accountingReportsModule.hidden) return hasPermission('CONTABILIDAD.INFORMES.CONSULTAR');
   if (!elements.inventoryModule.hidden) return isInventoryViewAllowed(state.inventoryView);
   if (!elements.masterDataModule.hidden) return isMasterViewAllowed(state.masterView);
   if (!elements.advancedControlsModule.hidden) return hasAnyPermission(ACCESS.costs);
@@ -220,6 +223,7 @@ function routeToDefaultWorkspace(force = false) {
     else if (hasAnyPermission(ACCESS.costs) && typeof showAdvancedView === 'function') showAdvancedView(state.advancedView);
     else if (masterView) showMasterView(masterView);
     else if (hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')) showSecurityView('users');
+    else if (hasPermission('CONTABILIDAD.INFORMES.CONSULTAR')) window.showAccountingReports?.();
     else showNoAccess();
   }
   state.accessInitialized = true;
@@ -258,6 +262,7 @@ function applyAccessControls() {
   setVisible(elements.savedPurchasesNav, canUseSavedPurchases());
   setVisible(elements.accountsPayableNav, canUseAccountsPayable());
   setVisible($('#supplierPaymentReportNav'), canUseAccountsPayable());
+  setVisible('#accountingReportsNav',hasPermission('CONTABILIDAD.INFORMES.CONSULTAR'));
   setVisible(elements.inventoryNav, canInventory);
   if (elements.inventoryNav && !elements.inventoryNav.dataset.inventoryView) elements.inventoryNav.textContent = canReceiving && !canUseInventoryReports() && !canUseInventoryOperations() ? 'Recepción física' : 'Operación diaria';
 
@@ -383,6 +388,7 @@ function findById(rows,id) { return rows.find((row) => String(row.id) === String
 
 async function loadApiCompanyContext() {
   if(state.runtimeMode!=='api'||!state.erpSession?.company?.id||!apiToken()) return;
+  window.resetAccountingReports?.();
   const companyId=state.erpSession.company.id; const base=`/api/v1/companies/${companyId}`;
   try {
     const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies,permissions,brands,branches,clients]=await Promise.all([
