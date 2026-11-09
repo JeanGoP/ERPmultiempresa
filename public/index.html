@@ -266,7 +266,7 @@
               <optgroup label="Estados y saldos Zeus"><option value="balance">Balance de prueba</option><option value="situacion">Situación financiera</option><option value="resultados">Resultados del período</option><option value="patrimonio">Movimientos de patrimonio</option><option value="efectivo">Efectivo y bancos</option></optgroup>
               <optgroup label="Libros y auxiliares"><option value="diario">Libro diario</option><option value="mayor">Libro mayor por cuenta</option><option value="terceros">Auxiliar por tercero</option><option value="comprobantes">Comprobantes</option><option value="centros">Centros de costo</option><option value="cuentas">Cuentas usadas</option></optgroup>
               <optgroup label="Tributario"><option value="impuestos">Impuestos y retenciones</option></optgroup>
-              <optgroup label="Cartera operativa Nexo"><option value="cxc">Clientes · saldo actual</option><option value="cxp">Proveedores · saldo actual</option></optgroup>
+              <optgroup label="Cartera Zeus"><option value="cxc">Clientes · saldo vigente</option><option value="cxp">Proveedores · saldo vigente</option></optgroup>
               <optgroup label="Inventario Nexo"><option value="inventario">Inventario valorizado al corte</option></optgroup>
             </select></label>
             <label><span>Desde</span><input name="desde" type="date" required></label>
@@ -276,7 +276,7 @@
             <label><span>Centro de costo</span><input name="centro" placeholder="Código" maxlength="50"></label>
             <div class="accounting-report-buttons"><button class="button primary" type="submit">Consultar</button><button id="accountingReportExcel" class="button secondary" type="button" disabled>Descargar Excel</button></div>
           </form>
-          <p class="accounting-reports-disclosure">Libros, balance y auxiliares leen todos los movimientos contables vigentes de Zeus, incluidos los anteriores a Nexo. Cartera e inventario son consultas operativas de Nexo y se identifican por separado. Situación financiera, resultados y patrimonio requieren revisión contable de cierres y clasificación antes de presentarse como estados certificados. Efectivo y bancos muestra movimientos de cuentas 11, no un estado de flujos de efectivo. El Excel tributario no es un formato de información exógena DIAN.</p>
+          <p class="accounting-reports-disclosure">Libros, balance, auxiliares y cartera leen Zeus, incluidos movimientos anteriores a Nexo. La cartera muestra el saldo vigente del último período disponible de cada obligación; la fecha no representa un corte histórico. El inventario valorizado sigue leyendo Nexo. Los estados requieren revisión de cierres y clasificación antes de certificarse. Efectivo y bancos muestra cuentas 11, no un estado de flujos. El Excel tributario no es información exógena DIAN.</p>
           <section class="accounting-reports-results"><div class="accounting-reports-result-head"><div><h2 id="accountingReportTitle">Selecciona un informe</h2><p id="accountingReportStatus" role="status">Escoge fechas y consulta.</p></div><strong id="accountingReportCount"></strong></div><div id="accountingReportSummary" class="accounting-report-summary"></div><div id="accountingReportTable" class="accounting-reports-table"></div><div id="accountingReportSubtotals" class="accounting-report-subtotals"></div></section>
         </section>
 

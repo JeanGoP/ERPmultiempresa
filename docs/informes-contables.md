@@ -12,9 +12,11 @@ La conexión se resuelve por `EmpresaId` desde `core.ZeusConexion`; no se acepta
 
 Los saldos iniciales de balance se calculan con los movimientos Zeus anteriores a `Desde`, hasta `Hasta`; los débitos y créditos del período se cuentan desde `Desde`. Para resultados, se usan solamente los movimientos del período. Los cierres, reclasificaciones y asientos de apertura que existan en Zeus forman parte del historial consultado. La pantalla y el Excel muestran subtotales por clase, cuenta, tipo o tercero según el informe.
 
-## Consultas operativas Nexo
+## Cartera Zeus e inventario Nexo
 
-La cartera actual de clientes y proveedores y el inventario valorizado siguen leyendo Nexo y se rotulan como tales. La cartera muestra el saldo **actual** de documentos reconocidos dentro de las fechas filtradas, no el saldo histórico a la fecha de corte. Esas consultas no representan necesariamente toda la cartera o inventario que existe en Zeus.
+La cartera de clientes y proveedores consulta `dbo.FACTURAS_BU` de Zeus. Cada obligación se identifica por unidad de negocio, cuenta, unidad adicional, cliente/proveedor, tipo y número de factura, vencimiento y referencia. Se elige el último período de esa combinación y se muestra su `SACTFAC` vigente con signo de cliente o proveedor. Incluye obligaciones históricas que no existen en Nexo. No se aplica un filtro de fechas a este saldo vigente: `FACTURAS_BU` conserva acumulados por período y un corte arbitrario dentro del mes no puede inferirse de `SACTFAC`. El inventario valorizado sigue leyendo Nexo y se rotula como tal.
+
+Esta lectura **no habilita aún el cobro o pago de obligaciones históricas** desde recibos y egresos: esos formularios y sus asientos todavía usan IDs de factura de Nexo. Deben incorporar la clave completa de la obligación Zeus y validar el saldo otra vez al contabilizar, sin crear facturas ficticias de venta o compra en Nexo.
 
 Situación financiera, resultados y patrimonio requieren revisión contable de cierres y clasificación antes de presentarse como estados certificados. El informe de efectivo y bancos muestra movimientos de cuentas 11 y no sustituye un estado de flujos de efectivo. El auxiliar tributario no es un formato de información exógena DIAN.
 

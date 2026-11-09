@@ -17,7 +17,8 @@
   const escapeXml=value=>String(value??'').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
   function updateFields(){
     const kind=form.elements.tipo.value,inventory=kind==='inventario',portfolio=kind==='cxc'||kind==='cxp';
-    form.elements.desde.closest('label').hidden=inventory;
+    form.elements.desde.closest('label').hidden=inventory||portfolio;
+    form.elements.hasta.closest('label').hidden=portfolio;
     form.elements.cuenta.closest('label').hidden=inventory||portfolio;
     form.elements.cuenta.required=kind==='mayor';
     form.elements.tercero.closest('label').hidden=inventory;
@@ -63,7 +64,7 @@
     table.replaceChildren();summary.replaceChildren();subtotals.replaceChildren();const rows=data.filas||[],columns=data.columnas||[];
     title.textContent=data.titulo;
     count.textContent=rows.length.toLocaleString('es-CO')+' filas';
-    status.textContent=data.truncado?'Se muestran las primeras 20.000 filas. Acota fechas o filtros para un informe completo.':!rows.length?'No hay datos en la fuente de este informe para el período y los filtros.':data.tipo==='cxc'||data.tipo==='cxp'?'Saldo actual de documentos Nexo reconocidos en el período; no es un saldo histórico al corte.':data.tipo==='inventario'?'Inventario Nexo actualizado.':'Contabilidad Zeus actualizada.';
+    status.textContent=data.truncado?'Se muestran las primeras 20.000 filas. Acota los filtros para un informe completo.':!rows.length?'No hay datos en la fuente de este informe para los filtros.':data.tipo==='cxc'||data.tipo==='cxp'?'Saldo vigente de obligaciones en Zeus; incluye las anteriores a Nexo.':data.tipo==='inventario'?'Inventario Nexo actualizado.':'Contabilidad Zeus actualizada.';
     if(!rows.length)return;
     if(data.truncado){
       const note=document.createElement('p');note.textContent='No se calculan totales de un resultado incompleto. Acota los filtros.';summary.append(note);
@@ -102,7 +103,7 @@
     if(!company)return;const current=++request;
     const params=new URLSearchParams();for(const key of ['desde','hasta','cuenta','tercero','centro']){const value=String(form.elements[key].value||'').trim();if(value)params.set(key,value);}
     const kind=form.elements.tipo.value;
-    clearResults(['cxc','cxp','inventario'].includes(kind)?'Consultando Nexo…':'Consultando movimientos en Zeus…');
+    clearResults(kind==='inventario'?'Consultando Nexo…':'Consultando movimientos en Zeus…');
     form.querySelector('[type="submit"]').disabled=true;
     try{
       const data=await apiRequest(`/api/v1/companies/${company}/accounting-reports/${encodeURIComponent(kind)}?${params}`);
@@ -121,8 +122,9 @@
       return `<c r="${reference}" t="inlineStr" s="${style}"><is><t xml:space="preserve">${escapeXml(clean)}</t></is></c>`;
     };
     const row=(number,values,style=0)=>`<row r="${number}">${values.map((value,index)=>cell(value,col(index)+number,style)).join('')}</row>`;
-    const source=data.tipo==='cxc'||data.tipo==='cxp'||data.tipo==='inventario'?'Nexo · consulta operativa':'Zeus · todos los movimientos contables vigentes, incluida la historia anterior a Nexo';
-    const sheet=[row(1,[data.titulo],1),row(2,[`Período ${data.desde} a ${data.hasta} · ${document.querySelector('#companyName')?.textContent||''}`]),row(3,[`Fuente: ${source}.`]),row(4,columns,1)];
+    const source=data.tipo==='inventario'?'Nexo · inventario operativo':data.tipo==='cxc'||data.tipo==='cxp'?'Zeus · saldo vigente de cartera, incluido el historial anterior a Nexo':'Zeus · todos los movimientos contables vigentes, incluida la historia anterior a Nexo';
+    const scope=data.tipo==='cxc'||data.tipo==='cxp'?'Saldo vigente':`Período ${data.desde} a ${data.hasta}`;
+    const sheet=[row(1,[data.titulo],1),row(2,[`${scope} · ${document.querySelector('#companyName')?.textContent||''}`]),row(3,[`Fuente: ${source}.`]),row(4,columns,1)];
     rows.forEach((values,index)=>sheet.push(row(index+5,values)));
     let final=rows.length+4;sheet.push(row(++final,['SUBTOTALES'],1));
     for(const group of totals.groupRows)sheet.push(row(++final,valueRow(columns,group.label,group.values)));

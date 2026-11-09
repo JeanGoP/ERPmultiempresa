@@ -57,12 +57,12 @@ public sealed class AccountingReports(TenantConnectionFactory connections,ZeusCo
             "centros"=>("Movimientos por centro de costo",CostCenterSql),
             "comprobantes"=>("Relación de comprobantes",DocumentSql),
             "cuentas"=>("Cuentas usadas en los asientos",AccountsSql),
-            "cxc"=>("Cartera de clientes Nexo · saldo actual",ReceivablesSql),
-            "cxp"=>("Cartera de proveedores Nexo · saldo actual",PayablesSql),
+            "cxc"=>("Cartera vigente de clientes · Zeus",PortfolioSql(false)),
+            "cxp"=>("Cartera vigente de proveedores · Zeus",PortfolioSql(true)),
             "inventario"=>("Inventario Nexo valorizado al corte",string.Empty),
             _=>throw new ArgumentException("Selecciona un informe contable válido.")
         };
-        var operational=kind is "cxc" or "cxp" or "inventario";
+        var operational=kind=="inventario";
         SqlConnection connection;
         if(operational)connection=await connections.OpenAsync(company,false,ct);
         else
@@ -89,7 +89,7 @@ public sealed class AccountingReports(TenantConnectionFactory connections,ZeusCo
         }
         else
         {
-        command.CommandText=(operational?"":BaseSql)+sql;
+        command.CommandText=(operational||kind is "cxc" or "cxp"?"":BaseSql)+sql;
         command.Parameters.Add("@E",SqlDbType.BigInt).Value=company;
         command.Parameters.Add("@Desde",SqlDbType.Date).Value=from.ToDateTime(TimeOnly.MinValue);
         command.Parameters.Add("@Hasta",SqlDbType.Date).Value=to.ToDateTime(TimeOnly.MinValue);
@@ -167,27 +167,39 @@ public sealed class AccountingReports(TenantConnectionFactory connections,ZeusCo
         FROM Base WHERE Fecha>=@Desde
         GROUP BY Cuenta ORDER BY Cuenta;
         """;
-    private const string ReceivablesSql="""
-        SELECT TOP (20001) f.Numero Factura,t.NumeroIdentificacion Nit,t.RazonSocial Cliente,
-          c.NumeroCuota Cuota,c.FechaVencimiento Vencimiento,f.FechaContable [Fecha factura],
-          c.ValorOriginal [Valor original],c.SaldoPendiente [Saldo actual],
-          CASE WHEN c.SaldoPendiente=0 THEN 'PAGADA' WHEN c.FechaVencimiento<CONVERT(date,GETDATE()) THEN 'VENCIDA' ELSE 'PENDIENTE' END Estado
-        FROM ven.FacturaVentaCuota c JOIN ven.FacturaVenta f ON f.EmpresaId=c.EmpresaId AND f.FacturaVentaId=c.FacturaVentaId
-        JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
-        WHERE f.EmpresaId=@E AND f.ZeusEstado='CONTABILIZADO' AND f.FechaContable BETWEEN @Desde AND @Hasta
-          AND (@Tercero='' OR t.NumeroIdentificacion LIKE @Tercero+'%' OR t.RazonSocial LIKE '%'+@Tercero+'%')
-        ORDER BY t.RazonSocial,f.Numero,c.FechaVencimiento,c.NumeroCuota;
-        """;
-    private const string PayablesSql="""
-        SELECT TOP (20001) d.NumeroDocumento Factura,t.NumeroIdentificacion Nit,t.RazonSocial Proveedor,
-          p.FechaVencimiento Vencimiento,p.FechaReconocimiento [Fecha contable],p.Moneda,
-          p.ValorOriginal [Valor original],p.SaldoPendiente [Saldo actual],p.Estado
-        FROM cxp.DocumentoPorPagar p JOIN comp.DocumentoProveedor d ON d.EmpresaId=p.EmpresaId AND d.DocumentoProveedorId=p.DocumentoProveedorId
-        JOIN ter.Tercero t ON t.EmpresaId=p.EmpresaId AND t.TerceroId=p.TerceroId
-        WHERE p.EmpresaId=@E AND d.Estado='CONTABILIZADO' AND p.FechaReconocimiento BETWEEN @Desde AND @Hasta
-          AND (@Tercero='' OR t.NumeroIdentificacion LIKE @Tercero+'%' OR t.RazonSocial LIKE '%'+@Tercero+'%')
-        ORDER BY t.RazonSocial,d.NumeroDocumento,p.FechaVencimiento;
-        """;
+    private static string PortfolioSql(bool suppliers)
+    {
+        var party=suppliers?"PROVEEDORES":"CLIENTES";
+        var name=suppliers?"Proveedor":"Cliente";
+        var id=suppliers?"IDPROVE":"IDCLIENTE";
+        var prefix=suppliers?"22":"13";
+        var sign=suppliers?"-":"";
+        return $"""
+            WITH Vigente AS (
+              SELECT f.*,ROW_NUMBER() OVER(PARTITION BY f.BU,f.CODICTA,f.IDUNIDAD,f.IDCLIPRV,
+                  f.TIPOFACT,f.NUMEFAC,f.VENCFAC,f.REFEFAC ORDER BY f.ANOMESFAC DESC) Fila
+              FROM dbo.FACTURAS_BU f
+              WHERE f.CODICTA LIKE '{prefix}%'
+                AND (@Cuenta='' OR f.CODICTA LIKE @Cuenta+'%')
+            )
+            SELECT TOP (20001) RTRIM(f.NUMEFAC) Factura,RTRIM(COALESCE(t.IDTERCERO,p.IDTERCERO,f.IDCLIPRV)) Nit,
+              RTRIM(COALESCE(t.NOMBRETER,p.RAZONCIAL,f.IDCLIPRV)) {name},RTRIM(f.CODICTA) Cuenta,
+              RTRIM(f.TIPOFACT) Tipo,RTRIM(f.BU) Unidad,RTRIM(f.REFEFAC) Referencia,
+              TRY_CONVERT(date,REPLACE(f.VENCFAC,'/','-'),23) Vencimiento,
+              RTRIM(f.ANOMESFAC) [Último período],
+              COALESCE(NULLIF(RTRIM(a.IDMONEDA),''),'COP') Moneda,
+              CONVERT(decimal(20,2),{sign}f.SACTFAC) [Saldo actual],
+              CASE WHEN TRY_CONVERT(date,REPLACE(f.VENCFAC,'/','-'),23)<CONVERT(date,GETDATE()) THEN 'VENCIDA' ELSE 'PENDIENTE' END Estado
+            FROM Vigente f
+            LEFT JOIN dbo.{party} p ON p.{id}=f.IDCLIPRV
+            LEFT JOIN dbo.TERCEROS t ON t.IDTERCERO=p.IDTERCERO
+            JOIN dbo.MAECONT a ON a.CODICTA=f.CODICTA
+            WHERE f.Fila=1 AND {sign}f.SACTFAC>0
+              AND (@Tercero='' OR p.IDTERCERO LIKE @Tercero+'%' OR p.RAZONCIAL LIKE '%'+@Tercero+'%'
+                   OR t.NOMBRETER LIKE '%'+@Tercero+'%')
+            ORDER BY {name},Factura,Vencimiento,Cuenta,Unidad,Referencia;
+            """;
+    }
 }
 
 public static class AccountingReportsModule

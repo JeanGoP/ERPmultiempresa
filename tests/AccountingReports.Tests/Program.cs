@@ -12,10 +12,14 @@ var testConnection=Environment.GetEnvironmentVariable("NEXO_ACCOUNTING_TEST_CONN
     command.CommandText="""
         CREATE TABLE #TRANSAC(IDFUENTE char(2),NUMDOCTRA char(10),FECHATRA datetime,CODICTA char(16),VALORTRA decimal(18,2),
           REFEFAC varchar(20),DESCRITRA varchar(100),IDCENCO char(8),NITTRA char(15),STATUSTRA char(2));
-        CREATE TABLE #MAECONT(CODICTA char(16),DESCCTA varchar(40));
+        CREATE TABLE #MAECONT(CODICTA char(16),DESCCTA varchar(40),IDMONEDA char(3) NULL);
         CREATE TABLE #FUENTES(IDFUENTE char(2),DESFUENTE varchar(40));
         CREATE TABLE #TERCEROS(IDTERCERO char(15),NOMBRETER varchar(60));
-        INSERT #MAECONT VALUES('110505','Caja'),('4135','Ingresos');
+        CREATE TABLE #CLIENTES(IDCLIENTE char(10),IDTERCERO varchar(25),RAZONCIAL varchar(250));
+        CREATE TABLE #PROVEEDORES(IDPROVE char(10),IDTERCERO varchar(25),RAZONCIAL varchar(250));
+        CREATE TABLE #FACTURAS_BU(BU varchar(25),CODICTA char(16),IDUNIDAD char(3),IDCLIPRV char(10),
+          TIPOFACT char(3),NUMEFAC varchar(15),VENCFAC char(10),REFEFAC varchar(25),ANOMESFAC char(7),SACTFAC money);
+        INSERT #MAECONT VALUES('110505','Caja',NULL),('4135','Ingresos',NULL);
         INSERT #FUENTES VALUES('09','Notas'),('21','Factura');
         INSERT #TERCEROS VALUES('9001','Tercero anterior');
         INSERT #TRANSAC VALUES
@@ -53,5 +57,31 @@ var testConnection=Environment.GetEnvironmentVariable("NEXO_ACCOUNTING_TEST_CONN
         await using var reader=await command.ExecuteReaderAsync();
         while(await reader.ReadAsync()){}
     }
-    Console.WriteLine("Informes Zeus: histórico, asiento Nexo, saldos iniciales y exclusión de anulado correctos.");
+    command.CommandText="""
+        INSERT #MAECONT(CODICTA,DESCCTA,IDMONEDA) VALUES('130505','Cartera clientes',NULL),('220505','Proveedores',NULL);
+        INSERT #CLIENTES VALUES('C1','9001','Cliente anterior');
+        INSERT #PROVEEDORES VALUES('P1','9002','Proveedor anterior');
+        INSERT #FACTURAS_BU VALUES
+          ('Local','130505','','C1','FA','F1','2026/10/03','','2026/09',1000),
+          ('Local','130505','','C1','FA','F1','2026/10/03','','2026/11',600),
+          ('Local','130505','','C1','FA','F1','2026/11/03','','2026/11',300),
+          ('Local','220505','','P1','FA','F1','2026/10/03','','2026/09',-500),
+          ('Local','220505','','P1','FA','F1','2026/10/03','','2026/11',-200);
+        """;
+    await command.ExecuteNonQueryAsync();
+    var portfolio=type.GetMethod("PortfolioSql",BindingFlags.NonPublic|BindingFlags.Static)!;
+    foreach(var (suppliers,expectedCount,expectedTotal) in new[]{(false,2,900m),(true,1,200m)})
+    {
+        command.CommandText=((string)portfolio.Invoke(null,[suppliers])!)
+            .Replace("dbo.FACTURAS_BU","#FACTURAS_BU",StringComparison.Ordinal)
+            .Replace("dbo.MAECONT","#MAECONT",StringComparison.Ordinal)
+            .Replace("dbo.CLIENTES","#CLIENTES",StringComparison.Ordinal)
+            .Replace("dbo.PROVEEDORES","#PROVEEDORES",StringComparison.Ordinal)
+            .Replace("dbo.TERCEROS","#TERCEROS",StringComparison.Ordinal);
+        var count=0;var total=0m;
+        await using var reader=await command.ExecuteReaderAsync();
+        while(await reader.ReadAsync()){count++;total+=reader.GetDecimal(10);}
+        if(count!=expectedCount||total!=expectedTotal)throw new Exception("La cartera Zeus mezcló períodos, cuotas o saldos de clientes y proveedores.");
+    }
+    Console.WriteLine("Informes Zeus: histórico contable y cartera vigente por obligación correctos.");
 }
