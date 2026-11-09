@@ -185,11 +185,12 @@ public sealed class AccountingReports(TenantConnectionFactory connections,ZeusCo
             SELECT TOP (20001) RTRIM(f.NUMEFAC) Factura,RTRIM(COALESCE(t.IDTERCERO,p.IDTERCERO,f.IDCLIPRV)) Nit,
               RTRIM(COALESCE(t.NOMBRETER,p.RAZONCIAL,f.IDCLIPRV)) {name},RTRIM(f.CODICTA) Cuenta,
               RTRIM(f.TIPOFACT) Tipo,RTRIM(f.BU) Unidad,RTRIM(f.REFEFAC) Referencia,
-              TRY_CONVERT(date,REPLACE(f.VENCFAC,'/','-'),23) Vencimiento,
+              REPLACE(RTRIM(f.VENCFAC),'/','-') Vencimiento,
               RTRIM(f.ANOMESFAC) [Último período],
               COALESCE(NULLIF(RTRIM(a.IDMONEDA),''),'COP') Moneda,
               CONVERT(decimal(20,2),{sign}f.SACTFAC) [Saldo actual],
-              CASE WHEN TRY_CONVERT(date,REPLACE(f.VENCFAC,'/','-'),23)<CONVERT(date,GETDATE()) THEN 'VENCIDA' ELSE 'PENDIENTE' END Estado
+              CASE WHEN ISDATE(f.VENCFAC)=1 AND REPLACE(f.VENCFAC,'-','/')<CONVERT(char(10),GETDATE(),111)
+                   THEN 'VENCIDA' ELSE 'PENDIENTE' END Estado
             FROM Vigente f
             LEFT JOIN dbo.{party} p ON p.{id}=f.IDCLIPRV
             LEFT JOIN dbo.TERCEROS t ON t.IDTERCERO=p.IDTERCERO
