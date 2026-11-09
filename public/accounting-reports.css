@@ -15,11 +15,23 @@
 .accounting-reports-result-head h2{margin:0 0 5px;font-size:1.2rem}
 .accounting-reports-result-head p{margin:0;color:#64776f;font-size:.86rem}
 .accounting-reports-result-head strong{white-space:nowrap;color:#12664e;font-size:.86rem}
+.accounting-report-summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.accounting-report-summary:empty,.accounting-report-subtotals:empty{display:none}
+.accounting-report-summary div{min-width:145px;flex:1;padding:11px 13px;border:1px solid #d7e2dc;border-radius:9px;background:#f5faf7}
+.accounting-report-summary span{display:block;color:#60766b;font-size:.75rem;margin-bottom:3px}
+.accounting-report-summary strong{color:#164c3b;font-size:1rem;font-variant-numeric:tabular-nums}
+.accounting-report-subtotals{margin-top:14px}
+.accounting-report-subtotals details{border:1px solid #dce5df;border-radius:8px;padding:10px 12px}
+.accounting-report-subtotals summary{cursor:pointer;font-weight:700;color:#225447}
+.accounting-report-subtotals table{width:100%;border-collapse:collapse;margin-top:10px;font-size:.82rem}
+.accounting-report-subtotals td,.accounting-report-subtotals th{padding:7px;border-bottom:1px solid #e5ebe7;text-align:right}
+.accounting-report-subtotals td:first-child,.accounting-report-subtotals th:first-child{text-align:left}
 .accounting-reports-table{max-height:min(65vh,720px);overflow:auto;border:1px solid #dce5df;border-radius:8px}
 .accounting-reports-table table{width:100%;border-collapse:collapse;font-size:.84rem}
 .accounting-reports-table th,.accounting-reports-table td{padding:9px 11px;border-bottom:1px solid #e5ebe7;text-align:left;white-space:nowrap}
 .accounting-reports-table th{position:sticky;top:0;background:#eaf2ed;color:#225447;z-index:1}
 .accounting-reports-table td.number{text-align:right;font-variant-numeric:tabular-nums}
+.accounting-reports-table tfoot td{position:sticky;bottom:0;background:#e4f1e9;font-weight:700;border-top:2px solid #a4c7b1}
 .accounting-reports-table tr:nth-child(even){background:#f8faf9}
 @media(max-width:1000px){.accounting-reports-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.accounting-report-type,.accounting-report-buttons{grid-column:1/-1}}
 @media(max-width:620px){.accounting-reports-filters{grid-template-columns:1fr;padding:14px}.accounting-report-type,.accounting-report-buttons{grid-column:auto}.accounting-reports-results{padding:14px}.accounting-reports-result-head{flex-direction:column}.accounting-report-buttons button{flex:1}}
