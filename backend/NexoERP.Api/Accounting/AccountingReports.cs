@@ -2,28 +2,35 @@ using System.Data;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
 using NexoERP.Api.Security;
+using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.Accounting;
 
 public sealed record AccountingReportResult(string Tipo,string Titulo,DateOnly Desde,DateOnly Hasta,
     string[] Columnas,List<object?[]> Filas,bool Truncado,DateTime GeneradoEnUtc);
 
-public sealed class AccountingReports(TenantConnectionFactory connections)
+public sealed class AccountingReports(TenantConnectionFactory connections,ZeusConnectionStore zeusConnections,ZeusRepository zeusRepository)
 {
     public const string Permission="CONTABILIDAD.INFORMES.CONSULTAR";
     private const int MaxRows=20000;
     private const string BaseSql="""
         WITH Base AS (
-          SELECT m.EmpresaId,m.Tipo,m.OrigenId,m.Fecha,m.Fuente,m.Documento,m.Referencia,m.NumeroLinea,
-            m.Cuenta,COALESCE(a.Nombre,m.Descripcion,m.Cuenta) NombreCuenta,m.Descripcion,m.CentroCosto,
-            m.Debito,m.Credito,t.NumeroIdentificacion Nit,t.RazonSocial Tercero
-          FROM cont.vw_AsientoNexo m
-          LEFT JOIN ter.Tercero t ON t.EmpresaId=m.EmpresaId AND t.TerceroId=m.TerceroId
-          LEFT JOIN cont.CuentaContable a ON a.EmpresaId=m.EmpresaId AND a.Codigo=m.Cuenta
-          WHERE m.EmpresaId=@E AND m.Fecha<=@Hasta
-            AND (@Cuenta='' OR m.Cuenta LIKE @Cuenta+'%')
-            AND (@Centro='' OR m.CentroCosto=@Centro)
-            AND (@Tercero='' OR t.NumeroIdentificacion LIKE @Tercero+'%' OR t.RazonSocial LIKE '%'+@Tercero+'%')
+          SELECT CONVERT(date,m.FECHATRA) Fecha,RTRIM(ISNULL(f.DESFUENTE,'')) Tipo,
+            RTRIM(m.IDFUENTE) Fuente,RTRIM(m.NUMDOCTRA) Documento,
+            RTRIM(ISNULL(m.REFEFAC,'')) Referencia,RTRIM(m.CODICTA) Cuenta,
+            RTRIM(COALESCE(a.DESCCTA,m.CODICTA)) NombreCuenta,
+            RTRIM(ISNULL(m.DESCRITRA,'')) Descripcion,RTRIM(ISNULL(m.IDCENCO,'')) CentroCosto,
+            CASE WHEN m.VALORTRA>0 THEN m.VALORTRA ELSE 0 END Debito,
+            CASE WHEN m.VALORTRA<0 THEN -m.VALORTRA ELSE 0 END Credito,
+            RTRIM(ISNULL(m.NITTRA,'')) Nit,RTRIM(ISNULL(t.NOMBRETER,'')) Tercero
+          FROM dbo.TRANSAC m
+          LEFT JOIN dbo.MAECONT a ON a.CODICTA=m.CODICTA
+          LEFT JOIN dbo.FUENTES f ON f.IDFUENTE=m.IDFUENTE
+          LEFT JOIN dbo.TERCEROS t ON t.IDTERCERO=m.NITTRA
+          WHERE m.STATUSTRA IN('AC','XA') AND m.FECHATRA<DATEADD(day,1,@Hasta)
+            AND (@Cuenta='' OR m.CODICTA LIKE @Cuenta+'%')
+            AND (@Centro='' OR m.IDCENCO=@Centro)
+            AND (@Tercero='' OR m.NITTRA LIKE @Tercero+'%' OR t.NOMBRETER LIKE '%'+@Tercero+'%')
         )
         """;
 
@@ -38,11 +45,11 @@ public sealed class AccountingReports(TenantConnectionFactory connections)
         if(kind=="mayor"&&account.Length==0)throw new ArgumentException("Para el libro mayor selecciona una cuenta o prefijo de cuenta.");
         var (title,sql)=kind switch
         {
-            "balance"=>("Balance de prueba",BalanceSql("1,2,3,4,5,6,7,8,9")),
-            "situacion"=>("Situación financiera · saldos Nexo",BalanceSql("1,2,3")),
-            "resultados"=>("Resultados · movimientos Nexo",BalanceSql("4,5,6,7")),
-            "patrimonio"=>("Cambios en patrimonio · movimientos Nexo",BalanceSql("3")),
-            "efectivo"=>("Efectivo y bancos · movimientos Nexo",BalanceSql("11")),
+            "balance"=>("Balance de prueba · Zeus",BalanceSql("1,2,3,4,5,6,7,8,9")),
+            "situacion"=>("Situación financiera · Zeus",BalanceSql("1,2,3")),
+            "resultados"=>("Resultados del período · Zeus",BalanceSql("4,5,6,7")),
+            "patrimonio"=>("Movimientos de patrimonio · Zeus",BalanceSql("3")),
+            "efectivo"=>("Efectivo y bancos · Zeus",BalanceSql("11")),
             "diario"=>("Libro diario",DetailSql),
             "mayor"=>("Libro mayor por cuenta",DetailSql),
             "terceros"=>("Auxiliar por tercero",ThirdPartySql),
@@ -50,12 +57,27 @@ public sealed class AccountingReports(TenantConnectionFactory connections)
             "centros"=>("Movimientos por centro de costo",CostCenterSql),
             "comprobantes"=>("Relación de comprobantes",DocumentSql),
             "cuentas"=>("Cuentas usadas en los asientos",AccountsSql),
-            "cxc"=>("Cartera de clientes · saldo actual",ReceivablesSql),
-            "cxp"=>("Cartera de proveedores · saldo actual",PayablesSql),
-            "inventario"=>("Inventario valorizado al corte",string.Empty),
+            "cxc"=>("Cartera de clientes Nexo · saldo actual",ReceivablesSql),
+            "cxp"=>("Cartera de proveedores Nexo · saldo actual",PayablesSql),
+            "inventario"=>("Inventario Nexo valorizado al corte",string.Empty),
             _=>throw new ArgumentException("Selecciona un informe contable válido.")
         };
-        await using var connection=await connections.OpenAsync(company,false,ct);
+        var operational=kind is "cxc" or "cxp" or "inventario";
+        SqlConnection connection;
+        if(operational)connection=await connections.OpenAsync(company,false,ct);
+        else
+        {
+            var secret=await zeusConnections.ResolveAsync(company,ct);
+            if(string.IsNullOrWhiteSpace(secret))throw new ArgumentException("Configura la conexión Zeus de esta empresa para consultar informes contables.");
+            var builder=new SqlConnectionStringBuilder(secret){ApplicationName="NexoERP.Informes.Zeus",ConnectTimeout=15,Enlist=false};
+            var settings=(await zeusRepository.SettingsAsync(company,ct))?.Configuracion;
+            if(settings is null||!string.Equals(builder.DataSource,settings.ServidorEsperado,StringComparison.OrdinalIgnoreCase)
+                ||!string.Equals(builder.InitialCatalog,settings.BaseEsperada,StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("La conexión Zeus no coincide con el destino configurado para esta empresa.");
+            connection=new SqlConnection(builder.ConnectionString);
+            try{await connection.OpenAsync(ct);}catch{await connection.DisposeAsync();throw;}
+        }
+        await using var ownedConnection=connection;
         await using var command=connection.CreateCommand();command.CommandTimeout=90;
         if(kind=="inventario")
         {
@@ -67,7 +89,7 @@ public sealed class AccountingReports(TenantConnectionFactory connections)
         }
         else
         {
-        command.CommandText=(kind is "cxc" or "cxp"?"":BaseSql)+sql;
+        command.CommandText=(operational?"":BaseSql)+sql;
         command.Parameters.Add("@E",SqlDbType.BigInt).Value=company;
         command.Parameters.Add("@Desde",SqlDbType.Date).Value=from.ToDateTime(TimeOnly.MinValue);
         command.Parameters.Add("@Hasta",SqlDbType.Date).Value=to.ToDateTime(TimeOnly.MinValue);
@@ -108,13 +130,13 @@ public sealed class AccountingReports(TenantConnectionFactory connections)
         SELECT TOP (20001) Fecha,Tipo,Fuente,Documento,Referencia,Cuenta,NombreCuenta Nombre,
           Nit,Tercero,CentroCosto Centro,Descripcion,Debito,Credito
         FROM Base WHERE Fecha>=@Desde
-        ORDER BY Fecha,Tipo,OrigenId,NumeroLinea;
+        ORDER BY Fecha,Fuente,Documento,Cuenta;
         """;
     private const string ThirdPartySql="""
         SELECT TOP (20001) Nit,Tercero,Cuenta,MAX(NombreCuenta) Nombre,
           CONVERT(decimal(20,2),SUM(Debito)) Debitos,CONVERT(decimal(20,2),SUM(Credito)) Creditos,
           CONVERT(decimal(20,2),SUM(Debito-Credito)) Saldo
-        FROM Base WHERE Fecha>=@Desde AND Nit IS NOT NULL
+        FROM Base WHERE Fecha>=@Desde AND NULLIF(Nit,'') IS NOT NULL
         GROUP BY Nit,Tercero,Cuenta ORDER BY Tercero,Nit,Cuenta;
         """;
     private const string TaxSql="""
@@ -136,7 +158,7 @@ public sealed class AccountingReports(TenantConnectionFactory connections)
           CONVERT(decimal(20,2),SUM(Debito)) Debitos,CONVERT(decimal(20,2),SUM(Credito)) Creditos,
           CONVERT(decimal(20,2),SUM(Debito-Credito)) Diferencia
         FROM Base WHERE Fecha>=@Desde
-        GROUP BY Fecha,Tipo,OrigenId,Fuente,Documento,Referencia,Nit,Tercero
+        GROUP BY Fecha,Tipo,Fuente,Documento,Referencia,Nit,Tercero
         ORDER BY Fecha,Tipo,Documento;
         """;
     private const string AccountsSql="""
@@ -183,7 +205,7 @@ public static class AccountingReportsModule
                 return Results.Ok(await reports.GetAsync(empresaId,tipo,start,end,cuenta,tercero,centro,ct));
             }
             catch(ArgumentException error){return Results.BadRequest(new{error=error.Message});}
-            catch(SqlException){return Results.Json(new{error="No se pudo consultar el libro contable de Nexo. Revisa los datos y vuelve a intentar."},statusCode:502);}
+            catch(SqlException){return Results.Json(new{error="No se pudo consultar el libro contable de Zeus. Revisa la conexión de la empresa y vuelve a intentar."},statusCode:502);}
         }).RequireErpPermission(AccountingReports.Permission);
     }
 }

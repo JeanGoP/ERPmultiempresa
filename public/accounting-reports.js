@@ -63,7 +63,7 @@
     table.replaceChildren();summary.replaceChildren();subtotals.replaceChildren();const rows=data.filas||[],columns=data.columnas||[];
     title.textContent=data.titulo;
     count.textContent=rows.length.toLocaleString('es-CO')+' filas';
-    status.textContent=data.truncado?'Se muestran las primeras 20.000 filas. Acota fechas o filtros para un informe completo.':!rows.length?'No hay datos en Nexo para este período y filtros.':data.tipo==='cxc'||data.tipo==='cxp'?'Saldo actual de documentos reconocidos en el período; no es un saldo histórico al corte.':'Consulta actualizada.';
+    status.textContent=data.truncado?'Se muestran las primeras 20.000 filas. Acota fechas o filtros para un informe completo.':!rows.length?'No hay datos en la fuente de este informe para el período y los filtros.':data.tipo==='cxc'||data.tipo==='cxp'?'Saldo actual de documentos Nexo reconocidos en el período; no es un saldo histórico al corte.':data.tipo==='inventario'?'Inventario Nexo actualizado.':'Contabilidad Zeus actualizada.';
     if(!rows.length)return;
     if(data.truncado){
       const note=document.createElement('p');note.textContent='No se calculan totales de un resultado incompleto. Acota los filtros.';summary.append(note);
@@ -102,7 +102,7 @@
     if(!company)return;const current=++request;
     const params=new URLSearchParams();for(const key of ['desde','hasta','cuenta','tercero','centro']){const value=String(form.elements[key].value||'').trim();if(value)params.set(key,value);}
     const kind=form.elements.tipo.value;
-    clearResults('Consultando asientos en Nexo…');
+    clearResults(['cxc','cxp','inventario'].includes(kind)?'Consultando Nexo…':'Consultando movimientos en Zeus…');
     form.querySelector('[type="submit"]').disabled=true;
     try{
       const data=await apiRequest(`/api/v1/companies/${company}/accounting-reports/${encodeURIComponent(kind)}?${params}`);
@@ -121,7 +121,8 @@
       return `<c r="${reference}" t="inlineStr" s="${style}"><is><t xml:space="preserve">${escapeXml(clean)}</t></is></c>`;
     };
     const row=(number,values,style=0)=>`<row r="${number}">${values.map((value,index)=>cell(value,col(index)+number,style)).join('')}</row>`;
-    const sheet=[row(1,[data.titulo],1),row(2,[`Período ${data.desde} a ${data.hasta} · ${document.querySelector('#companyName')?.textContent||''}`]),row(3,['Fuente: asientos confirmados conservados en Nexo. Verificar saldos iniciales e historia previa en Zeus.']),row(4,columns,1)];
+    const source=data.tipo==='cxc'||data.tipo==='cxp'||data.tipo==='inventario'?'Nexo · consulta operativa':'Zeus · todos los movimientos contables vigentes, incluida la historia anterior a Nexo';
+    const sheet=[row(1,[data.titulo],1),row(2,[`Período ${data.desde} a ${data.hasta} · ${document.querySelector('#companyName')?.textContent||''}`]),row(3,[`Fuente: ${source}.`]),row(4,columns,1)];
     rows.forEach((values,index)=>sheet.push(row(index+5,values)));
     let final=rows.length+4;sheet.push(row(++final,['SUBTOTALES'],1));
     for(const group of totals.groupRows)sheet.push(row(++final,valueRow(columns,group.label,group.values)));

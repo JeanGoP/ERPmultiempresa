@@ -260,14 +260,14 @@
         </section>
 
         <section id="accountingReportsModule" class="accounting-reports-module" hidden>
-          <header class="accounting-reports-heading"><div><p class="eyebrow">INFORMES · CONTABILIDAD</p><h1>Informes contables</h1><p>Consulta los asientos confirmados que conserva Nexo y descarga el resultado en Excel.</p></div></header>
+          <header class="accounting-reports-heading"><div><p class="eyebrow">INFORMES · CONTABILIDAD</p><h1>Informes contables</h1><p>Consulta toda la contabilidad registrada en Zeus para esta empresa, incluida la anterior a Nexo, y descarga el resultado en Excel.</p></div></header>
           <form id="accountingReportsForm" class="accounting-reports-filters">
             <label class="accounting-report-type"><span>Informe</span><select name="tipo" required>
-              <optgroup label="Estados y saldos"><option value="balance">Balance de prueba de Nexo</option><option value="situacion">Situación financiera · parcial</option><option value="resultados">Resultados · parcial</option><option value="patrimonio">Cambios en patrimonio · parcial</option><option value="efectivo">Efectivo y bancos</option></optgroup>
+              <optgroup label="Estados y saldos Zeus"><option value="balance">Balance de prueba</option><option value="situacion">Situación financiera</option><option value="resultados">Resultados del período</option><option value="patrimonio">Movimientos de patrimonio</option><option value="efectivo">Efectivo y bancos</option></optgroup>
               <optgroup label="Libros y auxiliares"><option value="diario">Libro diario</option><option value="mayor">Libro mayor por cuenta</option><option value="terceros">Auxiliar por tercero</option><option value="comprobantes">Comprobantes</option><option value="centros">Centros de costo</option><option value="cuentas">Cuentas usadas</option></optgroup>
               <optgroup label="Tributario"><option value="impuestos">Impuestos y retenciones</option></optgroup>
-              <optgroup label="Cartera"><option value="cxc">Clientes · saldo actual</option><option value="cxp">Proveedores · saldo actual</option></optgroup>
-              <optgroup label="Inventario"><option value="inventario">Inventario valorizado al corte</option></optgroup>
+              <optgroup label="Cartera operativa Nexo"><option value="cxc">Clientes · saldo actual</option><option value="cxp">Proveedores · saldo actual</option></optgroup>
+              <optgroup label="Inventario Nexo"><option value="inventario">Inventario valorizado al corte</option></optgroup>
             </select></label>
             <label><span>Desde</span><input name="desde" type="date" required></label>
             <label><span>Hasta</span><input name="hasta" type="date" required></label>
@@ -276,7 +276,7 @@
             <label><span>Centro de costo</span><input name="centro" placeholder="Código" maxlength="50"></label>
             <div class="accounting-report-buttons"><button class="button primary" type="submit">Consultar</button><button id="accountingReportExcel" class="button secondary" type="button" disabled>Descargar Excel</button></div>
           </form>
-          <p class="accounting-reports-disclosure">Los estados muestran únicamente documentos contabilizados que Nexo conserva. Faltan movimientos históricos hechos solo en Zeus, saldos de apertura, notas y clasificación del flujo de efectivo; estos reportes son de trabajo y no sustituyen estados financieros completos o certificados. La cartera muestra saldos actuales. El Excel tributario no es un formato de información exógena DIAN.</p>
+          <p class="accounting-reports-disclosure">Libros, balance y auxiliares leen todos los movimientos contables vigentes de Zeus, incluidos los anteriores a Nexo. Cartera e inventario son consultas operativas de Nexo y se identifican por separado. Situación financiera, resultados y patrimonio requieren revisión contable de cierres y clasificación antes de presentarse como estados certificados. Efectivo y bancos muestra movimientos de cuentas 11, no un estado de flujos de efectivo. El Excel tributario no es un formato de información exógena DIAN.</p>
           <section class="accounting-reports-results"><div class="accounting-reports-result-head"><div><h2 id="accountingReportTitle">Selecciona un informe</h2><p id="accountingReportStatus" role="status">Escoge fechas y consulta.</p></div><strong id="accountingReportCount"></strong></div><div id="accountingReportSummary" class="accounting-report-summary"></div><div id="accountingReportTable" class="accounting-reports-table"></div><div id="accountingReportSubtotals" class="accounting-report-subtotals"></div></section>
         </section>
 
