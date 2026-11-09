@@ -48,6 +48,7 @@ builder.Services.AddHostedService<CustomerZeusWorker>();
 builder.Services.AddScoped<BrandCatalogRepository>();
 builder.Services.AddScoped<PurchasingRepository>();
 builder.Services.AddScoped<AccountingReports>();
+builder.Services.AddScoped<ZeusHistoricalPortfolio>();
 builder.Services.AddScoped<DisbursementRepository>();
 builder.Services.AddScoped<DisbursementPosting>();
 builder.Services.AddScoped<DisbursementDocumentReader>();

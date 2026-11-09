@@ -9,7 +9,8 @@ using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.Treasury;
 
-public sealed record DisbursementLine(string Tipo,long? DocumentoPorPagarId,string Cuenta,string Concepto,decimal Valor);
+public sealed record DisbursementLine(string Tipo,long? DocumentoPorPagarId,string Cuenta,string Concepto,decimal Valor,
+    ZeusObligationKey? ObligacionZeus=null);
 public sealed record DisbursementDraft(Guid OperacionGuid,int Version,long SucursalId,long TerceroId,DateOnly FechaContable,
     string Moneda,string MedioPago,string BancoCaja,string CuentaSalida,string Referencia,string Concepto,DisbursementLine[] Lineas);
 public sealed record DraftSaved(long Id,int Version);
@@ -36,13 +37,18 @@ public sealed class DisbursementRepository(TenantConnectionFactory connections)
         {
             if(l is null||l.Valor<=0||l.Valor>1000000000000m||decimal.Round(l.Valor,2)!=l.Valor)
                 throw new ArgumentException("Cada abono/gasto debe ser positivo, máximo un billón y con hasta dos decimales.");
-            if(l.Tipo is not ("FACTURA" or "GASTO")||l.Tipo=="FACTURA"&&l.DocumentoPorPagarId is not >0||l.Tipo=="GASTO"&&l.DocumentoPorPagarId is not null)
+            if(l.Tipo is not ("FACTURA" or "FACTURA_ZEUS" or "GASTO")
+                ||l.Tipo=="FACTURA"&&(l.DocumentoPorPagarId is not >0||l.ObligacionZeus is not null)
+                ||l.Tipo=="FACTURA_ZEUS"&&(l.DocumentoPorPagarId is not null||l.ObligacionZeus is null)
+                ||l.Tipo=="GASTO"&&(l.DocumentoPorPagarId is not null||l.ObligacionZeus is not null))
                 throw new ArgumentException("Relaciona una obligación para FACTURA; GASTO no puede tener factura aplicada.");
-            if(l.Tipo=="FACTURA"&&!string.IsNullOrWhiteSpace(l.Cuenta))throw new ArgumentException("La cuenta del proveedor proviene de la obligación; no se digita por factura.");
+            if(l.Tipo!="GASTO"&&!string.IsNullOrWhiteSpace(l.Cuenta))throw new ArgumentException("La cuenta del proveedor proviene de la obligación; no se digita por factura.");
             return l with{Cuenta=Text(l.Cuenta,20,"cuenta del gasto",false),Concepto=Text(l.Concepto,200,"concepto de línea")};
         }).ToArray();
         if(lines.Where(l=>l.Tipo=="FACTURA").GroupBy(l=>l.DocumentoPorPagarId).Any(g=>g.Count()>1))
             throw new ArgumentException("Una factura no puede repetirse en el egreso.");
+        if(lines.Where(l=>l.Tipo=="FACTURA_ZEUS").GroupBy(l=>l.ObligacionZeus).Any(g=>g.Count()>1))
+            throw new ArgumentException("Una cuota histórica de Zeus no puede repetirse en el egreso.");
         if(lines.Sum(l=>l.Valor)>1000000000000m)
             throw new ArgumentException("El total del borrador no puede superar un billón.");
         return input with{Moneda=currency,BancoCaja=Text(input.BancoCaja,100,"banco o caja",false),

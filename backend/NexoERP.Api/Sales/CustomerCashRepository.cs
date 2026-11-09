@@ -7,7 +7,8 @@ using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.Sales;
 
-public sealed record CashReceiptApplication(long FacturaVentaId,decimal Valor,long? FacturaVentaCuotaId=null);
+public sealed record CashReceiptApplication(long FacturaVentaId,decimal Valor,long? FacturaVentaCuotaId=null,
+    ZeusObligationKey? ObligacionZeus=null);
 public sealed record CashReceiptConcept(string Codigo,decimal Valor);
 public sealed record CashReceiptInput(Guid OperacionGuid,long SucursalId,long ClienteId,DateOnly FechaContable,
     string Tipo,string MedioPago,string? Referencia,string Concepto,decimal Total,string? CuentaContrapartida,
@@ -22,7 +23,7 @@ public sealed record CashReceiptInput(Guid OperacionGuid,long SucursalId,long Cl
 public sealed record ExtraordinaryRefinancingPaymentInput(Guid OperacionGuid,DateOnly FechaContable,
     string MedioPago,string? Referencia,string Concepto,decimal Valor);
 
-public sealed class CustomerCashRepository(TenantConnectionFactory connections)
+public sealed class CustomerCashRepository(TenantConnectionFactory connections,ZeusHistoricalPortfolio historical)
 {
     public async Task<object> RefinancingPaymentsAsync(long company,long invoiceId,CancellationToken ct)
     {
@@ -242,13 +243,19 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         if(input.MedioPago!="EFECTIVO"&&string.IsNullOrWhiteSpace(input.Referencia))
             throw new ArgumentException("Indica la referencia de la transferencia o el número de cheque.");
         var applications=input.Aplicaciones??[];
+        var localApplications=applications.Where(a=>a.ObligacionZeus is null).ToArray();
+        var historicalApplications=applications.Where(a=>a.ObligacionZeus is not null).ToArray();
         if(input.Tipo=="CARTERA")
         {
-            if(applications.Length is <1 or >120||applications.Any(a=>a.FacturaVentaId<=0||a.FacturaVentaCuotaId is <=0||a.Valor<=0||decimal.Round(a.Valor,2)!=a.Valor)
-                ||applications.GroupBy(a=>(a.FacturaVentaId,a.FacturaVentaCuotaId)).Any(g=>g.Count()>1)
+            if(applications.Length is <1 or >120||applications.Any(a=>a.Valor<=0||decimal.Round(a.Valor,2)!=a.Valor
+                    ||a.ObligacionZeus is null&&a.FacturaVentaId<=0
+                    ||a.ObligacionZeus is not null&&(a.FacturaVentaId!=0||a.FacturaVentaCuotaId is not null))
+                ||localApplications.GroupBy(a=>(a.FacturaVentaId,a.FacturaVentaCuotaId)).Any(g=>g.Count()>1)
+                ||historicalApplications.GroupBy(a=>a.ObligacionZeus).Any(g=>g.Count()>1)
+                ||localApplications.Length>0&&historicalApplications.Length>0
                 ||input.DescuentoProntoPago>=applications.Sum(a=>a.Valor)
                 ||applications.Sum(a=>a.Valor)+input.InteresMora+input.IngresoRetencionMoto-input.DescuentoProntoPago!=input.Total)
-                throw new ArgumentException("Las cuotas, el interés y los ingresos, menos el descuento por pronto pago, deben coincidir con el valor recibido.");
+                throw new ArgumentException("Revisa las cuotas y valores. Las cuotas históricas de Zeus se cobran en un recibo separado.");
         }
         else if(applications.Length!=0)throw new ArgumentException("Solo un recaudo de cartera puede aplicar facturas.");
         if(input.Tipo!="CARTERA"&&input.InteresMora!=0)throw new ArgumentException("El interés de mora solo se cobra al recaudar cuotas.");
@@ -317,7 +324,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
             collectionOrder=companyReader.GetString(0);lateRate=companyReader.GetDecimal(1);
         }
         var openInstallments=new List<CustomerPaymentPolicy.OpenInstallment>();
-        if(input.Tipo=="CARTERA")
+        if(input.Tipo=="CARTERA"&&localApplications.Length>0)
         {
             if(collectionOrder==CustomerPaymentPolicy.OldestAcrossInvoices)
             {
@@ -338,11 +345,11 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                     """;
                 await using(var due=await q.ExecuteReaderAsync(ct))while(await due.ReadAsync(ct))
                     openInstallments.Add(new(due.GetInt64(0),due.GetInt64(1),due.GetDateTime(2),due.GetInt32(3),due.GetDecimal(4)));
-                CustomerPaymentPolicy.ValidateGlobalOrder(openInstallments,applications);
+                CustomerPaymentPolicy.ValidateGlobalOrder(openInstallments,localApplications);
             }
             else
             {
-                foreach(var invoiceId in applications.Select(x=>x.FacturaVentaId).Distinct())
+                foreach(var invoiceId in localApplications.Select(x=>x.FacturaVentaId).Distinct())
                 {
                     ZeusRepository.Add(q,"@Invoice",invoiceId);
                     q.CommandText="""
@@ -357,11 +364,21 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                         openInstallments.Add(new(due.GetInt64(0),due.GetInt64(1),due.GetDateTime(2),due.GetInt32(3),due.GetDecimal(4)));
                     q.Parameters.RemoveAt("@Invoice");
                 }
-                CustomerPaymentPolicy.ValidateOrder(openInstallments,applications);
+                CustomerPaymentPolicy.ValidateOrder(openInstallments,localApplications);
             }
         }
         var invoiceApplications=new List<ZeusCustomerInvoice>();
-        foreach(var line in applications.OrderBy(x=>openInstallments.FirstOrDefault(d=>d.InvoiceId==x.FacturaVentaId&&d.InstallmentId==(x.FacturaVentaCuotaId??0))?.DueDate??DateTime.MinValue)
+        if(localApplications.Length>0&&collectionOrder==CustomerPaymentPolicy.OldestAcrossInvoices)
+        {
+            var oldestHistorical=(await historical.ListAsync(company,input.ClienteId,false,ct))
+                .Select(x=>DateOnly.TryParse(x.Clave.Vencimiento.Replace('/','-'),out var due)?due:(DateOnly?)null)
+                .Where(x=>x.HasValue).Min();
+            var firstLocal=openInstallments.Where(x=>localApplications.Any(a=>a.FacturaVentaId==x.InvoiceId&&
+                (a.FacturaVentaCuotaId??0)==x.InstallmentId)).Min(x=>DateOnly.FromDateTime(x.DueDate));
+            if(oldestHistorical is not null&&oldestHistorical<firstLocal)
+                throw new ArgumentException("El cliente tiene una cuota anterior en Zeus. Recaúdala primero.");
+        }
+        foreach(var line in localApplications.OrderBy(x=>openInstallments.FirstOrDefault(d=>d.InvoiceId==x.FacturaVentaId&&d.InstallmentId==(x.FacturaVentaCuotaId??0))?.DueDate??DateTime.MinValue)
             .ThenBy(x=>x.FacturaVentaId).ThenBy(x=>x.FacturaVentaCuotaId))
         {
             ZeusRepository.Add(q,"@Invoice",line.FacturaVentaId);ZeusRepository.Add(q,"@Value",line.Valor);
@@ -406,6 +423,54 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                     dueDate,line.Valor));
             }
             q.Parameters.RemoveAt("@Invoice");q.Parameters.RemoveAt("@Value");q.Parameters.RemoveAt("@Installment");
+        }
+        string? historicalCode=null;
+        if(historicalApplications.Length>0)
+        {
+            var available=await historical.ListAsync(company,input.ClienteId,false,ct);
+            if(collectionOrder==CustomerPaymentPolicy.OldestAcrossInvoices)
+            {
+                q.CommandText="""
+                    SELECT MIN(COALESCE(c.FechaVencimiento,f.Vencimiento))
+                    FROM ven.FacturaVenta f LEFT JOIN ven.FacturaVentaCuota c
+                      ON c.EmpresaId=f.EmpresaId AND c.FacturaVentaId=f.FacturaVentaId
+                      AND c.PlanVersion=f.PlanVersion AND c.EstadoPlan='ACTIVA'
+                    WHERE f.EmpresaId=@E AND f.ClienteId=@C AND f.ZeusEstado='CONTABILIZADO'
+                      AND f.SaldoPendiente>0 AND (c.FacturaVentaCuotaId IS NULL OR c.SaldoPendiente>0)
+                    """;
+                var oldestLocal=await q.ExecuteScalarAsync(ct);
+                var firstHistorical=historicalApplications.Min(x=>DateOnly.TryParse(x.ObligacionZeus?.Vencimiento?.Replace('/','-'),out var due)?due:DateOnly.MaxValue);
+                if(oldestLocal is DateTime localDue&&DateOnly.FromDateTime(localDue)<firstHistorical)
+                    throw new ArgumentException("El cliente tiene una cuota anterior de Nexo. Recaúdala primero.");
+            }
+            foreach(var line in historicalApplications)
+            {
+                var match=available.SingleOrDefault(x=>x.Clave==line.ObligacionZeus)
+                    ??throw new ArgumentException("La cuota histórica ya no está abierta en Zeus. Actualiza la cartera.");
+                if(match.Saldo<line.Valor)throw new ArgumentException("El abono supera el saldo histórico de Zeus.");
+                var key=match.Clave;
+                if(DateOnly.TryParse(match.FechaFactura.Replace('/','-'),out var invoiceDate)&&invoiceDate>input.FechaContable)
+                    throw new ArgumentException("El recibo no puede anteceder la factura histórica.");
+                if(key.Unidad.Length!=0)throw new ArgumentException("Esta cuota usa unidad adicional de Zeus y aún no puede identificarse en el recibo.");
+                if(historicalCode is not null&&historicalCode!=key.ClienteProveedor)
+                    throw new ArgumentException("Las cuotas del recibo deben pertenecer al mismo código de cliente Zeus.");
+                historicalCode=key.ClienteProveedor;
+                if(!DateTime.TryParseExact(key.Vencimiento,new[]{"yyyy/MM/dd","yyyy-MM-dd"},
+                    System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out var due))
+                    throw new ArgumentException("El vencimiento histórico no es válido.");
+                invoiceApplications.Add(new(0,key.Cuenta,key.Tipo,key.Numero,key.Bu,due,line.Valor,key.Referencia));
+            }
+            var ordered=available.Where(x=>x.Clave.ClienteProveedor==historicalCode).OrderBy(x=>x.Clave.Vencimiento).ThenBy(x=>x.Clave.Numero).ToArray();
+            var selected=historicalApplications.ToDictionary(x=>x.ObligacionZeus!,x=>x.Valor);
+            var blocked=new HashSet<(string,string,string,string)>();var globalBlocked=false;
+            foreach(var due in ordered)
+            {
+                var group=(due.Clave.Cuenta,due.Clave.Tipo,due.Clave.Numero,due.Clave.Bu);
+                var prior=collectionOrder==CustomerPaymentPolicy.OldestAcrossInvoices?globalBlocked:blocked.Contains(group);
+                var paid=selected.TryGetValue(due.Clave,out var amount)&&amount==due.Saldo;
+                if(prior&&selected.ContainsKey(due.Clave))throw new ArgumentException("Paga primero las cuotas anteriores de Zeus.");
+                if(!paid){if(collectionOrder==CustomerPaymentPolicy.OldestAcrossInvoices)globalBlocked=true;else blocked.Add(group);}
+            }
         }
         var calculatedMora=LateInterestPolicy.Calculate(input.FechaContable,lateRate,
             invoiceApplications.Select(x=>(DateOnly.FromDateTime(x.Vencimiento),x.Valor)));
@@ -454,7 +519,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
                 await q.ExecuteNonQueryAsync(ct);q.Parameters.RemoveAt("@Advance");
             }
         }
-        foreach(var line in applications)
+        foreach(var line in localApplications)
         {
             q.Parameters.Add("@Invoice",SqlDbType.BigInt).Value=line.FacturaVentaId;
             q.Parameters.Add("@Value",SqlDbType.Decimal).Value=line.Valor;
@@ -489,7 +554,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections)
         if(input.DescuentoProntoPago>0)movements.Add(new(ZeusJournal.GeneralEarlyPaymentDiscountAccount(settings)!,input.DescuentoProntoPago));
         movements.Add(new(new ZeusAccount("BANCO_CAJA",cashAccount),input.Total));
         var source=new ZeusSource(0,input.ClienteId,"RC-"+id,input.FechaContable.ToDateTime(TimeOnly.MinValue),input.FechaContable.ToDateTime(TimeOnly.MinValue),input.FechaContable.ToDateTime(TimeOnly.MinValue),input.Total,0,0,[],ProveedorNombre:customer);
-        var snapshot=new ZeusSnapshot(settings,source,new(input.ClienteId,identification,identification),movements.ToArray(),
+        var snapshot=new ZeusSnapshot(settings,source,new(input.ClienteId,historicalCode??identification,identification),movements.ToArray(),
             ClienteDocumento:new("RECIBO",input.Concepto,"",bank,cashAccount,input.Referencia?.Trim()??"",paymentCurrency,invoiceApplications.ToArray()));
         q.CommandText="UPDATE cxc.ReciboCaja SET Snapshot=@Snapshot WHERE EmpresaId=@E AND ReciboCajaId=@Id";
         ZeusRepository.Add(q,"@Snapshot",JsonSerializer.Serialize(snapshot));await q.ExecuteNonQueryAsync(ct);

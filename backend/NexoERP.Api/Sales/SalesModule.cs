@@ -75,6 +75,24 @@ public static class SalesModule
             Results.Ok(await receipts.ListAsync(empresaId,q,antes,tipo,ct))).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
         group.MapGet("/cash-receipts/options",async(long empresaId,long? clienteId,string? q,CustomerCashRepository receipts,CancellationToken ct)=>
             Results.Ok(await receipts.OptionsAsync(empresaId,clienteId,q,ct))).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
+        group.MapGet("/cash-receipts/zeus-obligations",async(long empresaId,long clienteId,ZeusHistoricalPortfolio portfolio,CancellationToken ct)=>
+        {
+            try{return Results.Ok(new{items=await portfolio.ListAsync(empresaId,clienteId,false,ct)});}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+            catch(SqlException){return Results.Json(new{error="No se pudo consultar la cartera histórica de Zeus."},statusCode:502);}
+        }).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
+        group.MapGet("/cash-receipts/zeus-clients",async(long empresaId,string q,ZeusHistoricalPortfolio portfolio,CancellationToken ct)=>
+        {
+            try{return Results.Ok(new{items=await portfolio.SearchPartiesAsync(empresaId,q,false,ct)});}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+            catch(SqlException){return Results.Json(new{error="No se pudo buscar clientes en Zeus."},statusCode:502);}
+        }).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
+        group.MapPost("/cash-receipts/zeus-clients/link",async(long empresaId,ZeusLinkPartyInput input,HttpContext http,ZeusHistoricalPortfolio portfolio,CancellationToken ct)=>
+        {
+            try{return Results.Ok(new{id=await portfolio.LinkPartyAsync(empresaId,input.Identificacion,false,Convert.ToInt64(http.Items["UsuarioId"]),ct)});}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+            catch(SqlException){return Results.Json(new{error="No se pudo vincular el cliente de Zeus."},statusCode:502);}
+        }).RequireErpPermission("TESORERIA.RECIBO.CONTABILIZAR");
         group.MapGet("/cash-receipts/accounts",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
         {
             var config=(await settings.SettingsAsync(empresaId,ct)??throw new ArgumentException("Configura Zeus para esta empresa.")).Configuracion;

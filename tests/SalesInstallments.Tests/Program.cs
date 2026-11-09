@@ -103,6 +103,14 @@ var receiptOriginal=new ZeusSnapshot(settings,receiptSource,new ZeusSupplier(1,"
     [new(new ZeusAccount("CLIENTE","130505"),-200m),new(new ZeusAccount("BANCO_CAJA","111005"),200m)],
     ClienteDocumento:new ZeusCustomerDocument("RECIBO","Cobro","","001","111005","","COP",
         [new ZeusCustomerInvoice(1,"130505","FA","0000000060","Local",new DateTime(2026,10,3),200m)]));
+var historicalReceipt=receiptOriginal with{ClienteDocumento=receiptOriginal.ClienteDocumento! with{
+    Facturas=[new ZeusCustomerInvoice(0,"130505","FA","0000000086","Local",new DateTime(2026,10,5),200m,"REF-1")]}};
+var historicalLine=XElement.Parse(ZeusXml.Build(historicalReceipt,Guid.NewGuid())).Descendants("Transac")
+    .Single(x=>(string?)x.Element("CODICTA")=="130505");
+Check((string?)historicalLine.Element("NUMEFAC")=="0000000086"
+    &&(string?)historicalLine.Element("VENCEFAC")=="2026/10/05"
+    &&(string?)historicalLine.Element("REFEFAC")=="REF-1"
+    &&(string?)historicalLine.Element("INDCPITRA")=="2","recibo histórico conserva factura, vencimiento, referencia y signo de cartera");
 var normalWithholdingReceipt=receiptOriginal with{Origen=receiptSource with{Total=975_000m},Movimientos=[
     new(new ZeusAccount("INGRESO","413501001"),-1_000_000m),
     new(new ZeusAccount("RETENCION_CLIENTE","135515001"),25_000m),

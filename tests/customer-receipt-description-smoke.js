@@ -13,7 +13,7 @@ const form={elements:{concepto:{value:''},tipo:{value:'CARTERA'}}};
 const moto={id:7,numero:'FV-7',cuotaId:101,numeroCuota:1,tipoCuota:'ORDINARIA',vence:'2026-11-03',saldo:500000,
   claseCartera:'MOTO',articulos:[{nombre:'MOTOCICLETA PRUEBA',cantidad:1,unidades:[{chasis:'CH-123',vin:'VIN-789'}]}]};
 const next={...moto,cuotaId:102,numeroCuota:2,tipoCuota:'EXTRA',vence:'2026-12-03'};
-const context={mode:'receipt',automaticReceiptConcept:'',applications:[{facturaVentaId:7,facturaVentaCuotaId:101,valor:500000}],
+const context={mode:'receipt',automaticReceiptConcept:'',applications:[{facturaVentaId:7,facturaVentaCuotaId:101,valor:500000}],zeusApplications:[],
   options:{facturas:[moto,next]},$:()=>form,esc:value=>String(value??''),money:value=>String(value),portfolioLabel:value=>value};
 vm.createContext(context);
 vm.runInContext(helpers+receipt,context);
@@ -33,6 +33,9 @@ assert.match(form.elements.concepto.value,/2026-12-03/);
 form.elements.concepto.value='Descripción pactada con el cliente';
 context.syncReceiptConcept();
 assert.equal(form.elements.concepto.value,'Descripción pactada con el cliente');
+form.elements.concepto.value='';context.applications=[];
+context.zeusApplications=[{facturaVentaId:0,valor:100,obligacionZeus:{numero:'0000000086',vencimiento:'2026/09/05'}}];
+context.syncReceiptConcept();assert.match(form.elements.concepto.value,/factura Zeus 0000000086/);
 
 const electro={id:8,numero:'FV-8',cuotaId:201,numeroCuota:1,tipoCuota:'ORDINARIA',vence:'2026-11-20',saldo:800000,
   claseCartera:'OTROS',articulos:[{nombre:'Nevera',cantidad:1,unidades:[]},{nombre:'Lavadora',cantidad:1,unidades:[]}]};
@@ -55,7 +58,7 @@ assert.equal(order.eligible.size,0);
 const totalsSource=source.slice(source.indexOf('  function lateInterestSuggestion()'),source.indexOf('  async function submitReceipt('));
 const totalForm={elements:{tipo:{value:'CARTERA'},fechaContable:{value:'2026-10-26'},interesMora:{value:'0',dataset:{edited:'yes'}},ingresoRetencionMoto:{value:'0'},descuentoProntoPago:{value:'20'},total:{value:''}}};
 const nodes={'[data-document]':totalForm,'[data-late-rate]':{},'[data-late-suggested]':{},'[data-summary]':{}};
-const totalsContext={mode:'receipt',applications:[{facturaVentaId:9,facturaVentaCuotaId:301,valor:200}],options:{moraMensualPct:0,facturas:[]},$:selector=>nodes[selector],money:value=>String(value)};
+const totalsContext={mode:'receipt',applications:[{facturaVentaId:9,facturaVentaCuotaId:301,valor:200}],zeusApplications:[],options:{moraMensualPct:0,facturas:[]},$:selector=>nodes[selector],money:value=>String(value)};
 vm.createContext(totalsContext);vm.runInContext(totalsSource,totalsContext);
 totalsContext.summary();assert.equal(totalForm.elements.total.value,'180');assert.match(nodes['[data-summary]'].textContent,/Descuento 20/);
 totalForm.elements.interesMora.value='5';totalForm.elements.ingresoRetencionMoto.value='10';totalsContext.summary();assert.equal(totalForm.elements.total.value,'195');

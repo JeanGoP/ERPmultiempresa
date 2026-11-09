@@ -70,7 +70,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             foreach(var installment in s.Movimientos.Where(m=>m.Regla.Concepto=="CLIENTE"))
             {
                 await using var line=c.CreateCommand();line.Transaction=tx;
-                line.CommandText="SELECT SUM(VALORTRA) FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND CODICTA=@A AND CLIPRV=@C AND NITTRA=@T AND TIPOFAC=@Type AND NUMEFAC=@Invoice AND CONVERT(date,VENCEFAC)=@Due AND BU=@Bu AND INDCPITRA='2' AND STATUSTRA IN('AC','XA')";
+                line.CommandText="SELECT SUM(VALORTRA) FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND CODICTA=@A AND CLIPRV=@C AND NITTRA=@T AND TIPOFAC=@Type AND NUMEFAC=@Invoice AND CONVERT(date,VENCEFAC)=@Due AND ISNULL(REFEFAC,'')=@Ref AND BU=@Bu AND INDCPITRA='2' AND STATUSTRA IN('AC','XA')";
                 var invoiceNumber=s.ClienteDocumento.CarteraConsecutivoCompleto?number:number[2..];
                 foreach(var p in new (string,object)[]{("@F",s.Configuracion.Fuente),("@N",number),("@A",installment.Regla.Cuenta),("@C",s.Proveedor.CodigoProveedor),("@T",s.Proveedor.CodigoTercero),("@Type",s.Configuracion.TipoFactura),("@Invoice",invoiceNumber),("@Bu",s.Configuracion.UnidadNegocio)})line.Parameters.AddWithValue(p.Item1,p.Item2);
                 line.Parameters.Add("@Due",SqlDbType.Date).Value=(installment.VencimientoCartera??s.Origen.Vencimiento).Date;
@@ -112,6 +112,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                 line.CommandText="SELECT SUM(VALORTRA) FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND CODICTA=@A AND CLIPRV=@C AND NITTRA=@T AND TIPOFAC=@Type AND NUMEFAC=@Invoice AND CONVERT(date,VENCEFAC)=@Due AND BU=@Bu AND INDCPITRA='2' AND STATUSTRA IN('AC','XA')";
                 foreach(var p in new (string,object)[]{("@F",s.Configuracion.Fuente),("@N",number),("@A",invoice.Cuenta),("@C",s.Proveedor.CodigoProveedor),("@T",s.Proveedor.CodigoTercero),("@Type",invoice.Tipo),("@Invoice",invoice.Numero),("@Bu",invoice.UnidadNegocio)})line.Parameters.AddWithValue(p.Item1,p.Item2);
                 line.Parameters.Add("@Due",SqlDbType.Date).Value=invoice.Vencimiento.Date;
+                line.Parameters.AddWithValue("@Ref",invoice.Referencia);
                 var value=await line.ExecuteScalarAsync(ct);
                 if(value is null or DBNull||Convert.ToDecimal(value)!=(receipt.Tipo=="REVERSO_RECIBO"?invoice.Valor:-invoice.Valor))
                     throw new InvalidOperationException($"Zeus no confirmó el recaudo de la factura {invoice.Numero}.");
@@ -168,6 +169,31 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                 stage="validación del cliente y recibo/factura";
                 if(s.Movimientos.Sum(m=>m.Valor)!=0)throw new ArgumentException("El comprobante de cliente no está balanceado.");
                 if(!await CustomerThirdExists(c,tx,s.Proveedor.CodigoTercero,ct))throw new ArgumentException("El tercero del cliente no existe en Zeus.");
+                foreach(var invoice in customerDocument.Tipo=="RECIBO"
+                    ?customerDocument.Facturas?.Where(x=>x.FacturaVentaId==0)??[]
+                    :[])
+                {
+                    q.Parameters.Clear();q.CommandText="""
+                        WITH Vigente AS (
+                          SELECT SACTFAC,ROW_NUMBER() OVER(ORDER BY ANOMESFAC DESC) Fila
+                          FROM dbo.FACTURAS_BU f WITH(UPDLOCK,HOLDLOCK)
+                          JOIN dbo.CLIENTES p ON p.IDCLIENTE=f.IDCLIPRV AND p.IDTERCERO=@Third
+                          WHERE f.BU=@Bu AND f.CODICTA=@A AND f.IDUNIDAD='' AND f.IDCLIPRV=@P
+                            AND f.TIPOFACT=@Type AND f.NUMEFAC=@Invoice AND f.VENCFAC=@Due AND ISNULL(f.REFEFAC,'')=@Ref
+                        ) SELECT SACTFAC FROM Vigente WHERE Fila=1;
+                        """;
+                    q.Parameters.AddWithValue("@Bu",invoice.UnidadNegocio);
+                    q.Parameters.AddWithValue("@A",invoice.Cuenta);
+                    q.Parameters.AddWithValue("@P",s.Proveedor.CodigoProveedor);
+                    q.Parameters.AddWithValue("@Third",s.Proveedor.CodigoTercero);
+                    q.Parameters.AddWithValue("@Type",invoice.Tipo);
+                    q.Parameters.AddWithValue("@Invoice",invoice.Numero);
+                    q.Parameters.AddWithValue("@Due",invoice.Vencimiento.ToString("yyyy/MM/dd",System.Globalization.CultureInfo.InvariantCulture));
+                    q.Parameters.AddWithValue("@Ref",invoice.Referencia);
+                    var balance=await q.ExecuteScalarAsync(ct);
+                    if(balance is null or DBNull||Convert.ToDecimal(balance)<invoice.Valor)
+                        throw new ArgumentException($"El saldo de la cuota {invoice.Numero} cambió en Zeus. Actualiza antes de cobrar.");
+                }
                 if(customerDocument.Tipo=="FACTURA")
                 {
                     q.Parameters.Clear();q.CommandText="SELECT COUNT(*) FROM dbo.CLIENTES WHERE IDCLIENTE=@Id AND IDTERCERO=@Id AND ISNULL(Deshabilitado,0)=0";

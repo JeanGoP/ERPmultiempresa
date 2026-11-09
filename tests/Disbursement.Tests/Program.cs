@@ -2,8 +2,10 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.DataProtection;
 using NexoERP.Api.Data;
 using NexoERP.Api.Treasury;
+using NexoERP.Api.Sales;
 using NexoERP.Api.Zeus;
 
 var root=Directory.GetCurrentDirectory();
@@ -160,7 +162,7 @@ try
     Check((await FindPayments("CE-"+postedId,1,postedId)).GetProperty("items").GetArrayLength()==0,"Paginación conserva filtro y cursor");
     await Reject(async()=>{await FindPayments(new string('a',121));},"Limita longitud de búsqueda");
     await Reject(()=>Pay(payment with{Lineas=[new("FACTURA",1,"","Exceso",1)]}),"Factura pagada no admite otro pago");
-    await Exec(c,"INSERT dbo.Facturas_Bu VALUES('202609','123','220501','FA','F2','','','Local',-300),('202609','123','220501','FA','F3','','','Otra BU',-500)");
+    await Exec(c,"INSERT dbo.Facturas_Bu(Anomesfac,IdCliprv,Codicta,tipofact,numefac,refefac,Idunidad,Bu,Sactfac) VALUES('202609','123','220501','FA','F2','','','Local',-300),('202609','123','220501','FA','F3','','','Otra BU',-500)");
     var multi=job.Snapshot with{Movimientos=[new(new("PROVEEDOR","220501"),100),new(new("PROVEEDOR","220501"),200),new(new("BANCO_CAJA","111005"),-300)],Origen=job.Snapshot.Origen with{Total=300},Egreso=job.Snapshot.Egreso! with{Facturas=[new(2,"220501","FA","F2","","Local",new(2026,10,1),100),new(3,"220501","FA","F3","","Otra BU",new(2026,10,1),200)]}};
     Check((await transport.SendAsync(1,multi,Guid.NewGuid(),default)).Estado=="CONTABILIZADO","Un egreso aplica varias facturas preservando sus unidades de negocio");
     Check(Convert.ToDecimal(await Scalar(c,"SELECT Sactfac FROM dbo.Facturas_Bu WHERE numefac='F2'"))==-200&&Convert.ToDecimal(await Scalar(c,"SELECT Sactfac FROM dbo.Facturas_Bu WHERE numefac='F3'"))==-300,"Saldos independientes por factura y BU");
@@ -186,6 +188,60 @@ try
         Check(Convert.ToInt32(await Scalar(otherTenant,"SELECT COUNT(*) FROM cxp.Egreso"))==0&&Convert.ToInt32(await Scalar(otherTenant,"SELECT COUNT(*) FROM cxp.EgresoLinea"))==0,"RLS protege cabecera y asiento aun sin WHERE");
     foreach(var batch in Regex.Split(await File.ReadAllTextAsync("database/migrations/059_disbursement_posting.sql"),@"(?im)^\s*GO\s*$"))if(!string.IsNullOrWhiteSpace(batch))await Exec(c,batch);
     Check(Convert.ToInt32(await Scalar(c,"SELECT COUNT(*) FROM core.SchemaMigration WHERE MigrationId='059_disbursement_posting'"))==1,"Migración 059 idempotente");
+    await Exec(c,"ALTER TABLE dbo.PROVEEDORES ADD RAZONCIAL varchar(250) NULL; ALTER TABLE dbo.TERCEROS ADD NOMBRETER varchar(250) NULL,TipoIdentificacion varchar(10) NULL; ALTER TABLE dbo.Facturas_Bu ADD FECHFAC char(10) NULL;");
+    await Exec(c,"""
+        UPDATE dbo.PROVEEDORES SET RAZONCIAL='Proveedor';
+        UPDATE dbo.TERCEROS SET NOMBRETER='Proveedor',TipoIdentificacion='NIT';
+        INSERT dbo.Facturas_Bu(Anomesfac,IdCliprv,Codicta,tipofact,numefac,refefac,Idunidad,Bu,Sactfac,VENCFAC,FECHFAC)
+          VALUES('202609','123','220501','FA','H1','','','Local',-100,'2026/10/01','2026/09/01');
+        """);
+    var store=new ZeusConnectionStore(factory,transportConfig,DataProtectionProvider.Create("NexoTests"));
+    var historic=new ZeusHistoricalPortfolio(factory,store,new ZeusRepository(factory));
+    Check((await historic.SearchPartiesAsync(1,"123",true,default)).Single().Identificacion=="123","Encuentra proveedor existente en Zeus");
+    Check(await historic.LinkPartyAsync(1,"123",true,1,default)==1,"Vincula proveedor histórico con tercero existente sin duplicarlo");
+    var open=await historic.ListAsync(1,1,true,default);
+    var old=open.Single(x=>x.Clave.Numero=="H1");
+    Check(old.Saldo==100&&old.Clave.Vencimiento=="2026/10/01","Consulta obligación histórica con saldo y vencimiento exactos");
+    await Reject(()=>historic.VerifyAsync(1,1,true,old.Clave,101,new(2026,9,10),default),"Rechaza abono mayor al saldo histórico");
+    var historicPosting=new DisbursementPosting(factory,transport,historic);
+    var historicalPayment=payment with{OperacionGuid=Guid.NewGuid(),Lineas=[new("FACTURA_ZEUS",null,"","Abono histórico",50,old.Clave)]};
+    var historicPosted=JsonSerializer.SerializeToElement(await historicPosting.PostAsync(1,historicalPayment,1,default));
+    var historicId=historicPosted.GetProperty("id").GetInt64();
+    Check(Convert.ToInt32(await Scalar(c,$"SELECT COUNT(*) FROM cxp.EgresoLinea WHERE EgresoId={historicId} AND DocumentoPorPagarId IS NULL AND Cuenta='220501' AND Debito=50"))==1,
+        "Egreso histórico guarda línea sin inventar factura de Nexo");
+    var historicSnapshot=JsonSerializer.Deserialize<ZeusSnapshot>((string)(await Scalar(c,$"SELECT Snapshot FROM cxp.Egreso WHERE EgresoId={historicId}"))!)!;
+    var sentHistorical=await transport.SendAsync(1,historicSnapshot,historicalPayment.OperacionGuid,default);
+    Check(sentHistorical.Estado=="CONTABILIZADO","Zeus confirma egreso de factura histórica: "+sentHistorical.Error);
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT Sactfac FROM dbo.Facturas_Bu WHERE numefac='H1'"))==-50,"Zeus descuenta únicamente el abono histórico");
+    await Exec(c,"""
+        CREATE TABLE dbo.CLIENTES(IDCLIENTE char(10),IDTERCERO varchar(25),RAZONCIAL varchar(250),Deshabilitado int);
+        INSERT dbo.CLIENTES VALUES('123','123','Cliente histórico',0);
+        INSERT dbo.MAECONT VALUES('130505','Cartera cliente',NULL,2,NULL,1,'D',0,0,0,0,NULL);
+        INSERT dbo.FUENTES VALUES('36','002',0);
+        INSERT dbo.Facturas_Bu(Anomesfac,IdCliprv,Codicta,tipofact,numefac,refefac,Idunidad,Bu,Sactfac,VENCFAC,FECHFAC)
+          VALUES('202609','123','130505','FA','C1','REF-1','','Local',200,'2026/10/05','2026/09/01');
+        """);
+    var receiptSettings=settings with{FuentesAutomaticas=[..settings.FuentesAutomaticas!,new("Norte","RECIBO_CAJA","36","00",[],1,"Local","FA")]};
+    await using(var update=c.CreateCommand())
+    {
+        update.CommandText="UPDATE core.ZeusConfiguracion SET Configuracion=@Value WHERE EmpresaId=1";
+        update.Parameters.AddWithValue("@Value",JsonSerializer.Serialize(receiptSettings));await update.ExecuteNonQueryAsync();
+    }
+    Check((await historic.SearchPartiesAsync(1,"123",false,default)).Single().Identificacion=="123","Encuentra cliente histórico en Zeus");
+    Check(await historic.LinkPartyAsync(1,"123",false,1,default)==1,"Vincula cliente histórico sin duplicar tercero");
+    var customerOpen=(await historic.ListAsync(1,1,false,default)).Single(x=>x.Clave.Numero=="C1");
+    var cash=new CustomerCashRepository(factory,historic);
+    var receipt=new CashReceiptInput(Guid.NewGuid(),1,1,new(2026,9,23),"CARTERA","TRANSFERENCIA","RC-REF","Abono histórico",100,null,
+        [new(0,100,null,customerOpen.Clave)]);
+    var savedReceipt=JsonSerializer.SerializeToElement(await cash.PostAsync(1,receipt,1,default));
+    var receiptId=savedReceipt.GetProperty("id").GetInt64();
+    Check(Convert.ToInt32(await Scalar(c,$"SELECT COUNT(*) FROM cxc.ReciboCajaAplicacion WHERE ReciboCajaId={receiptId}"))==0,
+        "Recibo histórico no inventa factura ni cuota local");
+    var receiptSnapshot=JsonSerializer.Deserialize<ZeusSnapshot>((string)(await Scalar(c,$"SELECT Snapshot FROM cxc.ReciboCaja WHERE ReciboCajaId={receiptId}"))!)!;
+    var sentReceipt=await transport.SendAsync(1,receiptSnapshot,receipt.OperacionGuid,default);
+    Check(sentReceipt.Estado=="CONTABILIZADO","Zeus confirma recaudo histórico: "+sentReceipt.Error);
+    Check(Convert.ToDecimal(await Scalar(c,"SELECT Sactfac FROM dbo.Facturas_Bu WHERE numefac='C1'"))==100,
+        "Zeus descuenta solo el abono de cuenta 13 y conserva el vencimiento");
     Console.WriteLine($"{checks} comprobaciones de egresos correctas.");
 }
 finally

@@ -49,14 +49,38 @@ public sealed partial class ZeusTransport : IDisbursementCheck
             q.Parameters.AddWithValue("@A",movement.Regla.Cuenta);q.Parameters.AddWithValue("@P",movement.Regla.Concepto=="PROVEEDOR"?1:0);q.Parameters.AddWithValue("@Cash",movement.Regla.Concepto=="BANCO_CAJA"?1:0);
             if(Convert.ToInt32(await q.ExecuteScalarAsync(ct))!=1)throw new ArgumentException($"Cuenta {movement.Regla.Cuenta} no habilitada o exige datos adicionales. Los gastos directos no admiten impuestos ni cuentas de cartera/caja.");
         }
+        foreach(var invoice in payment.Facturas.Where(x=>x.DocumentoPorPagarId==0))
+        {
+            q.Parameters.Clear();q.CommandText="""
+                WITH Vigente AS (
+                  SELECT SACTFAC,ROW_NUMBER() OVER(ORDER BY ANOMESFAC DESC) Fila
+                  FROM dbo.FACTURAS_BU f WITH(UPDLOCK,HOLDLOCK)
+                  JOIN dbo.PROVEEDORES p ON p.IDPROVE=f.IDCLIPRV AND p.IDTERCERO=@Third
+                  WHERE f.BU=@Bu AND f.CODICTA=@A AND f.IDUNIDAD='' AND f.IDCLIPRV=@P
+                    AND f.TIPOFACT=@Type AND f.NUMEFAC=@Invoice AND f.VENCFAC=@Due AND ISNULL(f.REFEFAC,'')=@Ref
+                ) SELECT -SACTFAC FROM Vigente WHERE Fila=1;
+                """;
+            q.Parameters.AddWithValue("@Bu",invoice.UnidadNegocio);
+            q.Parameters.AddWithValue("@A",invoice.Cuenta);
+            q.Parameters.AddWithValue("@P",s.Proveedor.CodigoProveedor);
+            q.Parameters.AddWithValue("@Third",s.Proveedor.CodigoTercero);
+            q.Parameters.AddWithValue("@Type",invoice.Tipo);
+            q.Parameters.AddWithValue("@Invoice",invoice.Numero);
+            q.Parameters.AddWithValue("@Due",invoice.Vencimiento.ToString("yyyy/MM/dd",System.Globalization.CultureInfo.InvariantCulture));
+            q.Parameters.AddWithValue("@Ref",invoice.Referencia);
+            var balance=await q.ExecuteScalarAsync(ct);
+            if(balance is null or DBNull||Convert.ToDecimal(balance)<invoice.Valor)
+                throw new ArgumentException($"El saldo de la cuota {invoice.Numero} cambió en Zeus. Actualiza antes de pagar.");
+        }
         return s with{Egreso=payment with{IndicadorSalida=account.Indicador,CuentaBancaria=account.CuentaBancaria}};
     }
     private static async Task VerifyPaymentLines(SqlConnection c,SqlTransaction? tx,ZeusSnapshot s,string number,CancellationToken ct)
     {
         foreach(var invoice in s.Egreso!.Facturas)
         {
-            await using var q=c.CreateCommand();q.Transaction=tx;q.CommandText="SELECT SUM(VALORTRA) FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND CODICTA=@A AND CLIPRV=@P AND NITTRA=@T AND TIPOFAC=@Type AND NUMEFAC=@Invoice AND ISNULL(REFEFAC,'')=@Ref AND BU=@Bu AND INDCPITRA='3' AND STATUSTRA IN('AC','XA')";
+            await using var q=c.CreateCommand();q.Transaction=tx;q.CommandText="SELECT SUM(VALORTRA) FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND CODICTA=@A AND CLIPRV=@P AND NITTRA=@T AND TIPOFAC=@Type AND NUMEFAC=@Invoice AND ISNULL(REFEFAC,'')=@Ref AND BU=@Bu AND CONVERT(date,VENCEFAC)=@Due AND INDCPITRA='3' AND STATUSTRA IN('AC','XA')";
             foreach(var p in new (string,object)[]{("@F",s.Configuracion.Fuente),("@N",number),("@A",invoice.Cuenta),("@P",s.Proveedor.CodigoProveedor),("@T",s.Proveedor.CodigoTercero),("@Type",invoice.Tipo),("@Invoice",invoice.Numero),("@Ref",invoice.Referencia),("@Bu",invoice.UnidadNegocio)})q.Parameters.AddWithValue(p.Item1,p.Item2);
+            q.Parameters.Add("@Due",SqlDbType.Date).Value=invoice.Vencimiento.Date;
             var value=await q.ExecuteScalarAsync(ct);if(value is null or DBNull||Convert.ToDecimal(value)!=invoice.Valor)throw new InvalidOperationException($"Zeus no confirmó la aplicación exacta a la factura {invoice.Numero}.");
         }
     }

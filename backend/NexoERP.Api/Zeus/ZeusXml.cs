@@ -124,6 +124,7 @@ public static class ZeusXml
                 if(invoice is not null)
                 {
                     Set(line,"TIPOFAC",invoice.Tipo);Set(line,"NUMEFAC",invoice.Numero);
+                    Set(line,"REFEFAC",invoice.Referencia);
                     Set(line,"VENCEFAC",invoice.Vencimiento.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));
                 }
                 document.Add(line);

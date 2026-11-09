@@ -30,7 +30,7 @@ public sealed record ZeusSnapshot(ZeusSettings Configuracion, ZeusSource Origen,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ZeusPortfolioNote? NotaCartera=null);
 public sealed record ZeusPaymentInvoice(long DocumentoPorPagarId,string Cuenta,string Tipo,string Numero,string Referencia,string UnidadNegocio,DateTime Vencimiento,decimal Valor);
 public sealed record ZeusDisbursement(string Concepto,string Banco,string CuentaSalida,string Referencia,ZeusPaymentInvoice[] Facturas,string MonedaZeus="",int IndicadorSalida=1,string CuentaBancaria="");
-public sealed record ZeusCustomerInvoice(long FacturaVentaId,string Cuenta,string Tipo,string Numero,string UnidadNegocio,DateTime Vencimiento,decimal Valor);
+public sealed record ZeusCustomerInvoice(long FacturaVentaId,string Cuenta,string Tipo,string Numero,string UnidadNegocio,DateTime Vencimiento,decimal Valor,string Referencia="");
 public sealed record ZeusCustomerDocument(string Tipo,string Concepto,string CuentaCliente,string Banco="",string CuentaCaja="",
     string Referencia="",string MonedaZeus="",ZeusCustomerInvoice[]? Facturas=null,int IndicadorCaja=1,string CuentaBancaria="",
     bool FacturaUsaConsecutivoZeus=false,bool CarteraConsecutivoCompleto=false);

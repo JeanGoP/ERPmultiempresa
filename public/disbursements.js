@@ -5,7 +5,7 @@
   dialog.setAttribute('aria-label','Comprobantes de egreso');document.body.append(dialog);
   let generation=0,company=null,shellCompany=null,current=null,options=null,dirty=false,busy=false,next=null,accounts=[];
   let beneficiaryTimer=null,beneficiaryRequest=0;
-  let searchTerm='';
+  let searchTerm='',historicTerm='';
   const beneficiaryLabel=x=>x?`${x.identificacion} · ${x.nombre}`:'';
   const $e=s=>dialog.querySelector(s);
   const url=()=>`/api/v1/companies/${company}/disbursements`;
@@ -50,10 +50,14 @@
     const token=++generation;shell();notice('Cargando…');
     try{
       const data=id?await apiRequest(url()+'/'+id):{datos:blank()};if(!valid(token))return;
-      current={id,datos:data.datos};
+      current={id,datos:data.datos};historicTerm='';
       const result=await apiRequest(url()+'/options'+(current.datos.terceroId?'?terceroId='+current.datos.terceroId:''));if(!valid(token))return;
       options=result;dirty=false;form();notice('');
       const configured=await apiRequest(url()+'/accounts');if(!valid(token))return;accounts=configured;accountHint();
+      if(current.datos.terceroId){
+        const historic=await apiRequest(url()+'/zeus-obligations?terceroId='+encodeURIComponent(current.datos.terceroId));
+        if(!valid(token))return;options.historicas=historic.items;renderLines();
+      }
     }catch(e){if(valid(token))notice(e.message,true);}
   }
   function form(){
@@ -68,7 +72,9 @@
       <span data-payment-reference>${input('referencia','Referencia del pago / cheque',20)}</span><p data-account class="egreso-help"></p>
       <label class="egreso-wide">Concepto<input name="concepto" value="${esc(d.concepto)}" maxlength="300" required></label></div>
       <p data-options-note id="egresoBeneficiaryStatus" class="egreso-help" role="status" aria-live="polite"></p>
+      <button type="button" class="button secondary" data-find-zeus-suppliers>Buscar proveedor anterior en Zeus</button><div data-zeus-supplier-results></div>
       <h3>Facturas pendientes del proveedor</h3><div class="table-wrap" data-pending></div>
+      <h3>Obligaciones anteriores registradas en Zeus</h3><label>Buscar factura histórica<input data-zeus-filter placeholder="Número, tipo o vencimiento" value="${esc(historicTerm)}"></label><div class="table-wrap" data-zeus-pending></div>
       <div class="egreso-toolbar"><h3>Facturas y gastos</h3><button type="button" class="button secondary" data-invoice>Agregar factura</button><button type="button" class="button secondary" data-expense>Agregar gasto ocasional</button></div>
       <div class="table-wrap"><table><thead><tr><th>Tipo / factura</th><th>Concepto</th><th>Cuenta de gasto</th><th>Abono / valor</th><th></th></tr></thead><tbody data-lines></tbody></table></div>
       <p class="egreso-help">La cuenta de proveedor se toma de cada obligación. Los gastos directos no incluyen desglose de IVA ni retención: causa primero esas compras y selecciónalas como factura.</p>
@@ -81,6 +87,24 @@
     $e('[data-read-document]').onclick=()=>void readDocument();
     $e('[data-beneficiary]').oninput=beneficiaryInput;
     $e('[data-beneficiary]').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();beneficiaryInput();}};
+    $e('[data-zeus-filter]').oninput=e=>{historicTerm=e.target.value.trim().toLowerCase();renderHistoricalPending();};
+    $e('[data-find-zeus-suppliers]').onclick=async()=>{
+      const term=$e('[data-beneficiary]').value.trim();if(term.length<3){notice('Escribe al menos tres letras o números para buscar en Zeus.',true);return;}
+      const token=generation,button=$e('[data-find-zeus-suppliers]');button.disabled=true;notice('Consultando proveedores en Zeus…');
+      try{
+        const data=await apiRequest(url()+'/zeus-suppliers?q='+encodeURIComponent(term));if(!valid(token))return;
+        const area=$e('[data-zeus-supplier-results]');area.innerHTML=data.items.map(x=>`<button type="button" class="button secondary" data-link-zeus-supplier="${esc(x.identificacion)}">${esc(x.identificacion+' · '+x.nombre)}</button>`).join('')||'<small>Sin coincidencias en Zeus.</small>';
+        area.querySelectorAll('[data-link-zeus-supplier]').forEach(item=>item.onclick=async()=>{
+          item.disabled=true;try{
+            const linked=await apiRequest(url()+'/zeus-suppliers/link',{method:'POST',body:JSON.stringify({identificacion:item.dataset.linkZeusSupplier})});if(!valid(token))return;
+            const catalog=await apiRequest(url()+'/options?terceroId='+linked.id);if(!valid(token))return;
+            const selected=catalog.beneficiarios.find(x=>x.id===linked.id);if(!selected)throw new Error('El proveedor vinculado no aparece en el catálogo de Nexo.');
+            options.beneficiarios=catalog.beneficiarios;beneficiaryOptions();$e('[data-beneficiary]').value=beneficiaryLabel(selected);$e('[data-beneficiary]').setCustomValidity('');
+            area.replaceChildren();await changeSupplier(selected);
+          }catch(error){if(valid(token))notice(error.message,true);}finally{if(item.isConnected)item.disabled=false;}
+        });notice('Selecciona el proveedor para vincularlo con Nexo.');
+      }catch(error){if(valid(token))notice(error.message,true);}finally{if(button.isConnected)button.disabled=false;}
+    };
     for(const name of ['sucursalId','medioPago'])$e(`[name="${name}"]`).onchange=()=>{capture();accountHint();paymentReference();};
     $e('[name="moneda"]').readOnly=true;
     $e('[name="moneda"]').onchange=()=>{capture();renderLines();};
@@ -134,10 +158,11 @@
   function renderLines(){
     const d=current.datos;
     $e('[data-pending]').innerHTML=`<table><thead><tr><th>Pagar</th><th>Factura</th><th>Vencimiento</th><th>Valor original</th><th>Saldo pendiente</th></tr></thead><tbody>${options.facturas.filter(x=>x.moneda.trim()===d.moneda).map(x=>`<tr><td><input type="checkbox" data-pick="${x.id}" aria-label="Pagar factura ${esc(x.numero)}" ${d.lineas.some(l=>l.documentoPorPagarId===x.id)?'checked':''}></td><td>${esc(x.numero)}</td><td>${esc(x.vence)}</td><td>${money(x.original,x.moneda)}</td><td>${money(x.saldo,x.moneda)}</td></tr>`).join('')||'<tr><td colspan="5">Selecciona un proveedor con facturas pendientes.</td></tr>'}</tbody></table>`;
+    const historic=options.historicas||[];renderHistoricalPending();
     dialog.querySelectorAll('[data-pick]').forEach(box=>box.onchange=()=>{const inv=options.facturas.find(x=>x.id===Number(box.dataset.pick));d.lineas=d.lineas.filter(l=>l.documentoPorPagarId!==inv.id);if(box.checked)d.lineas.push({tipo:'FACTURA',documentoPorPagarId:inv.id,cuenta:'',concepto:'Abono factura '+inv.numero,valor:Math.floor(inv.saldo*100+1e-6)/100});dirty=true;renderLines();});
-    $e('[data-lines]').innerHTML=d.lineas.map((l,i)=>`<tr data-row="${i}"><td>${l.tipo==='FACTURA'?`<select data-factura required aria-label="Factura"><option value="">Selecciona factura…</option>${options.facturas.filter(x=>x.moneda.trim()===d.moneda).map(x=>`<option value="${x.id}" ${Number(l.documentoPorPagarId)===x.id?'selected':''}>${esc(x.numero+' · Saldo '+money(x.saldo,x.moneda))}</option>`).join('')}${l.documentoPorPagarId&&!options.facturas.some(x=>x.id===Number(l.documentoPorPagarId)&&x.moneda.trim()===d.moneda)?`<option value="${l.documentoPorPagarId}" selected>Obligación ${l.documentoPorPagarId}: revisar saldo / moneda</option>`:''}</select>`:'Gasto ocasional'}</td>
+    $e('[data-lines]').innerHTML=d.lineas.map((l,i)=>`<tr data-row="${i}"><td>${l.tipo==='FACTURA'?`<select data-factura required aria-label="Factura"><option value="">Selecciona factura…</option>${options.facturas.filter(x=>x.moneda.trim()===d.moneda).map(x=>`<option value="${x.id}" ${Number(l.documentoPorPagarId)===x.id?'selected':''}>${esc(x.numero+' · Saldo '+money(x.saldo,x.moneda))}</option>`).join('')}${l.documentoPorPagarId&&!options.facturas.some(x=>x.id===Number(l.documentoPorPagarId)&&x.moneda.trim()===d.moneda)?`<option value="${l.documentoPorPagarId}" selected>Obligación ${l.documentoPorPagarId}: revisar saldo / moneda</option>`:''}</select>`:l.tipo==='FACTURA_ZEUS'?esc('Zeus · '+l.obligacionZeus.numero+' · '+l.obligacionZeus.vencimiento):'Gasto ocasional'}</td>
       <td><input data-concepto aria-label="Concepto de línea" maxlength="200" required value="${esc(l.concepto)}"></td><td>${l.tipo==='GASTO'?`<input data-cuenta aria-label="Cuenta del gasto" maxlength="20" value="${esc(l.cuenta)}">`:'De la obligación'}</td>
-      <td><input data-valor aria-label="Abono o valor" type="number" step="0.01" min="0.01" max="1000000000000" required value="${esc(l.valor)}"></td><td><button class="button secondary" type="button" data-remove aria-label="Quitar línea">Quitar</button></td></tr>`).join('');
+      <td><input data-valor aria-label="Abono o valor" type="number" step="0.01" min="0.01" max="${l.tipo==='FACTURA_ZEUS'?(historic.find(x=>JSON.stringify(x.clave)===JSON.stringify(l.obligacionZeus))?.saldo||0):1000000000000}" required value="${esc(l.valor)}"></td><td><button class="button secondary" type="button" data-remove aria-label="Quitar línea">Quitar</button></td></tr>`).join('');
     dialog.querySelectorAll('[data-row]').forEach(row=>{
       const i=Number(row.dataset.row),l=d.lineas[i];
       row.querySelector('[data-factura]')?.addEventListener('change',e=>{const inv=options.facturas.find(x=>x.id===Number(e.target.value));l.documentoPorPagarId=inv?.id??null;l.concepto=inv?'Abono factura '+inv.numero:'';l.valor=inv?Math.floor(inv.saldo*100+1e-6)/100:0;dirty=true;renderLines();});
@@ -146,6 +171,14 @@
       row.querySelector('[data-valor]').oninput=e=>{l.valor=Number(e.target.value);total();};
       row.querySelector('[data-remove]').onclick=()=>{d.lineas.splice(i,1);dirty=true;renderLines();};
     });total();
+  }
+  function renderHistoricalPending(){
+    const area=$e('[data-zeus-pending]');if(!area||!current)return;
+    const historic=options.historicas||[],d=current.datos;
+    const filtered=historic.map((item,index)=>({item,index})).filter(({item})=>!historicTerm||[item.clave.numero,item.clave.tipo,item.clave.vencimiento,item.clave.cuenta].some(value=>value.toLowerCase().includes(historicTerm)));
+    const shown=filtered.slice(0,80);
+    area.innerHTML=historic.length?`<small>${filtered.length} cuota(s) · mostrando ${shown.length}. Escribe para acotar la búsqueda.</small><table><thead><tr><th>Pagar</th><th>Factura Zeus</th><th>Vencimiento</th><th>Cuenta</th><th>Saldo</th></tr></thead><tbody>${shown.map(({item:x,index:i})=>`<tr><td><input type="checkbox" data-zeus-pick="${i}" aria-label="Pagar factura histórica ${esc(x.clave.numero)}" ${d.lineas.some(l=>l.tipo==='FACTURA_ZEUS'&&JSON.stringify(l.obligacionZeus)===JSON.stringify(x.clave))?'checked':''}></td><td>${esc(x.clave.tipo+' '+x.clave.numero)}</td><td>${esc(x.clave.vencimiento)}</td><td>${esc(x.clave.cuenta)}</td><td>${money(x.saldo,'COP')}</td></tr>`).join('')}</tbody></table>`:'<p>Sin obligaciones históricas abiertas para este beneficiario.</p>';
+    area.querySelectorAll('[data-zeus-pick]').forEach(box=>box.onchange=()=>{const item=historic[Number(box.dataset.zeusPick)];d.lineas=d.lineas.filter(l=>!(l.tipo==='FACTURA_ZEUS'&&JSON.stringify(l.obligacionZeus)===JSON.stringify(item.clave)));if(box.checked)d.lineas.push({tipo:'FACTURA_ZEUS',documentoPorPagarId:null,obligacionZeus:item.clave,cuenta:'',concepto:'Abono factura '+item.clave.numero,valor:item.saldo});dirty=true;renderLines();});
   }
   function total(){const d=current.datos;try{$e('[data-total]').textContent='Total a pagar: '+money(d.lineas.reduce((s,l)=>s+Math.round(l.valor*100),0)/100,d.moneda);}catch{$e('[data-total]').textContent='Revisa la moneda';}}
   function beneficiaryOptions(){
@@ -178,8 +211,10 @@
     try{
       const data=await apiRequest(url()+'/options?terceroId='+encodeURIComponent(selected.id));if(!valid(token))return;
       current.beneficiario=selected;current.datos.terceroId=String(selected.id);$e('[name="terceroId"]').value=selected.id;
-      current.datos.lineas=current.datos.lineas.filter(l=>l.tipo!=='FACTURA');dirty=true;
-      options.facturas=data.facturas;renderLines();$e('[data-options-note]').textContent='';notice('');
+      current.datos.lineas=current.datos.lineas.filter(l=>l.tipo==='GASTO');dirty=true;
+      options.facturas=data.facturas;options.historicas=[];renderLines();$e('[data-options-note]').textContent='Consultando también la cartera histórica de Zeus…';notice('');
+      const historic=await apiRequest(url()+'/zeus-obligations?terceroId='+encodeURIComponent(selected.id));if(!valid(token))return;
+      options.historicas=historic.items;renderLines();$e('[data-options-note]').textContent='';
     }catch(e){if(valid(token)){restore();notice('No se pudieron cargar las facturas: '+e.message,true);}}
     finally{busy=false;if(valid(token)&&$e('fieldset'))$e('fieldset').disabled=false;}
   }

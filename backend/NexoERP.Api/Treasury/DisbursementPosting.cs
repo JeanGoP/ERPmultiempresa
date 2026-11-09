@@ -14,7 +14,7 @@ public interface IDisbursementCheck
     Task CheckDisbursementAsync(long company,ZeusSnapshot snapshot,CancellationToken ct);
 }
 public sealed record CashAccount(long SucursalId,string MedioPago,string Cuenta,string MonedaZeus,int Version=0);
-public sealed class DisbursementPosting(TenantConnectionFactory connections,IDisbursementCheck check)
+public sealed class DisbursementPosting(TenantConnectionFactory connections,IDisbursementCheck check,ZeusHistoricalPortfolio? historical=null)
 {
     public const string Permission="TESORERIA.EGRESO.CONTABILIZAR";
     public async Task<object> PostAsync(long company,DisbursementDraft input,long user,CancellationToken ct)
@@ -72,6 +72,26 @@ public sealed class DisbursementPosting(TenantConnectionFactory connections,IDis
                 if(string.IsNullOrWhiteSpace(line.Cuenta)||line.Cuenta.Length>16)throw new ArgumentException("Selecciona la cuenta de detalle del gasto.");
                 movements.Add(new(new ZeusAccount("GASTO",line.Cuenta),line.Valor));continue;
             }
+            if(line.Tipo=="FACTURA_ZEUS")
+            {
+                var obligation=await (historical??throw new InvalidOperationException("Falta el lector de cartera Zeus.")).VerifyAsync(company,input.TerceroId,true,line.ObligacionZeus!,
+                    line.Valor,input.FechaContable,ct);
+                var key=obligation.Clave;
+                if(key.ClienteProveedor!=supplier.CodigoProveedor||obligation.Tercero!=supplier.CodigoTercero)
+                {
+                    if(invoices.Count!=0||supplier.CodigoProveedor!=identification)
+                        throw new ArgumentException("Las obligaciones deben corresponder al mismo código de proveedor en Zeus.");
+                    supplier=new ZeusSupplier(input.TerceroId,key.ClienteProveedor,obligation.Tercero);
+                }
+                if(key.Unidad.Length!=0)
+                    throw new ArgumentException("Esta obligación usa una unidad adicional de Zeus que el egreso aún no puede identificar. No se contabilizó.");
+                if(!DateTime.TryParseExact(key.Vencimiento,new[]{"yyyy/MM/dd","yyyy-MM-dd"},
+                    System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out var due))
+                    throw new ArgumentException("El vencimiento histórico de Zeus no es válido.");
+                invoices.Add(new(0,key.Cuenta,key.Tipo,key.Numero,key.Referencia,key.Bu,due,line.Valor));
+                movements.Add(new(new ZeusAccount("PROVEEDOR",key.Cuenta),line.Valor));
+                continue;
+            }
             if(!q.Parameters.Contains("@P"))q.Parameters.Add("@P",SqlDbType.BigInt);
             q.Parameters["@P"].Value=line.DocumentoPorPagarId!;
             q.CommandText="""
@@ -93,7 +113,7 @@ public sealed class DisbursementPosting(TenantConnectionFactory connections,IDis
             invoices.Add(new(line.DocumentoPorPagarId!.Value,liability,original.Configuracion.TipoFactura,original.Origen.Factura,"",original.Configuracion.UnidadNegocio,r.GetDateTime(5),line.Valor));
             movements.Add(new(new ZeusAccount("PROVEEDOR",liability),line.Valor));
         }
-        if(invoices.GroupBy(i=>(i.Cuenta,i.Tipo,i.Numero,i.Referencia,i.UnidadNegocio)).Any(g=>g.Count()>1))throw new ArgumentException("Dos obligaciones comparten la misma identificación de factura en Zeus. Concilia antes de pagar.");
+        if(invoices.GroupBy(i=>(i.Cuenta,i.Tipo,i.Numero,i.Referencia,i.UnidadNegocio,i.Vencimiento)).Any(g=>g.Count()>1))throw new ArgumentException("Dos obligaciones comparten la misma identificación de factura en Zeus. Concilia antes de pagar.");
         var total=input.Lineas.Sum(l=>l.Valor);movements.Add(new(new ZeusAccount("BANCO_CAJA",account),-total));
         var date=input.FechaContable.ToDateTime(TimeOnly.MinValue);
         var snapshot=new ZeusSnapshot(settings,new(0,input.TerceroId,"EGRESO",date,date,date,total,0,0,[],ProveedorNombre:name),supplier,movements.ToArray(),new(input.Concepto,bank,account,input.Referencia,invoices.ToArray(),paymentCurrency));
@@ -104,7 +124,8 @@ public sealed class DisbursementPosting(TenantConnectionFactory connections,IDis
         var id=Convert.ToInt64(await q.ExecuteScalarAsync(ct));ZeusRepository.Add(q,"@Id",id);
         foreach(var line in input.Lineas)
         {
-            var ledgerAccount=line.Tipo=="FACTURA"?invoices.Single(i=>i.DocumentoPorPagarId==line.DocumentoPorPagarId).Cuenta:line.Cuenta;
+            var ledgerAccount=line.Tipo=="FACTURA"?invoices.Single(i=>i.DocumentoPorPagarId==line.DocumentoPorPagarId).Cuenta:
+                line.Tipo=="FACTURA_ZEUS"?line.ObligacionZeus!.Cuenta:line.Cuenta;
             await using var insert=ZeusRepository.Command(c,"INSERT cxp.EgresoLinea(EmpresaId,EgresoId,DocumentoPorPagarId,Cuenta,Concepto,Debito) OUTPUT inserted.EgresoLineaId VALUES(@E,@Id,@P,@Account,@Concept,@Value)",company,tx);
             ZeusRepository.Add(insert,"@Id",id);insert.Parameters.Add("@P",SqlDbType.BigInt).Value=(object?)line.DocumentoPorPagarId??DBNull.Value;
             ZeusRepository.Add(insert,"@Account",ledgerAccount);ZeusRepository.Add(insert,"@Concept",line.Concepto);ZeusRepository.Add(insert,"@Value",line.Valor);
@@ -182,6 +203,12 @@ public static class PostedDisbursementsModule
         g.AddEndpointFilter(async(ctx,next)=>{try{return await next(ctx);}catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}catch(DraftConflict e){return Results.Conflict(new{error=e.Message});}catch(SqlException e)when(e.Number is 52112 or 52113 or 52114){return Results.Conflict(new{error=e.Message});}catch(SqlException){return Results.Json(new{error="No se pudo completar la operación. Comprueba conexión, permisos, período y configuración. No repitas un pago sin actualizar su estado."},statusCode:502);}});
         g.MapGet("",async(long empresaId,long? antes,string? q,DisbursementPosting repo,CancellationToken ct)=>Results.Ok(await repo.ListAsync(empresaId,antes,ct,q))).RequireErpPermission(DisbursementPosting.Permission);
         g.MapGet("/options",async(long empresaId,string? q,long? terceroId,DisbursementRepository repo,CancellationToken ct)=>Results.Ok(await repo.OptionsAsync(empresaId,q,terceroId,ct))).RequireErpPermission(DisbursementPosting.Permission);
+        g.MapGet("/zeus-obligations",async(long empresaId,long terceroId,ZeusHistoricalPortfolio repo,CancellationToken ct)=>
+            Results.Ok(new{items=await repo.ListAsync(empresaId,terceroId,true,ct)})).RequireErpPermission(DisbursementPosting.Permission);
+        g.MapGet("/zeus-suppliers",async(long empresaId,string q,ZeusHistoricalPortfolio repo,CancellationToken ct)=>
+            Results.Ok(new{items=await repo.SearchPartiesAsync(empresaId,q,true,ct)})).RequireErpPermission(DisbursementPosting.Permission);
+        g.MapPost("/zeus-suppliers/link",async(long empresaId,ZeusLinkPartyInput input,HttpContext http,ZeusHistoricalPortfolio repo,CancellationToken ct)=>
+            Results.Ok(new{id=await repo.LinkPartyAsync(empresaId,input.Identificacion,true,Convert.ToInt64(http.Items["UsuarioId"]),ct)})).RequireErpPermission(DisbursementPosting.Permission);
         g.MapGet("/{id:long}",async(long empresaId,long id,DisbursementPosting repo,CancellationToken ct)=>{var result=await repo.GetAsync(empresaId,id,ct);return result is null?Results.NotFound():Results.Ok(result);}).RequireErpPermission(DisbursementPosting.Permission);
         g.MapPost("",async(long empresaId,DisbursementDraft input,HttpContext http,DisbursementPosting repo,CancellationToken ct)=>Results.Ok(await repo.PostAsync(empresaId,input,Convert.ToInt64(http.Items["UsuarioId"]),ct))).RequireErpPermission(DisbursementPosting.Permission);
         g.MapGet("/accounts",async(long empresaId,DisbursementPosting repo,CancellationToken ct)=>Results.Ok(await repo.AccountsAsync(empresaId,ct))).RequireErpPermission(DisbursementPosting.Permission);
