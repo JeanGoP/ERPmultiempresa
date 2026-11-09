@@ -30,7 +30,7 @@ function companyZeusFields(form,record,token){
       trust.checked=data.confiarCertificado;version=data.version;versionConfiguracion=data.versionConfiguracion;
       enable.checked=data.origen!=='SIN_CONFIGURAR';enable.disabled=enable.checked;loaded=true;
       inputs.password.placeholder=data.tienePassword?'Vacía para conservar la contraseña':'';
-      message.textContent=data.origen==='SERVIDOR'?'Conexión actual del servidor. Al guardar cambios se administrará desde aquí.':'';update();
+      message.textContent=data.origen==='SERVIDOR'?'Conexión actual del servidor. Al guardar cambios se administrará desde aquí.':data.origen==='PENDIENTE_CREDENCIALES'?'Servidor, base y usuarios preparados. Escribe la contraseña SQL, prueba la conexión y guarda para activarla.':'';update();
     }).catch(e=>{if(current()){message.textContent=e.message;enable.disabled=true;}});
   }
   return {read(){if(testing)throw new Error('Espera a que termine la prueba de conexión.');if(!enable.checked||!dirty)return null;if(!loaded)throw new Error('La configuración Zeus todavía no está disponible.');return payload();},clear(){inputs.password.value='';}};

@@ -48,7 +48,9 @@ public sealed class ZeusConnectionStore(TenantConnectionFactory connections,ICon
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=ZeusRepository.Command(c,"""
             SELECT z.Servidor,z.BaseDatos,z.UsuarioSql,z.ConfiarCertificado,z.Version,
-              ISNULL(s.Version,0),JSON_VALUE(s.Configuracion,'$.UsuarioZeus')
+              ISNULL(s.Version,0),JSON_VALUE(s.Configuracion,'$.UsuarioZeus'),
+              JSON_VALUE(s.Configuracion,'$.ServidorEsperado'),JSON_VALUE(s.Configuracion,'$.BaseEsperada'),
+              JSON_VALUE(s.Configuracion,'$.UsuarioSql')
             FROM core.Empresa e LEFT JOIN core.ZeusConexion z ON z.EmpresaId=e.EmpresaId
             LEFT JOIN core.ZeusConfiguracion s ON s.EmpresaId=e.EmpresaId WHERE e.EmpresaId=@E
             """,company);
@@ -57,7 +59,13 @@ public sealed class ZeusConnectionStore(TenantConnectionFactory connections,ICon
         var accounting=r.IsDBNull(6)?"":r.GetString(6);var configVersion=r.GetInt32(5);
         if(!r.IsDBNull(0))return new(r.GetString(0),r.GetString(1),r.GetString(2),accounting,true,r.GetBoolean(3),r.GetInt32(4),configVersion,"MAESTRO");
         var legacy=Legacy(company);
-        return new(legacy?.DataSource??"",legacy?.InitialCatalog??"",legacy?.UserID??"",accounting,!string.IsNullOrEmpty(legacy?.Password),legacy?.TrustServerCertificate??false,0,configVersion,legacy is null?"SIN_CONFIGURAR":"SERVIDOR");
+        if(legacy is not null)
+            return new(legacy.DataSource,legacy.InitialCatalog,legacy.UserID,accounting,!string.IsNullOrEmpty(legacy.Password),legacy.TrustServerCertificate,0,configVersion,"SERVIDOR");
+        var expectedServer=r.IsDBNull(7)?"":r.GetString(7);
+        var expectedDatabase=r.IsDBNull(8)?"":r.GetString(8);
+        var expectedUser=r.IsDBNull(9)?"":r.GetString(9);
+        return new(expectedServer,expectedDatabase,expectedUser,accounting,false,false,0,configVersion,
+            string.IsNullOrEmpty(expectedServer)?"SIN_CONFIGURAR":"PENDIENTE_CREDENCIALES");
     }
     public async Task SaveAsync(SqlConnection c,SqlTransaction tx,long company,long actor,ZeusConnectionInput input,CancellationToken ct)
     {
