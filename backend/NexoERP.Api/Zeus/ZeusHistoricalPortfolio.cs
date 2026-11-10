@@ -13,7 +13,7 @@ public sealed record ZeusOpenObligation(ZeusObligationKey Clave,string Tercero,s
 public sealed record ZeusHistoricalParty(string Identificacion,string Nombre);
 public sealed record ZeusLinkPartyInput(string Identificacion);
 
-public sealed class ZeusHistoricalPortfolio(TenantConnectionFactory connections,ZeusConnectionStore store,ZeusRepository repository)
+public sealed partial class ZeusHistoricalPortfolio(TenantConnectionFactory connections,ZeusConnectionStore store,ZeusRepository repository)
 {
     public async Task<ZeusHistoricalParty[]> SearchPartiesAsync(long company,string term,bool supplier,CancellationToken ct)
     {

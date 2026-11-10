@@ -25,6 +25,12 @@ public static class SalesModule
         }).RequireErpPermission("MAESTROS.TIPO_CARTERA.ADMINISTRAR");
         group.MapGet("/master-data/clients",async(long empresaId,CustomerRepository customers,CancellationToken ct)=>
             Results.Ok(await customers.ListAsync(empresaId,ct))).RequireErpPermission("MAESTROS.CLIENTE.ADMINISTRAR");
+        group.MapPost("/master-data/clients/sync-zeus",async(long empresaId,string? cursor,HttpContext http,ZeusHistoricalPortfolio portfolio,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await portfolio.SyncCustomersAsync(empresaId,cursor,Convert.ToInt64(http.Items["UsuarioId"]),ct));}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+            catch(SqlException){return Results.Json(new{error="No se pudo consultar el maestro de clientes de Zeus."},statusCode:502);}
+        }).RequireErpPermission("MAESTROS.CLIENTE.ADMINISTRAR");
         group.MapPost("/master-data/clients",async(long empresaId,CustomerInput input,HttpContext http,CustomerRepository customers,ZeusRepository settings,ZeusTransport zeus,CancellationToken ct)=>
         {
             try
