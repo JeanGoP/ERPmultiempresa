@@ -23,8 +23,11 @@ public static class SalesModule
             try{return Results.Ok(await types.SaveAsync(empresaId,id,input,ct));}
             catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
         }).RequireErpPermission("MAESTROS.TIPO_CARTERA.ADMINISTRAR");
-        group.MapGet("/master-data/clients",async(long empresaId,CustomerRepository customers,CancellationToken ct)=>
-            Results.Ok(await customers.ListAsync(empresaId,ct))).RequireErpPermission("MAESTROS.CLIENTE.ADMINISTRAR");
+        group.MapGet("/master-data/clients",async(long empresaId,string? q,int? pagina,CustomerRepository customers,CancellationToken ct)=>
+        {
+            try{return Results.Ok(await customers.PageAsync(empresaId,q,pagina??1,ct));}
+            catch(ArgumentException e){return Results.BadRequest(new{error=e.Message});}
+        }).RequireErpPermission("MAESTROS.CLIENTE.ADMINISTRAR");
         group.MapPost("/master-data/clients/sync-zeus",async(long empresaId,string? cursor,HttpContext http,ZeusHistoricalPortfolio portfolio,CancellationToken ct)=>
         {
             try{return Results.Ok(await portfolio.SyncCustomersAsync(empresaId,cursor,Convert.ToInt64(http.Items["UsuarioId"]),ct));}

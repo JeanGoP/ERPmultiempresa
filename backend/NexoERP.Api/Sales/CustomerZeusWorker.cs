@@ -45,7 +45,7 @@ public sealed class CustomerZeusWorker(IServiceScopeFactory scopes,ILogger<Custo
                 {
                     using var deadline=CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                     deadline.CancelAfter(TimeSpan.FromMinutes(3));
-                    var customer=(await customers.ListAsync(company,deadline.Token)).Single(x=>x.TerceroId==id);
+                    var customer=await customers.GetAsync(company,id,deadline.Token);
                     var config=await settings.SettingsAsync(company,deadline.Token);
                     result=config is null?new("RECHAZADO","Configura la conexión Zeus de la empresa."):
                         await transport.EnsureCustomerThirdAsync(company,config.Configuracion,customer,deadline.Token);

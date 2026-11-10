@@ -17,10 +17,65 @@ public sealed record CustomerRow(long TerceroId,string TipoIdentificacion,string
     string? Departamento,string? CodigoPostal,string? PaisCodigo,string? Pais,string? ContactoNombre,string? Telefono,
     string? Correo,string? SitioWeb,string TipoPersona,string? Nombre1,string? Apellido1,string? VendedorZeus,
     string? TipoClienteZeus,string? DivisionPoliticaZeus,string ZeusEstado,string? ZeusMensaje,bool Activo);
+public sealed record CustomerPage(CustomerRow[] Items,int Total,int Pagina,int Tamano);
 
 public sealed class CustomerRepository(TenantConnectionFactory connections)
 {
     private static string? Text(SqlDataReader r,int i)=>r.IsDBNull(i)?null:r.GetString(i);
+    private const string CustomerColumns="""
+        SELECT t.TerceroId,t.TipoIdentificacion,t.NumeroIdentificacion,t.DigitoVerificacion,t.RazonSocial,
+            t.NombreComercial,t.CodigoResponsabilidadFiscal,t.RegimenFiscalCodigo,t.RegimenFiscalNombre,
+            t.Direccion,t.CiudadCodigo,t.Ciudad,t.DepartamentoCodigo,t.Departamento,t.CodigoPostal,
+            t.PaisCodigo,t.Pais,t.ContactoNombre,t.Telefono,t.Correo,t.SitioWeb,
+            p.TipoPersona,p.Nombre1,p.Apellido1,p.VendedorZeus,p.TipoClienteZeus,t.DivisionPoliticaZeus,
+            p.ZeusEstado,p.ZeusMensaje,t.Activo
+        FROM ter.Tercero t JOIN ven.ClientePerfil p ON p.EmpresaId=t.EmpresaId AND p.TerceroId=t.TerceroId
+        WHERE t.EmpresaId=@E AND t.EsCliente=1
+        """;
+    private const string CustomerSearch="""
+         AND (@Q='' OR
+            CHARINDEX(@Q,t.NumeroIdentificacion COLLATE Latin1_General_CI_AI)>0 OR
+            CHARINDEX(@Q,t.RazonSocial COLLATE Latin1_General_CI_AI)>0 OR
+            CHARINDEX(@Q,ISNULL(t.Ciudad,'') COLLATE Latin1_General_CI_AI)>0 OR
+            CHARINDEX(@Q,ISNULL(t.Telefono,'') COLLATE Latin1_General_CI_AI)>0 OR
+            CHARINDEX(@Q,ISNULL(t.Correo,'') COLLATE Latin1_General_CI_AI)>0)
+        """;
+    private static async Task<CustomerRow[]> ReadCustomersAsync(SqlCommand q,CancellationToken ct)
+    {
+        var rows=new List<CustomerRow>();await using var r=await q.ExecuteReaderAsync(ct);
+        while(await r.ReadAsync(ct))rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),Text(r,3),r.GetString(4),
+            Text(r,5),Text(r,6),Text(r,7),Text(r,8),Text(r,9),Text(r,10),Text(r,11),Text(r,12),Text(r,13),
+            Text(r,14),Text(r,15),Text(r,16),Text(r,17),Text(r,18),Text(r,19),Text(r,20),r.GetString(21),
+            Text(r,22),Text(r,23),Text(r,24),Text(r,25),Text(r,26),r.GetString(27),Text(r,28),r.GetBoolean(29)));
+        return rows.ToArray();
+    }
+    public async Task<CustomerPage> PageAsync(long company,string? search,int page,CancellationToken ct)
+    {
+        if(page<1||page>1_000_000)throw new ArgumentException("La página solicitada no es válida.");
+        search=search?.Trim();
+        if(search?.Length>100)throw new ArgumentException("La búsqueda admite máximo 100 caracteres.");
+        const int size=25;
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=c.CreateCommand();
+        q.Parameters.Add("@E",SqlDbType.BigInt).Value=company;
+        q.Parameters.Add("@Q",SqlDbType.NVarChar,100).Value=search??"";
+        q.CommandText="SELECT COUNT(*) FROM ter.Tercero t JOIN ven.ClientePerfil p ON p.EmpresaId=t.EmpresaId AND p.TerceroId=t.TerceroId WHERE t.EmpresaId=@E AND t.EsCliente=1"+CustomerSearch;
+        var total=Convert.ToInt32(await q.ExecuteScalarAsync(ct));
+        page=Math.Min(page,Math.Max(1,(total+size-1)/size));
+        q.CommandText=CustomerColumns+CustomerSearch+" ORDER BY t.RazonSocial,t.TerceroId OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY";
+        q.Parameters.Add("@Skip",SqlDbType.Int).Value=(page-1)*size;
+        q.Parameters.Add("@Take",SqlDbType.Int).Value=size;
+        return new(await ReadCustomersAsync(q,ct),total,page,size);
+    }
+    public async Task<CustomerRow> GetAsync(long company,long id,CancellationToken ct)
+    {
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=c.CreateCommand();q.CommandText=CustomerColumns+" AND t.TerceroId=@Id";
+        q.Parameters.Add("@E",SqlDbType.BigInt).Value=company;
+        q.Parameters.Add("@Id",SqlDbType.BigInt).Value=id;
+        return (await ReadCustomersAsync(q,ct)).SingleOrDefault()
+            ??throw new ArgumentException("El cliente ya no existe en esta empresa.");
+    }
     public async Task<bool> RetryZeusAsync(long company,long id,CancellationToken ct)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
@@ -35,22 +90,9 @@ public sealed class CustomerRepository(TenantConnectionFactory connections)
     public async Task<CustomerRow[]> ListAsync(long company,CancellationToken ct)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
-        await using var q=c.CreateCommand();q.CommandText="""
-            SELECT t.TerceroId,t.TipoIdentificacion,t.NumeroIdentificacion,t.DigitoVerificacion,t.RazonSocial,
-                t.NombreComercial,t.CodigoResponsabilidadFiscal,t.RegimenFiscalCodigo,t.RegimenFiscalNombre,
-                t.Direccion,t.CiudadCodigo,t.Ciudad,t.DepartamentoCodigo,t.Departamento,t.CodigoPostal,
-                t.PaisCodigo,t.Pais,t.ContactoNombre,t.Telefono,t.Correo,t.SitioWeb,
-                p.TipoPersona,p.Nombre1,p.Apellido1,p.VendedorZeus,p.TipoClienteZeus,t.DivisionPoliticaZeus,
-                p.ZeusEstado,p.ZeusMensaje,t.Activo
-            FROM ter.Tercero t JOIN ven.ClientePerfil p ON p.EmpresaId=t.EmpresaId AND p.TerceroId=t.TerceroId
-            WHERE t.EmpresaId=@E AND t.EsCliente=1 ORDER BY t.RazonSocial;
-            """;q.Parameters.AddWithValue("@E",company);
-        var rows=new List<CustomerRow>();await using var r=await q.ExecuteReaderAsync(ct);
-        while(await r.ReadAsync(ct))rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),Text(r,3),r.GetString(4),
-            Text(r,5),Text(r,6),Text(r,7),Text(r,8),Text(r,9),Text(r,10),Text(r,11),Text(r,12),Text(r,13),
-            Text(r,14),Text(r,15),Text(r,16),Text(r,17),Text(r,18),Text(r,19),Text(r,20),r.GetString(21),
-            Text(r,22),Text(r,23),Text(r,24),Text(r,25),Text(r,26),r.GetString(27),Text(r,28),r.GetBoolean(29)));
-        return rows.ToArray();
+        await using var q=c.CreateCommand();q.CommandText=CustomerColumns+" ORDER BY t.RazonSocial,t.TerceroId";
+        q.Parameters.Add("@E",SqlDbType.BigInt).Value=company;
+        return await ReadCustomersAsync(q,ct);
     }
     public async Task<object> SaveAsync(long company,long? id,CustomerInput input,long user,CancellationToken ct)
     {

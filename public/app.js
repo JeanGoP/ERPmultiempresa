@@ -26,7 +26,7 @@ const elements = {
   securityRoleDialog:$('#securityRoleDialog'),securityRoleForm:$('#securityRoleForm'),securityRolePermissions:$('#securityRolePermissions'),securityRoleError:$('#securityRoleError'),
   securityPasswordDialog:$('#securityPasswordDialog'),securityPasswordForm:$('#securityPasswordForm'),securityPasswordError:$('#securityPasswordError'),
   masterStats: $('#masterStats'), masterViewTitle: $('#masterViewTitle'), masterViewSubtitle: $('#masterViewSubtitle'),
-  masterTable: $('#masterTable'), masterSearch: $('#masterSearch'), masterCount: $('#masterCount'), masterNotice: $('#masterNotice'), addMasterRecord: $('#addMasterRecord'),
+  masterTable: $('#masterTable'), masterClientPager: $('#masterClientPager'), masterSearch: $('#masterSearch'), masterCount: $('#masterCount'), masterNotice: $('#masterNotice'), addMasterRecord: $('#addMasterRecord'),
   masterRecordDialog: $('#masterRecordDialog'), masterRecordForm: $('#masterRecordForm'), masterFormFields: $('#masterFormFields'), masterFormError: $('#masterFormError'), masterDialogTitle: $('#masterDialogTitle'), masterDialogSubtitle: $('#masterDialogSubtitle'),
   superAdminCompanyPanel:$('#superAdminCompanyPanel'),companyCreateForm:$('#companyCreateForm'),companyCreateError:$('#companyCreateError'),companiesAdminNav:$('#companiesAdminNav')
 };
@@ -372,6 +372,9 @@ const masterViewConfig = {
 };
 
 const pendingApiMasterData = {};
+let clientPageRequestVersion=0;
+let clientSearchTimer;
+const clientPageState={page:1,total:0,size:25};
 function pendingApiMasterDataFor(companyId) {
   const key=String(companyId||'sin-empresa');
   if(!pendingApiMasterData[key])pendingApiMasterData[key]={clients:[],suppliers:[],units:[],articles:[],brands:[],warehouses:[],mappings:[]};
@@ -389,8 +392,10 @@ function apiClientToMaster(x){return {id:x.terceroId,identificationType:x.tipoId
 
 async function loadApiCompanyContext() {
   if(state.runtimeMode!=='api'||!state.erpSession?.company?.id||!apiToken()) return;
+  clientPageRequestVersion++;
   window.resetAccountingReports?.();
   const companyId=state.erpSession.company.id; const base=`/api/v1/companies/${companyId}`;
+  const clientQuery=state.masterView==='clients'?elements.masterSearch.value.trim():'';
   try {
     const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies,permissions,brands,branches,clients]=await Promise.all([
       apiRequest(`${base}/master-data/suppliers`),apiRequest(`${base}/master-data/units`),apiRequest(`${base}/master-data/articles`),
@@ -398,14 +403,15 @@ async function loadApiCompanyContext() {
       apiRequest(`${base}/accounting-periods`),apiRequest(`${base}/accounting-accounts`),apiRequest('/api/v1/companies'),apiRequest(`${base}/permissions`),
       apiRequest(`${base}/master-data/brands`).then(rows=>({rows,error:null})).catch(error=>({rows:[],error:error.message})),
       apiRequest(`${base}/master-data/branches`).then(rows=>({rows,error:null})).catch(error=>({rows:[],error:error.message})),
-      apiRequest(`${base}/master-data/clients`).then(rows=>({rows,error:null})).catch(error=>({rows:[],error:error.message})),
+      apiRequest(`${base}/master-data/clients?pagina=1&q=${encodeURIComponent(clientQuery)}`).then(page=>({page,error:null})).catch(error=>({page:{items:[],total:0,pagina:1,tamano:25},error:error.message})),
     ]);
     if(String(state.erpSession?.company?.id)!==String(companyId))return;
+    clientPageState.page=clients.page.pagina;clientPageState.total=clients.page.total;clientPageState.size=clients.page.tamano;
     renderCompanyOptions(companies);configureSuperAdminCompanyPanel(Boolean(state.erpSession?.superAdmin),companies.length>0);
     state.apiContext={ warehouses,periods,accountingPeriods,accounts,permissions,permissionCodes:new Set(permissions.map(permissionCode)),masterData:{
       brands:brands.rows,brandsError:brands.error,
       branches:branches.rows,branchesError:branches.error,
-      clients:clients.rows.map(apiClientToMaster),clientsError:clients.error,
+      clients:clients.page.items.map(apiClientToMaster),clientsPage:clients.page,clientsError:clients.error,
       suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,zeusEstado:x.zeusEstado,zeusMensaje:x.zeusMensaje,active:x.activo})),
       units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
       articles:articles.map(x=>({id:x.articuloId,code:x.codigo,description:x.descripcion,brand:x.marca,type:x.tipo,unitId:x.unidadBaseId,inventory:x.manejaInventario,lot:x.manejaLote,serial:x.manejaSerial,expiry:x.requiereVencimiento,ivaVenta:x.porcentajeIvaVenta,precioListaConIva:x.precioListaConIva,active:x.activo})),
@@ -467,7 +473,7 @@ function renderManualReferenceOptions() {
 
 function renderMasterStats(data) {
   const definitions = [
-    ['clients', (data.clients||[]).length, 'Clientes'], ['suppliers', data.suppliers.length, 'Proveedores'], ['articles', data.articles.length, 'Artículos'], ['units', data.units.length, 'Unidades'],
+    ['clients', data.clientsPage?.total??(data.clients||[]).length, 'Clientes'], ['suppliers', data.suppliers.length, 'Proveedores'], ['articles', data.articles.length, 'Artículos'], ['units', data.units.length, 'Unidades'],
     ['warehouses', data.warehouses.length, 'Bodegas'], ['mappings', data.mappings.length, 'Homologaciones'],
   ];
   elements.masterStats.replaceChildren();
@@ -522,8 +528,37 @@ function renderSupplierMasterTable(data,query) {
 }
 
 let customerZeusSyncRunning=false;
-function renderClientMasterTable(data,query) {
-  const clients=(data.clients||[]).filter(client=>!query||Object.values(client).join(' ').toLocaleLowerCase('es-CO').includes(query));
+async function loadClientMasterPage(page=1){
+  const company=state.erpSession?.company?.id;
+  if(!company||!state.apiContext)return;
+  const version=++clientPageRequestVersion;
+  const query=elements.masterSearch.value.trim();
+  elements.masterCount.textContent='Buscando clientes…';
+  try{
+    const result=await apiRequest(`/api/v1/companies/${company}/master-data/clients?pagina=${page}&q=${encodeURIComponent(query)}`);
+    if(version!==clientPageRequestVersion||String(state.erpSession?.company?.id)!==String(company))return;
+    state.apiContext.masterData.clients=result.items.map(apiClientToMaster);
+    state.apiContext.masterData.clientsPage=result;
+    state.apiContext.masterData.clientsError=null;
+    clientPageState.page=result.pagina;clientPageState.total=result.total;clientPageState.size=result.tamano;
+    if(state.masterView==='clients'&&!elements.masterDataModule.hidden)renderMasterView();
+  }catch(error){if(version===clientPageRequestVersion){showMasterNotice(`No se pudieron consultar los clientes: ${error.message}`,true);if(state.masterView==='clients'&&!elements.masterDataModule.hidden)renderMasterView();}}
+}
+function renderClientPager(){
+  const pager=elements.masterClientPager;
+  const {page,total,size}=clientPageState;
+  const pages=Math.ceil(total/size);
+  pager.hidden=pages<=1;
+  if(pager.hidden){pager.replaceChildren();return;}
+  const previous=document.createElement('button');previous.type='button';previous.className='button secondary';previous.textContent='Anterior';previous.disabled=page<=1;
+  previous.addEventListener('click',()=>void loadClientMasterPage(page-1));
+  const label=document.createElement('span');label.textContent=`Página ${page} de ${pages} · ${total} clientes`;
+  const next=document.createElement('button');next.type='button';next.className='button secondary';next.textContent='Siguiente';next.disabled=page>=pages;
+  next.addEventListener('click',()=>void loadClientMasterPage(page+1));
+  pager.replaceChildren(previous,label,next);
+}
+function renderClientMasterTable(data) {
+  const clients=data.clients||[];
   const table=buildDataTable(['Identificación','Cliente','Ciudad','Contacto','Zeus','Acciones'],clients.map(x=>[
     `${x.identificationType} ${x.identification}`,x.name,x.city||'—',[x.phone,x.email].filter(Boolean).join(' · ')||'—',
     `${x.zeusEstado||'PENDIENTE'}${x.zeusMensaje?` · ${x.zeusMensaje}`:''}`,'']));
@@ -533,12 +568,12 @@ function renderClientMasterTable(data,query) {
     edit.addEventListener('click',()=>openMasterForm(client));row.lastElementChild.append(edit);
     if(['RECHAZADO','INCIERTO'].includes(client.zeusEstado)){
       const retry=document.createElement('button');retry.type='button';retry.className='button secondary';retry.textContent='Reintentar Zeus';
-      retry.addEventListener('click',async()=>{retry.disabled=true;try{await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/clients/${client.id}/zeus/retry`,{method:'POST'});await loadApiCompanyContext();showMasterNotice('Se verificará el tercero en Zeus; actualiza el estado en unos segundos.');}catch(error){showMasterNotice(error.message,true);}finally{retry.disabled=false;}});
+      retry.addEventListener('click',async()=>{retry.disabled=true;try{await apiRequest(`/api/v1/companies/${state.erpSession.company.id}/master-data/clients/${client.id}/zeus/retry`,{method:'POST'});await loadClientMasterPage(clientPageState.page);showMasterNotice('Se verificará el tercero en Zeus; actualiza el estado en unos segundos.');}catch(error){showMasterNotice(error.message,true);}finally{retry.disabled=false;}});
       row.lastElementChild.append(retry);
     }
   });
   const refresh=document.createElement('button');refresh.type='button';refresh.className='button secondary';refresh.textContent='Actualizar estado de clientes';
-  refresh.addEventListener('click',async()=>{refresh.disabled=true;try{await loadApiCompanyContext();}catch(error){showMasterNotice(error.message,true);}finally{refresh.disabled=false;}});
+  refresh.addEventListener('click',async()=>{refresh.disabled=true;try{await loadClientMasterPage(clientPageState.page);}finally{refresh.disabled=false;}});
   const sync=document.createElement('button');sync.type='button';sync.className='button secondary';sync.textContent='Sincronizar clientes de Zeus';sync.disabled=customerZeusSyncRunning;
   sync.addEventListener('click',async()=>{
     if(customerZeusSyncRunning)return;
@@ -555,11 +590,7 @@ function renderClientMasterTable(data,query) {
         cursor=page.cursor||cursor;more=page.hayMas;
         showMasterNotice(`Sincronizando clientes de Zeus: ${processed} revisados, ${created} nuevos, ${updated} actualizados, ${skipped} omitidos…`);
       }
-      const rows=await apiRequest(`/api/v1/companies/${company}/master-data/clients`);
-      if(String(state.erpSession?.company?.id)!==String(company))throw new Error('Cambió la empresa durante la consulta.');
-      state.apiContext.masterData.clients=rows.map(apiClientToMaster);
-      state.apiContext.masterData.clientsError=null;
-      if(state.masterView==='clients'&&!elements.masterDataModule.hidden)renderMasterView();
+      await loadClientMasterPage(1);
       showMasterNotice(`Sincronización completa: ${created} nuevos, ${updated} actualizados y ${skipped} omitidos de ${processed} clientes. Los omitidos requieren revisión de identificación o datos en Zeus.`);
     }catch(error){showMasterNotice(`La sincronización se detuvo después de ${processed} clientes. ${error.message}`,true);}
     finally{customerZeusSyncRunning=false;sync.disabled=false;refresh.disabled=false;if(state.masterView==='clients'&&!elements.masterDataModule.hidden)renderMasterView();}
@@ -573,13 +604,17 @@ function showMasterNotice(message,isError=false) {
 
 function renderMasterView() {
   const context=getCompanyMasterData(); const data=context.data; const config=masterViewConfig[state.masterView];
+  elements.masterClientPager.hidden=state.masterView!=='clients';
   elements.masterViewTitle.textContent=config[0]; elements.masterViewSubtitle.textContent=config[1]; elements.addMasterRecord.textContent=state.masterView==='mappings'?'＋ Nueva homologación':'＋ Nuevo registro';
   elements.addMasterRecord.disabled=(state.masterView==='brands'&&Boolean(data.brandsError))||(state.masterView==='branches'&&Boolean(data.branchesError));
   renderMasterStats(data);
   const query=elements.masterSearch.value.trim().toLocaleLowerCase('es-CO');
   if(state.masterView==='clients'){
-    if(data.clientsError){elements.masterTable.replaceChildren(emptyMessage(`No se pudieron consultar los clientes: ${data.clientsError}`));elements.masterCount.textContent='Consulta no disponible';return;}
-    const count=renderClientMasterTable(data,query);elements.masterCount.textContent=`${count} clientes`;return;
+    if(data.clientsError){elements.masterTable.replaceChildren(emptyMessage(`No se pudieron consultar los clientes: ${data.clientsError}`));elements.masterClientPager.hidden=true;elements.masterCount.textContent='Consulta no disponible';return;}
+    renderClientMasterTable(data);renderClientPager();
+    const start=data.clientsPage?.total?(data.clientsPage.pagina-1)*data.clientsPage.tamano+1:0;
+    const end=start?start+(data.clients||[]).length-1:0;
+    elements.masterCount.textContent=`${start}–${end} de ${data.clientsPage?.total??0} clientes`;return;
   }
   if(state.masterView==='suppliers'){const count=renderSupplierMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
   if(state.masterView==='branches'){
@@ -613,7 +648,7 @@ function showMasterView(view) {
   document.querySelector('.breadcrumb span').textContent='Maestros'; elements.breadcrumbCurrent.textContent=masterViewConfig[view][0];
   document.querySelectorAll('[data-registration-mode],[data-inventory-view]').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('[data-master-view]').forEach(x=>x.classList.toggle('active',x.dataset.masterView===view));
-  elements.masterSearch.value=''; renderMasterView(); window.scrollTo({top:0,behavior:'smooth'});
+  elements.masterSearch.value=''; renderMasterView();if(view==='clients')void loadClientMasterPage(1);window.scrollTo({top:0,behavior:'smooth'});
 }
 
 function securityBase(){return `/api/v1/companies/${state.erpSession.company.id}/security`;}
@@ -2731,7 +2766,13 @@ document.querySelectorAll('[data-master-view]').forEach((button) => button.addEv
 elements.addMasterRecord.addEventListener('click',()=>openMasterForm());
 elements.masterTable.addEventListener('click',(event)=>{const supplierButton=event.target.closest('[data-master-supplier-action]');if(supplierButton){const supplier=findById(getCompanyMasterData().data.suppliers,supplierButton.dataset.id);if(supplierButton.dataset.masterSupplierAction==='edit')openMasterForm(supplier);else if(supplierButton.dataset.masterSupplierAction==='delete')void deleteMasterSupplier(supplier);return;}const button=event.target.closest('[data-master-article-action]');if(!button)return;const article=findById(getCompanyMasterData().data.articles,button.dataset.id);if(button.dataset.masterArticleAction==='edit')openMasterForm(article);else if(button.dataset.masterArticleAction==='delete')void deleteMasterArticle(article);});
 elements.masterRecordForm.addEventListener('submit', saveMasterRecord);
-elements.masterSearch.addEventListener('input', renderMasterView);
+elements.masterSearch.addEventListener('input',()=>{
+  if(state.masterView!=='clients'){renderMasterView();return;}
+  clearTimeout(clientSearchTimer);
+  clientPageRequestVersion++;
+  elements.masterCount.textContent='Buscando clientes…';
+  clientSearchTimer=setTimeout(()=>void loadClientMasterPage(1),300);
+});
 elements.logoutButton.addEventListener('click', leaveErp);
 
 const mobileNavToggle=document.querySelector('#mobileNavToggle');
