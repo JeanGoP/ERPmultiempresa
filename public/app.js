@@ -388,6 +388,27 @@ function getCompanyMasterData() {
 
 function activeLabel(value) { return value ? 'Activo' : 'Inactivo'; }
 function findById(rows,id) { return rows.find((row) => String(row.id) === String(id)); }
+function foldSupplierSearch(value){return String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('es-CO');}
+function manualSupplierNit(value){
+  const text=String(value??'').trim().replace(/[.\s]/g,'');
+  const match=/^([0-9]+)-[0-9]$/.exec(text);
+  return (match?match[1]:text).replace(/[^0-9]/g,'');
+}
+function findManualSupplier(value){
+  const nit=manualSupplierNit(value);
+  if(!nit)return null;
+  return (state.apiContext?.masterData?.suppliers||[]).find(x=>x.active!==false&&x.identification===nit)||null;
+}
+let manualSupplierAutoFilled=false;
+function syncManualSupplierFromNit(){
+  const nit=$('#manualNit');const name=$('#manualSupplier');const status=$('#manualSupplierStatus');
+  const supplier=findManualSupplier(nit.value);
+  if(supplier){name.value=supplier.name;name.readOnly=true;manualSupplierAutoFilled=true;status.textContent=`Proveedor del maestro: ${supplier.name}`;status.classList.add('found');return supplier;}
+  if(manualSupplierAutoFilled)name.value='';
+  name.readOnly=false;manualSupplierAutoFilled=false;status.classList.remove('found');
+  status.textContent=manualSupplierNit(nit.value).length>=6?'NIT no encontrado en el maestro. Puedes escribir el proveedor manualmente.':'';
+  return null;
+}
 function apiClientToMaster(x){return {id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',personType:x.tipoPersona,firstName:x.nombre1||'',lastName:x.apellido1||'',seller:x.vendedorZeus||'',clientType:x.tipoClienteZeus||'',division:x.divisionPoliticaZeus||'',zeusEstado:x.zeusEstado,zeusMensaje:x.zeusMensaje,active:x.activo};}
 
 async function loadApiCompanyContext() {
@@ -423,6 +444,7 @@ async function loadApiCompanyContext() {
     renderManualReferenceOptions();
     elements.manualLines.querySelectorAll('[data-manual-line]').forEach(row=>{const classification=row.querySelector('[data-field="classification"]')?.value;const select=row.querySelector('[data-field="articleId"]');if(select)populateManualArticleOptions(select,classification,select.value);});
     if(!elements.masterDataModule.hidden) renderMasterView();
+    if(!elements.manualWorkspace.hidden)syncManualSupplierFromNit();
     if(!elements.inventoryModule.hidden){populateInventoryWarehouses();void refreshInventory();}
     if(state.invoice){state.invoice.brandRecognition=null;renderInvoice();}
   } catch(error) { showError(`No fue posible cargar los datos de la empresa. ${error.message}`); }
@@ -516,7 +538,11 @@ function renderArticleMasterTable(data,query) {
 }
 
 function renderSupplierMasterTable(data,query) {
-  const suppliers=data.suppliers.filter((supplier)=>!query||Object.values(supplier).join(' ').toLocaleLowerCase('es-CO').includes(query));
+  const needle=foldSupplierSearch(query);
+  const suppliers=data.suppliers.filter((supplier)=>!needle||foldSupplierSearch([
+    supplier.identification,supplier.name,supplier.commercialName,supplier.address,supplier.city,
+    supplier.department,supplier.country,supplier.phone,supplier.email
+  ].join(' ')).includes(needle));
   const table=document.createElement('table');const head=document.createElement('thead');head.innerHTML='<tr><th>Identificación</th><th>Proveedor</th><th>Ubicación</th><th>Contacto</th><th>Estado</th><th>Envío a Zeus</th><th>Acciones</th></tr>';const body=document.createElement('tbody');
   suppliers.forEach((supplier)=>{
     const row=document.createElement('tr');const values=[`${supplier.identificationType} ${supplier.identification}${supplier.verificationDigit?`-${supplier.verificationDigit}`:''}`,[supplier.name,supplier.commercialName].filter(Boolean).join(' · '),[supplier.address,supplier.city,supplier.department,supplier.country].filter(Boolean).join(' · ')||'—',[supplier.contactName,supplier.phone,supplier.email].filter(Boolean).join(' · ')||'—',activeLabel(supplier.active),zeusSupplierSyncText(supplier)];
@@ -2443,8 +2469,18 @@ function appendSummaryValue(parent, label, value) {
 
 function buildManualSupplierDocumentPayload(draft,preparation=null) {
   const classification={inventory:'INVENTARIO',service:'SERVICIO_GASTO','acquisition-cost':'COSTO_ADQUISICION'};
+  const supplier=draft.supplierProfile;
   const payload={
-    proveedorIdentificacion:draft.nit,proveedorRazonSocial:draft.supplier,tipoDocumento:draft.documentType,numeroDocumento:draft.invoiceNumber,
+    proveedorIdentificacion:draft.nit,proveedorRazonSocial:supplier?.name||draft.supplier,
+    proveedorTipoIdentificacion:supplier?.identificationType||'NIT',proveedorDigitoVerificacion:supplier?.verificationDigit||draft.verificationDigit||null,
+    proveedorNombreComercial:supplier?.commercialName||null,proveedorResponsabilidadFiscal:supplier?.taxResponsibility||null,
+    proveedorRegimenFiscalCodigo:supplier?.taxSchemeCode||null,proveedorRegimenFiscalNombre:supplier?.taxSchemeName||null,
+    proveedorDireccion:supplier?.address||null,proveedorCiudadCodigo:supplier?.cityCode||null,proveedorCiudad:supplier?.city||null,
+    proveedorDepartamentoCodigo:supplier?.departmentCode||null,proveedorDepartamento:supplier?.department||null,
+    proveedorCodigoPostal:supplier?.postalCode||null,proveedorPaisCodigo:supplier?.countryCode||null,proveedorPais:supplier?.country||null,
+    proveedorContactoNombre:supplier?.contactName||null,proveedorTelefono:supplier?.phone||null,proveedorCorreo:supplier?.email||null,
+    proveedorSitioWeb:supplier?.website||null,proveedorDatosXmlJson:supplier?.xmlData||null,
+    tipoDocumento:draft.documentType,numeroDocumento:draft.invoiceNumber,
     fechaDocumento:draft.issueDate,fechaVencimiento:draft.dueDate||null,condicionPago:draft.paymentCondition,diasCredito:draft.creditDays,crearArticulosFaltantes:false,moneda:'COP',cufeCude:null,fuente:'MANUAL',
     subtotalBruto:draft.lines.reduce((s,x)=>s+x.gross,0),descuentoTotal:draft.lines.reduce((s,x)=>s+x.discount,0),
     impuestoTotal:draft.lines.reduce((s,x)=>s+x.tax,0),cargoTotal:draft.lines.reduce((s,x)=>s+x.charge,0),totalPagar:draft.total,xmlOriginal:null,documentoGuid:draft.id,
@@ -2560,6 +2596,7 @@ function setRegistrationMode(mode) {
     state.manualWorkflow=null; state.manualDraft=null;
     addManualLine(isService ? 'service' : 'inventory');
     renderManualReferenceOptions();
+    syncManualSupplierFromNit();
   }
 }
 
@@ -2573,6 +2610,7 @@ function selectCompany(option) {
     signedInAt: state.erpSession?.signedInAt || new Date().toISOString(),
   };
   state.apiContext=null; state.purchaseWorkflow=null; state.manualWorkflow=null; state.manualDraft=null;
+  $('#manualNit').value='';$('#manualSupplier').value='';$('#manualSupplier').readOnly=false;manualSupplierAutoFilled=false;$('#manualSupplierStatus').textContent='';
   closeErpDialog(elements.companyDialog);
   enterErp(session);
 }
@@ -2640,6 +2678,7 @@ async function beginLogin(event) {
 
 async function saveManualDraft(event) {
   event.preventDefault(); hideError();const intent=event.submitter?.value||'draft';
+  const supplierProfile=findManualSupplier($('#manualNit').value);
   const lines = collectManualLines();
   if (!lines.length || lines.some((line) => !line.description || line.quantity <= 0)) return showError('Completa la descripción y una cantidad mayor que cero en todas las líneas.');
   if(lines.some(line=>line.discount>line.gross+line.charge)) return showError('El descuento de una línea no puede superar su valor bruto más los cargos.');
@@ -2666,7 +2705,9 @@ async function saveManualDraft(event) {
   const draft = {
     id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
     createdAt: new Date().toISOString(),
-    supplier: $('#manualSupplier').value.trim(), nit: $('#manualNit').value.trim().replace(/[^0-9]/g,''),documentType:$('#manualDocumentType').value,invoiceNumber: $('#manualInvoiceNumber').value.trim(),
+    supplier: supplierProfile?.name||$('#manualSupplier').value.trim(),nit:manualSupplierNit($('#manualNit').value),
+    verificationDigit:/^[0-9]+-([0-9])$/.exec($('#manualNit').value.trim().replace(/[.\s]/g,''))?.[1]||null,supplierProfile,
+    documentType:$('#manualDocumentType').value,invoiceNumber: $('#manualInvoiceNumber').value.trim(),
     issueDate: $('#manualIssueDate').value, accountingDate:$('#manualAccountingDate').value, dueDate: $('#manualDueDate').value, paymentCondition:elements.manualPaymentCondition.value,creditDays:elements.manualPaymentCondition.value==='CREDITO'?Number(elements.manualCreditDays.value):0,warehouse: needsWarehouse ? elements.manualWarehouse.value : '',warehouseName:needsWarehouse?elements.manualWarehouse.selectedOptions[0]?.textContent:'No aplica',period:needsWarehouse?elements.manualPeriod.value:'',
     lines, total: lines.reduce((sum, line) => sum + line.total, 0), status: 'draft', source: 'manual',
   };
@@ -2726,6 +2767,7 @@ elements.inventoryDateTo.addEventListener('change',()=>void refreshInventory());
 elements.inventoryTable.addEventListener('click',event=>{const historyButton=event.target.closest('[data-warehouse-history-id]');if(historyButton){void openWarehouseReceiptHistory(Number(historyButton.dataset.warehouseHistoryId));return;}const button=event.target.closest('[data-warehouse-receipt-id]');if(button)void openWarehouseReceipt(Number(button.dataset.warehouseReceiptId));});
 $('#addManualLine').addEventListener('click', () => addManualLine());
 elements.manualForm.addEventListener('submit', saveManualDraft);
+$('#manualNit').addEventListener('input',syncManualSupplierFromNit);
 
 elements.browseButton.addEventListener('click', (event) => { event.stopPropagation(); elements.fileInput.click(); });
 elements.dropZone.addEventListener('click', (event) => {

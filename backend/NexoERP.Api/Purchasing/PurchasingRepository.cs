@@ -273,7 +273,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             JOIN ter.Tercero t ON t.EmpresaId=p.EmpresaId AND t.TerceroId=p.TerceroId
             WHERE p.EmpresaId=@EmpresaId AND (@TerceroId IS NULL OR p.TerceroId=@TerceroId)
               AND (@Desde IS NULL OR p.FechaReconocimiento>=@Desde) AND (@Hasta IS NULL OR p.FechaReconocimiento<=@Hasta)
-              AND (@Query IS NULL OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial LIKE '%'+@Query+'%' OR t.NumeroIdentificacion LIKE '%'+@Query+'%')
+              AND (@Query IS NULL OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial COLLATE Latin1_General_CI_AI LIKE '%'+@Query+'%' OR t.NumeroIdentificacion LIKE '%'+@Query+'%')
               AND
               (
                   @Estado IS NULL
@@ -352,7 +352,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             LEFT JOIN inv.RecepcionMercancia r ON r.EmpresaId=d.EmpresaId AND r.DocumentoProveedorId=d.DocumentoProveedorId
             LEFT JOIN inv.Bodega b ON b.EmpresaId=r.EmpresaId AND b.BodegaId=r.BodegaId
             WHERE d.EmpresaId=@EmpresaId AND (@Estado IS NULL OR d.Estado=@Estado)
-              AND (@Query IS NULL OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial LIKE '%'+@Query+'%' OR t.NumeroIdentificacion LIKE '%'+@Query+'%'
+              AND (@Query IS NULL OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial COLLATE Latin1_General_CI_AI LIKE '%'+@Query+'%' OR t.NumeroIdentificacion LIKE '%'+@Query+'%'
                    OR EXISTS(SELECT 1 FROM comp.DocumentoProveedorLineaUnidad u JOIN comp.DocumentoProveedorLinea l ON l.EmpresaId=u.EmpresaId AND l.DocumentoProveedorLineaId=u.DocumentoProveedorLineaId WHERE l.EmpresaId=d.EmpresaId AND l.DocumentoProveedorId=d.DocumentoProveedorId AND (u.Serial LIKE '%'+@Query+'%' OR u.Motor LIKE '%'+@Query+'%' OR u.Chasis LIKE '%'+@Query+'%' OR u.Vin LIKE '%'+@Query+'%')))
             ORDER BY d.CreadoEnUtc DESC,d.DocumentoProveedorId DESC;
             """;
@@ -513,7 +513,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             LEFT JOIN inv.RecepcionMercanciaUnidad u ON u.EmpresaId=l.EmpresaId AND u.RecepcionMercanciaLineaId=l.RecepcionMercanciaLineaId
             LEFT JOIN inv.RecepcionMercanciaRevisionUnidad rv ON rv.EmpresaId=u.EmpresaId AND rv.RecepcionMercanciaUnidadId=u.RecepcionMercanciaUnidadId
             WHERE r.EmpresaId=@EmpresaId AND r.Estado<>'CONTABILIZADA' AND (@BodegaId IS NULL OR r.BodegaId=@BodegaId)
-              AND (@Query IS NULL OR r.Numero LIKE '%'+@Query+'%' OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial LIKE '%'+@Query+'%'
+              AND (@Query IS NULL OR r.Numero LIKE '%'+@Query+'%' OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial COLLATE Latin1_General_CI_AI LIKE '%'+@Query+'%'
                    OR EXISTS(SELECT 1 FROM inv.RecepcionMercanciaUnidad xu JOIN inv.RecepcionMercanciaLinea xl ON xl.EmpresaId=xu.EmpresaId AND xl.RecepcionMercanciaLineaId=xu.RecepcionMercanciaLineaId WHERE xl.EmpresaId=r.EmpresaId AND xl.RecepcionMercanciaId=r.RecepcionMercanciaId AND (xu.Serial LIKE '%'+@Query+'%' OR xu.Motor LIKE '%'+@Query+'%' OR xu.Chasis LIKE '%'+@Query+'%' OR xu.Vin LIKE '%'+@Query+'%')))
             GROUP BY r.RecepcionMercanciaId,r.Numero,r.Estado,d.DocumentoProveedorId,d.TipoDocumento,d.NumeroDocumento,t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre
             ORDER BY r.FechaContable DESC,r.RecepcionMercanciaId DESC;
@@ -553,7 +553,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             LEFT JOIN inv.RecepcionMercanciaRevisionUnidad rv ON rv.EmpresaId=u.EmpresaId AND rv.RecepcionMercanciaUnidadId=u.RecepcionMercanciaUnidadId
             WHERE r.EmpresaId=@EmpresaId AND (@BodegaId IS NULL OR r.BodegaId=@BodegaId)
               AND (@Desde IS NULL OR r.FechaContable>=@Desde) AND (@Hasta IS NULL OR r.FechaContable<=@Hasta)
-              AND (@Query IS NULL OR r.Numero LIKE '%'+@Query+'%' OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial LIKE '%'+@Query+'%'
+              AND (@Query IS NULL OR r.Numero LIKE '%'+@Query+'%' OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial COLLATE Latin1_General_CI_AI LIKE '%'+@Query+'%'
                    OR EXISTS(SELECT 1 FROM inv.RecepcionMercanciaUnidad xu JOIN inv.RecepcionMercanciaLinea xl ON xl.EmpresaId=xu.EmpresaId AND xl.RecepcionMercanciaLineaId=xu.RecepcionMercanciaLineaId WHERE xl.EmpresaId=r.EmpresaId AND xl.RecepcionMercanciaId=r.RecepcionMercanciaId AND (xu.Serial LIKE '%'+@Query+'%' OR xu.Motor LIKE '%'+@Query+'%' OR xu.Chasis LIKE '%'+@Query+'%' OR xu.Vin LIKE '%'+@Query+'%')))
             GROUP BY r.RecepcionMercanciaId,r.Numero,r.Estado,d.DocumentoProveedorId,d.TipoDocumento,d.NumeroDocumento,t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre
             ORDER BY r.FechaContable DESC,r.RecepcionMercanciaId DESC;
@@ -664,7 +664,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
               AND (@Desde IS NULL OR r.FechaContable>=@Desde)
               AND (@Hasta IS NULL OR r.FechaContable<=@Hasta)
               AND (@Query IS NULL OR d.NumeroDocumento LIKE '%'+@Query+'%' OR r.Numero LIKE '%'+@Query+'%'
-                   OR t.RazonSocial LIKE '%'+@Query+'%' OR a.Codigo LIKE '%'+@Query+'%' OR a.Descripcion LIKE '%'+@Query+'%'
+                   OR t.RazonSocial COLLATE Latin1_General_CI_AI LIKE '%'+@Query+'%' OR a.Codigo LIKE '%'+@Query+'%' OR a.Descripcion LIKE '%'+@Query+'%'
                    OR u.Serial LIKE '%'+@Query+'%' OR u.Motor LIKE '%'+@Query+'%' OR u.Chasis LIKE '%'+@Query+'%' OR u.Vin LIKE '%'+@Query+'%'
                    OR rv.Observacion LIKE '%'+@Query+'%')
             ORDER BY d.FechaDocumento DESC,d.DocumentoProveedorId DESC,l.NumeroLinea,u.NumeroUnidad;

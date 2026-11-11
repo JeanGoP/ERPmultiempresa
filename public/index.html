@@ -413,8 +413,8 @@
             <div class="form-section">
               <div class="form-section-heading"><strong>Documento del proveedor</strong><span>Los campos con * son obligatorios</span></div>
               <div class="form-grid">
-                <label><span>Proveedor *</span><input id="manualSupplier" required autocomplete="organization" placeholder="Nombre o razón social"></label>
-                <label><span>NIT *</span><input id="manualNit" required inputmode="numeric" placeholder="900123456-7"></label>
+                <label><span>Proveedor *</span><input id="manualSupplier" required autocomplete="organization" placeholder="Se completa al escribir el NIT"></label>
+                <label><span>NIT *</span><input id="manualNit" required inputmode="numeric" placeholder="900123456-7"><small id="manualSupplierStatus" class="manual-supplier-status" role="status"></small></label>
                 <label><span>Tipo de documento *</span><select id="manualDocumentType"><option value="FACTURA">Factura</option><option value="REMISION">Remisión</option><option value="DOCUMENTO_SOPORTE">Documento soporte</option></select></label>
                 <label><span>Número *</span><input id="manualInvoiceNumber" required placeholder="Ej. FE-1042"></label>
                 <label><span>Fecha de factura *</span><input id="manualIssueDate" type="date" required></label>
