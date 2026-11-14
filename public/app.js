@@ -256,6 +256,7 @@ function applyAccessControls() {
   setVisible('#salesReceivablesNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
   setVisible('#salesRefinancingNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
   setVisible('#cashReceiptsNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
+  setVisible('#disbursementsNav',hasPermission('TESORERIA.EGRESO.CONTABILIZAR'));
   setVisible('#customerAdvancesNav',hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
   setVisible('#salesConceptsNav',hasPermission('MAESTROS.CONCEPTO_VENTA.ADMINISTRAR'));
   setVisible('#portfolioTypesNav',hasPermission('MAESTROS.TIPO_CARTERA.ADMINISTRAR'));

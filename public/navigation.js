@@ -17,42 +17,105 @@
     ['inventory', '[data-master-view="warehouses"]'],
     ['administration', '[data-master-view="branches"]'],
   ];
-  const sections = new Set();
   destinations.forEach(([name, selector]) => {
     const group = nav.querySelector(`[data-nav-group="${name}"]`);
     const button = masters.querySelector(selector);
     if (!group || !button) return;
     const children = group.querySelector('.nav-children');
-    if (!sections.has(name)) {
-      const heading = document.createElement('p');
-      heading.className = 'nav-section-heading';
-      heading.textContent = 'Maestros';
-      children.append(heading);
-      sections.add(name);
-    }
     children.append(button);
   });
+  const advances = nav.querySelector('#customerAdvancesNav');
+  const treasury = nav.querySelector('[data-nav-group="treasury"] .nav-children');
+  if (advances && treasury) treasury.insertBefore(advances, treasury.querySelector('#disbursementsNav'));
   masters.remove();
   nav.querySelectorAll('button:disabled, .nav-group-future').forEach(element => element.remove());
-  nav.querySelectorAll('.nav-label').forEach(label => {
-    if (label.textContent.trim() === 'OPERACIÓN') label.textContent = 'MÓDULOS';
-    else if (label.textContent.trim() === 'CONFIGURACIÓN') label.textContent = 'ADMINISTRACIÓN';
-    else label.remove();
-  });
   const titles = { sales: 'Ventas', purchases: 'Compras', inventory: 'Inventario', costs: 'Control', administration: 'Configuración' };
   Object.entries(titles).forEach(([name, title]) => {
     const label = nav.querySelector(`[data-nav-group="${name}"] > summary > span:nth-child(2)`);
     if (label) label.textContent = title;
   });
-  function updateMasterHeadings() {
-    nav.querySelectorAll('.nav-section-heading').forEach(heading => {
-      const visible = [...heading.parentElement.children].slice([...heading.parentElement.children].indexOf(heading) + 1)
-        .some(item => item.classList.contains('master-link') && !item.hidden);
-      if (heading.hidden === visible) heading.hidden = !visible;
+  const moduleNames = ['sales', 'purchases', 'treasury', 'inventory', 'reports', 'costs', 'zeus', 'administration'];
+  const taskNavigation = document.createElement('div');
+  taskNavigation.className = 'task-navigation';
+  taskNavigation.innerHTML = '<p class="task-nav-label">MÓDULOS</p><div class="task-modules" aria-label="Módulos"></div><div class="task-context"><div class="task-context-header"><strong></strong></div><div class="task-context-links"></div></div>';
+  nav.before(taskNavigation);
+  nav.hidden = true;
+  const moduleList = taskNavigation.querySelector('.task-modules');
+  const contextTitle = taskNavigation.querySelector('.task-context-header strong');
+  const contextLinks = taskNavigation.querySelector('.task-context-links');
+  const moduleButtons = new Map();
+  let selectedModule = 'purchases';
+
+  function groupFor(name) { return nav.querySelector(`[data-nav-group="${name}"]`); }
+  function visibleTasks(group) {
+    return [...group.querySelectorAll('.nav-children > .nav-subitem:not(:disabled)')].filter(button => !button.hidden);
+  }
+  moduleNames.forEach(name => {
+    const group = groupFor(name);
+    if (!group) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'task-module';
+    button.dataset.module = name;
+    const icon = document.createElement('span');
+    icon.className = 'task-module-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = group.querySelector('.nav-icon')?.textContent || '•';
+    const label = document.createElement('span');
+    label.textContent = group.querySelector('summary span:nth-child(2)')?.textContent || name;
+    button.append(icon, label);
+    button.addEventListener('click', () => selectModule(name));
+    moduleList.append(button);
+    moduleButtons.set(name, button);
+  });
+  function renderContext() {
+    const group = groupFor(selectedModule);
+    if (!group) return;
+    contextTitle.textContent = moduleButtons.get(selectedModule)?.textContent.trim() || '';
+    contextLinks.replaceChildren();
+    let visibleMasters = 0;
+    visibleTasks(group).forEach(source => {
+      if (source.classList.contains('master-link') && visibleMasters++ === 0) {
+        const divider = document.createElement('p');
+        divider.className = 'task-context-divider';
+        divider.textContent = 'Maestros';
+        contextLinks.append(divider);
+      }
+      const link = document.createElement('button');
+      link.type = 'button';
+      link.className = 'task-link';
+      link.classList.toggle('active', source.classList.contains('active'));
+      link.textContent = source.textContent.trim();
+      link.addEventListener('click', () => {
+        source.click();
+        taskNavigation.querySelectorAll('.task-link.active').forEach(item => item.classList.remove('active'));
+        link.classList.add('active');
+        if (document.body.classList.contains('mobile-nav-open')) document.querySelector('#mobileNavClose')?.click();
+      });
+      contextLinks.append(link);
     });
   }
-  new MutationObserver(updateMasterHeadings).observe(nav, { subtree: true, attributes: true, attributeFilter: ['hidden'] });
-  updateMasterHeadings();
+  function selectModule(name) {
+    selectedModule = name;
+    moduleButtons.forEach((button, key) => {
+      button.classList.toggle('active', key === name);
+      button.setAttribute('aria-pressed', String(key === name));
+    });
+    renderContext();
+  }
+  function syncModules() {
+    moduleButtons.forEach((button, name) => {
+      const group = groupFor(name);
+      button.hidden = !group || group.hidden || visibleTasks(group).length === 0;
+    });
+    if (moduleButtons.get(selectedModule)?.hidden) {
+      const first = moduleNames.find(name => !moduleButtons.get(name)?.hidden);
+      if (first) selectedModule = first;
+    }
+    selectModule(selectedModule);
+  }
+  new MutationObserver(syncModules).observe(nav, { subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] });
+  syncModules();
 
   const dialog = document.createElement('dialog');
   dialog.className = 'navigation-dialog';
@@ -119,7 +182,7 @@
   function openDestination(button) {
     dialog.close();
     const group = button.closest('details[data-nav-group]');
-    if (group) group.open = true;
+    if (group) selectModule(group.dataset.navGroup);
     if (document.body.classList.contains('mobile-nav-open')) document.querySelector('#mobileNavClose')?.click();
     button.click();
   }
@@ -146,8 +209,4 @@
     }
   });
   dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
-  nav.addEventListener('click', event => {
-    const button = event.target.closest('.nav-subitem:not(:disabled)');
-    if (button) button.closest('details[data-nav-group]')?.setAttribute('open', '');
-  });
 })();

@@ -1,8 +1,22 @@
-/* Menú por tareas y búsqueda rápida de pantallas. */
-.erp-nav .nav-section-heading{margin:10px 10px 3px 37px;color:#82928a;font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
-.erp-nav .nav-subitem[hidden]{display:none}
-.erp-nav .nav-children{transition:none}
-.erp-nav .nav-group[open]>.nav-children{max-height:none;overflow:visible}
+/* Los módulos permanecen fijos; las tareas cambian en un panel separado. */
+.sidebar{background:#fff;box-shadow:none}
+.task-navigation{display:flex;flex:1;min-height:0;flex-direction:column;padding:0 2px}
+.task-nav-label{margin:18px 11px 7px;color:#84978e;font-size:9px;font-weight:850;letter-spacing:.12em}
+.task-modules{display:grid;grid-template-columns:1fr;gap:2px;flex:none}
+.task-module{display:flex;align-items:center;gap:11px;min-width:0;min-height:39px;padding:7px 11px;border:0;border-radius:8px;color:#52645a;background:transparent;font-size:12px;font-weight:700;text-align:left}
+.task-module:hover,.task-module:focus-visible{color:#18523a;background:#f2f7f3}
+.task-module.active{color:#155a3c;background:#eaf5ed;font-weight:850}
+.task-module-icon{display:grid;place-items:center;flex:0 0 20px;width:20px;color:#67917b;font-size:15px}
+.task-module.active .task-module-icon{color:#1f8459}
+.task-module>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-context{display:flex;flex:1;min-height:0;flex-direction:column;margin-top:13px;border-top:1px solid #e5ece6}
+.task-context-header{padding:14px 11px 7px}
+.task-context-header strong{color:#879a8d;font-size:9px;font-weight:850;letter-spacing:.11em;text-transform:uppercase}
+.task-context-links{min-height:0;padding:0 3px 8px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#c6d9cd transparent}
+.task-context-divider{margin:12px 9px 5px;padding-top:11px;border-top:1px solid #e1ebe4;color:#819188;font-size:9px;font-weight:850;letter-spacing:.09em;text-transform:uppercase}
+.task-link{display:block;width:100%;min-height:35px;padding:8px 11px 8px 42px;border:0;border-radius:7px;color:#51675a;background:transparent;font-size:11px;font-weight:650;text-align:left}
+.task-link:hover,.task-link:focus-visible{color:#16503b;background:#edf6ef}
+.task-link.active{color:#10503a;background:#dcefe3;font-weight:850}
 .navigation-search-button{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 10px;border:1px solid #d9e4de;border-radius:9px;color:#476258;background:#fff;font-size:11px;font-weight:700}
 .navigation-search-button:hover,.navigation-search-button:focus-visible{border-color:#8dbba4;background:#f2faf5}
 .navigation-search-button>span:first-child{font-size:19px;line-height:1}
@@ -20,5 +34,5 @@
 .navigation-result small{color:#688076;font-size:11px}
 .navigation-empty{margin:16px;color:#6c8074;font-size:13px}
 .navigation-dialog-help{margin:0;padding:10px 16px;border-top:1px solid #e5ece7;color:#7b8e82;font-size:10px}
-@media(max-width:960px){.sidebar .nav-group[open]>.nav-children{max-height:none;overflow:visible}}
-@media(max-width:700px){.navigation-search-button{width:36px;min-height:36px;justify-content:center;padding:0}.navigation-search-button>span:not(:first-child),.navigation-search-button kbd{display:none}.erp-nav .nav-group[open]>.nav-children{display:grid;max-height:none;background:transparent}.sidebar .nav-section-heading{margin-left:37px}}
+@media(max-width:960px){.sidebar .task-navigation{display:flex;min-height:0}.sidebar .task-context-links{overflow-y:auto}}
+@media(max-width:700px){.navigation-search-button{width:36px;min-height:36px;justify-content:center;padding:0}.navigation-search-button>span:not(:first-child),.navigation-search-button kbd{display:none}}
