@@ -94,6 +94,15 @@
 .customer-documents-dialog .customer-receipt-fields{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px;align-items:end}
 .customer-documents-dialog .customer-receipt-fields>label{grid-column:span 3;display:grid;gap:5px;min-width:0;font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-receipt-fields>.egreso-wide{grid-column:span 6}
+.customer-documents-dialog .customer-client-field{display:grid;gap:5px;min-width:0}
+.customer-documents-dialog .customer-client-field>label{font-size:12px;font-weight:600}
+.customer-documents-dialog .customer-client-combobox{position:relative;min-width:0}
+.customer-documents-dialog [data-client-results]{position:absolute;top:calc(100% + 4px);right:0;left:0;z-index:25;max-height:270px;overflow-y:auto;padding:5px;border:1px solid #c7d9cd;border-radius:8px;background:#fff;box-shadow:0 14px 35px #193c2730}
+.customer-documents-dialog [data-client-results] button{display:grid;gap:3px;width:100%;min-height:44px;padding:8px 10px;border:0;border-radius:6px;color:#173c2f;background:transparent;text-align:left}
+.customer-documents-dialog [data-client-results] button:hover,.customer-documents-dialog [data-client-results] button[aria-selected="true"]{background:#eaf5ed}
+.customer-documents-dialog [data-client-results] strong{font-size:12px;overflow-wrap:anywhere}
+.customer-documents-dialog [data-client-results] small{color:#697d71;font-size:10px}
+.customer-documents-dialog [data-client-results] p{margin:7px 9px;color:#697d71;font-size:11px}
 .customer-documents-dialog .customer-receipt-fields>.customer-receipt-description{grid-column:1/-1}
 .customer-documents-dialog .customer-receipt-fields>[data-client-hint]:empty{display:none}
 .customer-documents-dialog .customer-receipt-fields>[data-client-hint]:not(:empty){grid-column:1/-1;color:#a02c22}

@@ -46,7 +46,26 @@
     return { items: found.slice(0, limit), total: found.length };
   }
 
-  const api = { fold, indexArticles, findArticles, findConcepts };
+  function indexClients(clients = []) {
+    return clients.map(client => ({ client, name: fold(client.nombre), identification: fold(client.identificacion) }));
+  }
+
+  function findClients(index, query, limit = 8) {
+    const text = fold(query);
+    const terms = text.split(/\s+/).filter(Boolean);
+    if (text.length < 2) return { items: [], total: 0 };
+    const matches = [];
+    for (const entry of index) {
+      const combined = `${entry.name} ${entry.identification}`;
+      if (!terms.every(term => combined.includes(term))) continue;
+      const rank = entry.identification === text ? 0 : entry.identification.startsWith(text) ? 1 : entry.name.startsWith(text) ? 2 : entry.name.split(' ').some(word => word.startsWith(text)) ? 3 : 4;
+      matches.push({ ...entry, rank });
+    }
+    matches.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, 'es-CO'));
+    return { items: matches.slice(0, limit).map(entry => entry.client), total: matches.length };
+  }
+
+  const api = { fold, indexArticles, findArticles, findConcepts, indexClients, findClients };
   if (typeof window !== 'undefined') window.customerCatalogSearch = api;
   if (typeof module !== 'undefined') module.exports = api;
 })();

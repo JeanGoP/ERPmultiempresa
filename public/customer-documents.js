@@ -9,11 +9,11 @@
   const catalogSearch=window.customerCatalogSearch;
   const $=selector=>dialog.querySelector(selector);
   let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],withholdingAccounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='',portfolioTypes=[];
-  let operation='',client=null,lines=[],conceptLines=[],applications=[],zeusApplications=[],advances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8,zeusSearch='',articleIndex=[];
+  let operation='',client=null,lines=[],conceptLines=[],applications=[],zeusApplications=[],advances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8,zeusSearch='',articleIndex=[],clientIndex=[];
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='receipt'?'cash-receipts':'sales-invoices'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
-  const clientLabel=c=>c?`${c.identificacion} · ${c.nombre}`:'';
+  const clientLabel=c=>c?`${c.nombre} · ${c.identificacion}`:'';
   const portfolioLabel=value=>portfolioTypes.find(x=>x.codigo===value)?.nombre||value||'Sin clasificar';
   const productItems=invoice=>Array.isArray(invoice.articulos)?invoice.articulos.filter(Boolean).map(x=>typeof x==='string'?{nombre:x,cantidad:1,unidades:[]}:x):[];
   const productNames=invoice=>productItems(invoice).map(x=>x.nombre).filter(Boolean);
@@ -384,14 +384,49 @@
     }catch(error){if(current(t))notice(`No se pudieron consultar los centros de costo de Zeus: ${error.message}`,true);}
     finally{if(button.isConnected)button.disabled=false;}
   }
-  function clientField(){return `<label class="egreso-wide">Cliente<input data-client list="customerDocumentClients" placeholder="Busca por nombre o identificación…" autocomplete="off" required><input name="clienteId" type="hidden"><datalist id="customerDocumentClients"></datalist></label><small class="egreso-help" data-client-hint></small>${mode==='receipt'?'<div class="egreso-wide"><button type="button" class="button secondary" data-find-zeus-clients>Buscar cliente anterior en Zeus</button><div data-zeus-client-results></div></div>':''}`;}
+  function clientField(){return `<div class="egreso-wide customer-client-field"><label for="customerDocumentClient">Cliente</label><div class="customer-client-combobox"><input id="customerDocumentClient" data-client type="search" placeholder="Escribe nombre o identificación…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="customerClientResults" required><div id="customerClientResults" data-client-results role="listbox" hidden></div></div><input name="clienteId" type="hidden"></div><small class="egreso-help" data-client-hint></small>${mode==='receipt'?'<div class="egreso-wide"><button type="button" class="button secondary" data-find-zeus-clients>Buscar cliente anterior en Zeus</button><div data-zeus-client-results></div></div>':''}`;}
   function setClientOptions(){
-    $('#customerDocumentClients').innerHTML=(mode==='invoice'?options.clientes:options.clientes).map(c=>`<option value="${esc(clientLabel(c))}"></option>`).join('');
+    clientIndex=catalogSearch.indexClients(options.clientes);
   }
   function wireClient(){
-    setClientOptions();let timer,sequence=0;
+    setClientOptions();let timer,sequence=0,activeIndex=-1,loading=false,visible=[];
+    const input=$('[data-client]'),results=$('[data-client-results]');
+    function hideSuggestions(){results.hidden=true;input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');activeIndex=-1;visible=[];}
+    function activateSuggestion(index){
+      const buttons=[...results.querySelectorAll('[data-client-option]')];if(!buttons.length)return;
+      activeIndex=(index+buttons.length)%buttons.length;
+      buttons.forEach((button,position)=>button.setAttribute('aria-selected',String(position===activeIndex)));
+      input.setAttribute('aria-activedescendant',buttons[activeIndex].id);
+      buttons[activeIndex].scrollIntoView({block:'nearest'});
+    }
+    function renderClientSuggestions(){
+      const term=input.value.trim();
+      if(term.length<2||client&&input.value===clientLabel(client)){hideSuggestions();return;}
+      const found=catalogSearch.findClients(clientIndex,term);
+      visible=found.items;activeIndex=-1;
+      results.hidden=false;input.setAttribute('aria-expanded','true');input.removeAttribute('aria-activedescendant');
+      results.innerHTML=visible.map((candidate,index)=>`<button id="customerClientOption${index}" type="button" role="option" aria-selected="false" data-client-option="${index}"><strong>${esc(candidate.nombre)}</strong><small>${esc(candidate.identificacion)}</small></button>`).join('')||`<p>${loading?'Buscando clientes…':'No hay clientes con ese dato.'}</p>`;
+      results.querySelectorAll('[data-client-option]').forEach(button=>button.onclick=()=>void chooseClient(visible[Number(button.dataset.clientOption)]));
+    }
+    async function chooseClient(selected){
+      if(!selected)return;
+      const changed=client?.id!==selected.id;
+      client=selected;input.value=clientLabel(selected);input.setCustomValidity('');$('[name="clienteId"]').value=selected.id;
+      clearTimeout(timer);sequence++;loading=false;hideSuggestions();dirty=true;
+      if(changed)await refreshClient();
+    }
+    results.onpointerdown=event=>event.preventDefault();
+    input.onfocus=renderClientSuggestions;
+    input.onblur=()=>setTimeout(()=>{if(!results.contains(document.activeElement))hideSuggestions();},120);
+    input.onkeydown=event=>{
+      if(event.key==='Escape'&&!results.hidden){event.preventDefault();event.stopPropagation();hideSuggestions();return;}
+      if(results.hidden)return;
+      if(event.key==='ArrowDown'&&visible.length){event.preventDefault();activateSuggestion(activeIndex+1);}
+      else if(event.key==='ArrowUp'&&visible.length){event.preventDefault();activateSuggestion(activeIndex<0?visible.length-1:activeIndex-1);}
+      else if(event.key==='Enter'&&visible.length){event.preventDefault();void chooseClient(visible[activeIndex<0?0:activeIndex]);}
+    };
     const findZeus=$('[data-find-zeus-clients]');if(findZeus)findZeus.onclick=async()=>{
-      const term=$('[data-client]').value.trim();if(term.length<3){$('[data-client-hint]').textContent='Escribe al menos tres letras o números.';return;}
+      const term=input.value.trim();if(term.length<3){$('[data-client-hint]').textContent='Escribe al menos tres letras o números.';return;}
       const t=token;findZeus.disabled=true;$('[data-client-hint]').textContent='Consultando clientes en Zeus…';
       try{
         const result=await apiRequest(endpoint()+'/zeus-clients?q='+encodeURIComponent(term));if(!current(t))return;
@@ -400,26 +435,24 @@
           button.disabled=true;try{
             const linked=await apiRequest(endpoint()+'/zeus-clients/link',{method:'POST',body:JSON.stringify({identificacion:button.dataset.linkZeusClient})});if(!current(t))return;
             const catalog=await apiRequest(endpoint()+`/options?clienteId=${linked.id}`);if(!current(t))return;
-            options.clientes=catalog.clientes;client=options.clientes.find(x=>x.id===linked.id);
-            if(!client)throw new Error('El cliente vinculado no aparece en el catálogo de Nexo.');
-            setClientOptions();$('[data-client]').value=clientLabel(client);$('[data-client]').setCustomValidity('');$('[name="clienteId"]').value=client.id;
-            area.replaceChildren();dirty=true;await refreshClient();
+            options.clientes=catalog.clientes;setClientOptions();const selected=options.clientes.find(x=>x.id===linked.id);
+            if(!selected)throw new Error('El cliente vinculado no aparece en el catálogo de Nexo.');
+            area.replaceChildren();await chooseClient(selected);
           }catch(error){if(current(t))notice(error.message,true);}finally{if(button.isConnected)button.disabled=false;}
         });
         $('[data-client-hint]').textContent='Selecciona un cliente para vincularlo con Nexo.';
       }catch(error){if(current(t))$('[data-client-hint]').textContent=error.message;}
       finally{if(findZeus.isConnected)findZeus.disabled=false;}
     };
-    $('[data-client]').oninput=()=>{
-      const input=$('[data-client]'),selected=options.clientes.find(c=>clientLabel(c)===input.value);
-      input.setCustomValidity(selected?'':'Selecciona un cliente de los resultados.');
-      if(selected){if(client?.id!==selected.id){client=selected;$('[name="clienteId"]').value=selected.id;dirty=true;void refreshClient();}return;}
-      client=null;$('[name="clienteId"]').value='';applications=[];zeusApplications=[];advances=[];renderAllocations();
-      if(mode==='invoice')return;
-      clearTimeout(timer);const t=token,request=++sequence,term=input.value.trim();if(term.length<2)return;
+    input.oninput=()=>{
+      clearTimeout(timer);const t=token,request=++sequence,term=input.value.trim();loading=false;
+      if(client&&input.value!==clientLabel(client)){client=null;$('[name="clienteId"]').value='';applications=[];zeusApplications=[];advances=[];renderAllocations();}
+      input.setCustomValidity(client?'':'Selecciona un cliente de los resultados.');renderClientSuggestions();
+      if(mode==='invoice'||term.length<2)return;
+      loading=true;if(!visible.length)renderClientSuggestions();
       timer=setTimeout(async()=>{
-        try{const result=await apiRequest(endpoint()+'/options?q='+encodeURIComponent(term));if(!current(t)||request!==sequence||$('[data-client]')?.value!==term)return;options.clientes=result.clientes;setClientOptions();}
-        catch(error){if(current(t))$('[data-client-hint]').textContent=error.message;}
+        try{const result=await apiRequest(endpoint()+'/options?q='+encodeURIComponent(term));if(!current(t)||request!==sequence||input.value!==term)return;options.clientes=result.clientes;setClientOptions();loading=false;renderClientSuggestions();}
+        catch(error){if(current(t)&&request===sequence){loading=false;renderClientSuggestions();$('[data-client-hint]').textContent=error.message;}}
       },250);
     };
   }

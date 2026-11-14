@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { indexArticles, findArticles, findConcepts } = require('../public/customer-catalog-search.js');
+const { indexArticles, findArticles, findConcepts, indexClients, findClients } = require('../public/customer-catalog-search.js');
 
 const articles = [
   { id: 1, codigo: 'M001', descripcion: 'Motocicleta Navi 2.0', bodegaId: 10, bodegaCodigo: '01', bodega: 'Principal', sucursalId: 1 },
@@ -29,4 +29,15 @@ assert.equal(findArticles(index, 1, 'principal', 1).total, 2);
 const concepts = [{ id: 5, codigo: 'FIN', nombre: 'Financiación', cuentaIngresoZeus: '413502001' }];
 assert.equal(findConcepts(concepts, 'financiacion').items[0].id, 5);
 assert.equal(findConcepts(concepts, '413502').items[0].id, 5);
-console.log('Búsqueda de venta: artículo, chasis, VIN/motor, bodega, acentos y concepto correctos.');
+const clients = indexClients([
+  { id: 1, identificacion: '1003393939', nombre: 'Ángela Pérez' },
+  { id: 2, identificacion: '200123', nombre: 'Pedro Angarita' },
+  { id: 3, identificacion: '300456', nombre: 'María Torres' },
+]);
+assert.equal(findClients(clients, 'a').total, 0);
+assert.equal(findClients(clients, 'angela').items[0].id, 1);
+assert.equal(findClients(clients, '100339').items[0].id, 1);
+assert.equal(findClients(clients, 'torres').items[0].id, 3);
+assert.equal(findClients(clients, 'ang').total, 2);
+assert.equal(findClients(clients, 'ang', 1).items.length, 1);
+console.log('Búsqueda de venta: artículos, seriales, conceptos y clientes correctos.');
