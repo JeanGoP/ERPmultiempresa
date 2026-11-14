@@ -5,9 +5,11 @@
   const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'America/Bogota'});
   const dialog=document.createElement('dialog');dialog.className='erp-dialog egreso-dialog customer-documents-dialog';document.body.append(dialog);
   const serialDialog=document.createElement('dialog');serialDialog.className='erp-dialog customer-serial-dialog';document.body.append(serialDialog);
+  const catalogDialog=document.createElement('dialog');catalogDialog.className='erp-dialog customer-catalog-dialog';document.body.append(catalogDialog);
+  const catalogSearch=window.customerCatalogSearch;
   const $=selector=>dialog.querySelector(selector);
   let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],withholdingAccounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='',portfolioTypes=[];
-  let operation='',client=null,lines=[],conceptLines=[],applications=[],zeusApplications=[],advances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8,zeusSearch='';
+  let operation='',client=null,lines=[],conceptLines=[],applications=[],zeusApplications=[],advances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8,zeusSearch='',articleIndex=[];
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='receipt'?'cash-receipts':'sales-invoices'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
@@ -31,7 +33,7 @@
   };
   const portfolioOptions=(selected='',activeOnly=false)=>portfolioTypes.filter(x=>!activeOnly||x.activo||x.codigo===selected).map(x=>`<option value="${esc(x.codigo)}" ${x.codigo===selected?'selected':''}>${esc(x.nombre)}${x.activo?'':' · inactivo'}</option>`).join('');
   const loadPortfolioTypes=()=>apiRequest(`/api/v1/companies/${company}/master-data/portfolio-types`);
-  function close(force=false){if(!force&&mode==='invoice'&&view!=='create'&&view!=='approvals'&&hasPermission('VENTAS.FACTURA.CONTABILIZAR')){void create();return;}if(!force&&(busy||dirty&&!confirm('¿Salir sin contabilizar el documento?')))return;token++;dirty=false;if(serialDialog.open)serialDialog.close();dialog.close();mode='';company=0;shellMode='';}
+  function close(force=false){if(!force&&mode==='invoice'&&view!=='create'&&view!=='approvals'&&hasPermission('VENTAS.FACTURA.CONTABILIZAR')){void create();return;}if(!force&&(busy||dirty&&!confirm('¿Salir sin contabilizar el documento?')))return;token++;dirty=false;if(serialDialog.open)serialDialog.close();if(catalogDialog.open)catalogDialog.close();dialog.close();mode='';company=0;shellMode='';}
   window.resetCustomerDocuments=()=>close(true);
   dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
   function shell(){
@@ -367,7 +369,7 @@
     const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];zeusApplications=[];advances=[];extraInstallments=[];receiptVisibleRows=8;zeusSearch='';dimensions=null;dimensionsError='';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
     try{
       const [opts,chart,withholdingChart,dims,types]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='receipt'?apiRequest(endpoint()+'/withholding-accounts'):Promise.resolve([]),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions').catch(error=>({error:error.message})):Promise.resolve(null),loadPortfolioTypes()]);
-      if(!current(t))return;options=opts;accounts=chart;withholdingAccounts=withholdingChart;dimensions=dims?.error?null:dims;dimensionsError=dims?.error||'';portfolioTypes=types;
+      if(!current(t))return;options=opts;accounts=chart;withholdingAccounts=withholdingChart;dimensions=dims?.error?null:dims;dimensionsError=dims?.error||'';portfolioTypes=types;articleIndex=mode==='invoice'?catalogSearch.indexArticles(opts.articulos,opts.seriales):[];
       if(mode==='invoice')invoiceForm();else receiptForm();notice(dimensionsError?`No se pudieron consultar los centros de costo de Zeus: ${dimensionsError}`:'',Boolean(dimensionsError));
     }catch(error){if(current(t))notice(error.message,true);}
   }
@@ -689,7 +691,7 @@
     f.elements.bodegaCarteraId.value=selectedWarehouse;f.elements.bodegaCarteraId.required=lines.length===0;
     area.innerHTML=lines.map((line,index)=>{
       const item=choices.find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);
-      return `<tr data-line="${index}"><td><select data-article required><option value="">Selecciona artículo y bodega…</option>${choices.map(a=>`<option value="${a.id}|${a.bodegaId}" ${a.id===line.articuloId&&a.bodegaId===line.bodegaId?'selected':''}>${esc(a.codigo+' · '+a.descripcion+' · '+a.bodegaCodigo+' · Disponible '+a.existencia)}</option>`).join('')}</select></td>
+      return `<tr data-line="${index}"><td><div class="customer-article-choice"><span><strong>${item?esc(item.codigo+' · '+item.descripcion):'Sin artículo seleccionado'}</strong><small>${item?esc(item.bodegaCodigo+' · '+item.bodega+' · Disponible '+item.existencia):'Busca por nombre, código, chasis, motor o VIN'}</small></span><button type="button" class="button secondary" data-find-article>${item?'Cambiar':'Buscar'}</button></div></td>
         <td><input data-qty type="number" min="0.000001" step="0.000001" value="${esc(line.cantidad)}" required></td>
         <td><input data-base-price type="number" min="0.01" step="0.01" value="${esc(line.precioBaseConIva||'')}" aria-label="Precio con IVA" required></td>
         <td><input data-discount type="number" min="0" max="100" step="0.01" value="${esc(line.descuentoPorcentaje||0)}" aria-label="Descuento porcentual"></td>
@@ -699,7 +701,7 @@
     }).join('');
     area.querySelectorAll('[data-line]').forEach(row=>{
       const line=lines[Number(row.dataset.line)];
-      row.querySelector('[data-article]').onchange=event=>{const [id,warehouse]=event.target.value.split('|').map(Number);line.articuloId=id||0;line.bodegaId=warehouse||0;line.precioBaseConIva=choices.find(a=>a.id===id&&a.bodegaId===warehouse)?.precioListaConIva||0;line.descuentoPorcentaje=0;updateLinePrice(line);line.unidadesSerializadas=[];renderLines();dirty=true;};
+      row.querySelector('[data-find-article]').onclick=()=>openCatalogPicker('article',Number(row.dataset.line));
       row.querySelector('[data-qty]').oninput=event=>{line.cantidad=Number(event.target.value);summary();dirty=true;};
       const refreshPrice=()=>{updateLinePrice(line);summary();dirty=true;};
       row.querySelector('[data-base-price]').oninput=event=>{line.precioBaseConIva=Number(event.target.value);refreshPrice();};
@@ -707,6 +709,49 @@
       row.querySelector('[data-choose-serial]')?.addEventListener('click',()=>openSerialPicker(Number(row.dataset.line)));
       row.querySelector('[data-remove]').onclick=()=>{lines.splice(Number(row.dataset.line),1);renderLines();dirty=true;};
     });updateGeneralCenterHint();summary();
+  }
+  function openCatalogPicker(kind,index){
+    const articleMode=kind==='article';
+    const branch=$('[data-document]')?.elements.sucursalId.value;
+    if(articleMode&&!branch){notice('Selecciona primero la sucursal de la factura.',true);return;}
+    const title=articleMode?'Buscar artículo':'Buscar concepto';
+    catalogDialog.innerHTML=`<div class="customer-catalog-heading"><div><span class="dialog-kicker">FACTURA DE VENTA</span><h2 id="customerCatalogTitle">${title}</h2><p>${articleMode?'Busca la moto por chasis, VIN, motor, nombre o código.':'Busca el concepto por nombre o código.'}</p></div><button type="button" class="dialog-close" data-close-catalog aria-label="Cerrar">×</button></div><label class="customer-catalog-search">${articleMode?'Artículo, chasis, motor o VIN':'Concepto de venta'}<input type="search" data-catalog-query autocomplete="off" placeholder="Escribe para buscar…" aria-controls="customerCatalogResults"></label><p class="customer-catalog-count" data-catalog-count role="status"></p><div id="customerCatalogResults" class="customer-catalog-results"></div>`;
+    const input=catalogDialog.querySelector('[data-catalog-query]');
+    const results=catalogDialog.querySelector('.customer-catalog-results');
+    const count=catalogDialog.querySelector('[data-catalog-count]');
+    function renderResults(){
+      const query=input.value.trim();
+      if(!query){count.textContent='';results.innerHTML='<p class="customer-catalog-empty">Escribe para encontrar el artículo o concepto. No necesitas recorrer un listado.</p>';return;}
+      const found=articleMode?catalogSearch.findArticles(articleIndex,branch,query):catalogSearch.findConcepts(options.conceptos,query);
+      count.textContent=`${found.total} resultado(s)${found.total>found.items.length?` · Mostrando los primeros ${found.items.length}`:''}`;
+      results.innerHTML=found.items.map((entry,position)=>{
+        if(!articleMode)return `<button type="button" class="customer-catalog-result" data-result="${position}"><span><strong>${esc(entry.codigo+' · '+entry.nombre)}</strong><small>Cuenta Zeus ${esc(entry.cuentaIngresoZeus)}</small></span><span aria-hidden="true">→</span></button>`;
+        const article=entry.article;
+        const outOfStock=article.inventario&&Number(article.existencia)<=0;
+        const reserved=entry.exactSerialId&&lines.some((other,lineIndex)=>lineIndex!==index&&other.unidadesSerializadas.includes(entry.exactSerialId));
+        const identifiers=entry.matches.slice(0,2).map(serial=>`${serial.type} ${serial.value}`).join(' · ');
+        return `<button type="button" class="customer-catalog-result" data-result="${position}" ${outOfStock||reserved?'disabled':''}><span><strong>${esc(article.codigo+' · '+article.descripcion)}</strong><small>${esc(article.bodegaCodigo+' · '+article.bodega)} · ${article.inventario?`Disponible ${esc(article.existencia)}`:'Sin control de existencias'}</small>${identifiers?`<small class="customer-catalog-serial">${esc(identifiers)}</small>`:''}</span><span aria-hidden="true">${reserved?'Ya agregado':outOfStock?'Agotado':'→'}</span></button>`;
+      }).join('')||'<p class="customer-catalog-empty">No se encontraron coincidencias. Prueba con otra parte del nombre, código o serial.</p>';
+      results.querySelectorAll('[data-result]').forEach(button=>button.onclick=()=>{
+        const chosen=found.items[Number(button.dataset.result)];
+        if(articleMode){
+          const line=lines[index],article=chosen.article;
+          if(!line)return;
+          line.articuloId=article.id;line.bodegaId=article.bodegaId;line.precioBaseConIva=Number(article.precioListaConIva||0);line.descuentoPorcentaje=0;
+          if(chosen.exactSerialId&&article.serial){line.cantidad=1;line.unidadesSerializadas=[chosen.exactSerialId];}
+          else line.unidadesSerializadas=[];
+          updateLinePrice(line);renderLines();
+        }else{
+          const line=conceptLines[index];if(!line)return;
+          line.conceptoVentaId=chosen.id;renderConcepts();
+        }
+        dirty=true;catalogDialog.close();
+      });
+    }
+    catalogDialog.querySelector('[data-close-catalog]').onclick=()=>catalogDialog.close();
+    input.oninput=renderResults;
+    input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();const first=results.querySelector('[data-result]:not(:disabled)');if(first)first.click();}};
+    renderResults();catalogDialog.showModal();input.focus();
   }
   function openSerialPicker(index){
     const line=lines[index],article=articleChoices().find(x=>x.id===line.articuloId&&x.bodegaId===line.bodegaId);
@@ -757,10 +802,10 @@
   function renderConcepts(){
     const area=$('[data-concept-lines]');if(!area)return;
     area.innerHTML=conceptLines.map((line,index)=>{const selected=(options.conceptos||[]).find(x=>x.id===line.conceptoVentaId);
-      return `<tr data-concept-line="${index}"><td><select data-concept required><option value="">Selecciona concepto…</option>${(options.conceptos||[]).map(x=>`<option value="${x.id}" ${x.id===line.conceptoVentaId?'selected':''}>${esc(x.codigo+' · '+x.nombre)}</option>`).join('')}</select></td><td>${esc(selected?.cuentaIngresoZeus||'—')}</td><td><input data-concept-value type="number" min="0.01" step="0.01" value="${esc(line.valor||'')}" required></td><td><button type="button" class="button secondary" data-remove-concept>Quitar</button></td></tr>`;
+      return `<tr data-concept-line="${index}"><td><div class="customer-article-choice"><span><strong>${selected?esc(selected.codigo+' · '+selected.nombre):'Sin concepto seleccionado'}</strong></span><button type="button" class="button secondary" data-find-concept>${selected?'Cambiar':'Buscar'}</button></div></td><td>${esc(selected?.cuentaIngresoZeus||'—')}</td><td><input data-concept-value type="number" min="0.01" step="0.01" value="${esc(line.valor||'')}" required></td><td><button type="button" class="button secondary" data-remove-concept>Quitar</button></td></tr>`;
     }).join('');
     area.querySelectorAll('[data-concept-line]').forEach(row=>{const line=conceptLines[Number(row.dataset.conceptLine)];
-      row.querySelector('[data-concept]').onchange=event=>{line.conceptoVentaId=Number(event.target.value);renderConcepts();dirty=true;};
+      row.querySelector('[data-find-concept]').onclick=()=>openCatalogPicker('concept',Number(row.dataset.conceptLine));
       row.querySelector('[data-concept-value]').oninput=event=>{line.valor=Number(event.target.value);summary();dirty=true;};
       row.querySelector('[data-remove-concept]').onclick=()=>{conceptLines.splice(Number(row.dataset.conceptLine),1);renderConcepts();dirty=true;};
     });summary();
