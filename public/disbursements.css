@@ -91,9 +91,20 @@
 .customer-documents-dialog .customer-receipt-card{margin:0 0 12px;padding:16px 18px;border:1px solid #dce7e1;border-radius:10px;background:#fff}
 .customer-documents-dialog .customer-receipt-card[hidden]{display:none}
 .customer-documents-dialog .customer-receipt-card h3{margin:0 0 12px;color:#173e33;font-size:15px}
-.customer-documents-dialog .customer-free-account-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(140px,1fr) auto;align-items:end;gap:10px;margin:10px 0}
-.customer-documents-dialog .customer-free-account-row label{min-width:0}
-@media(max-width:600px){.customer-documents-dialog .customer-free-account-row{grid-template-columns:minmax(0,1fr) auto}.customer-documents-dialog .customer-free-account-row label:first-child{grid-column:1/-1}}
+.customer-documents-dialog [data-advance-concepts]{max-width:940px;margin-inline:auto}
+.customer-documents-dialog .customer-advance-fixed{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.customer-documents-dialog .customer-advance-fixed label{display:grid;gap:5px;min-width:0;font-size:12px;font-weight:600}
+.customer-documents-dialog .customer-advance-fixed input{width:100%;height:36px;min-height:36px;padding:6px 9px;box-sizing:border-box}
+.customer-documents-dialog .customer-extra-destinations{max-width:790px;margin-top:18px;padding-top:14px;border-top:1px solid #e3ece6}
+.customer-documents-dialog .customer-extra-destinations-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.customer-documents-dialog .customer-extra-destinations-heading h3{margin:0}
+.customer-documents-dialog .customer-extra-destinations-heading .button{min-height:32px;padding:5px 11px;font-size:12px}
+.customer-documents-dialog .customer-free-account-head,.customer-documents-dialog .customer-free-account-row{display:grid;grid-template-columns:minmax(0,1fr) 150px 66px;align-items:center;gap:8px}
+.customer-documents-dialog .customer-free-account-head{margin-bottom:4px;color:#5d7168;font-size:11px;font-weight:700}
+.customer-documents-dialog .customer-free-account-row{margin:0 0 7px}
+.customer-documents-dialog .customer-free-account-row select,.customer-documents-dialog .customer-free-account-row input{width:100%;min-width:0;height:34px;min-height:34px;box-sizing:border-box;padding:5px 8px;font-size:13px}
+.customer-documents-dialog .customer-free-account-row .button{min-height:34px;padding:5px 7px;font-size:11px}
+@media(max-width:600px){.customer-documents-dialog .customer-advance-fixed{grid-template-columns:1fr}.customer-documents-dialog .customer-free-account-head{display:none}.customer-documents-dialog .customer-free-account-row{grid-template-columns:minmax(0,1fr) 105px 54px;gap:5px}.customer-documents-dialog .customer-free-account-row select,.customer-documents-dialog .customer-free-account-row input{font-size:12px}.customer-documents-dialog .customer-free-account-row .button{padding:4px;font-size:10px}}
 .customer-documents-dialog .customer-receipt-fields{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px;align-items:end}
 .customer-documents-dialog .customer-receipt-fields>label{grid-column:span 3;display:grid;gap:5px;min-width:0;font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-receipt-fields>.egreso-wide{grid-column:span 6}
