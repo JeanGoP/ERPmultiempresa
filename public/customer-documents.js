@@ -498,6 +498,7 @@
       <div class="customer-receipt-footer"><div class="customer-receipt-total"><label>Valor total a recibir<input name="total" data-money type="text" inputmode="decimal" required></label><small data-summary></small></div><button class="button primary" type="submit">Contabilizar recibo</button></div>
     </fieldset></form>`;
     wireClient();const f=$('[data-document]');f.addEventListener('input',event=>{if(event.target.matches('[data-money]'))window.customerMoneyInput.apply(event.target);dirty=true;summary();});
+    f.addEventListener('keydown',event=>{if(event.target.matches('[data-money]'))window.customerMoneyInput.erase(event.target,event);});
     f.addEventListener('focusout',event=>{if(event.target.matches('[data-money]')&&event.target.value.trim())event.target.value=amount(parseAmount(event.target.value));});
     f.elements.tipo.onchange=()=>{applications=[];zeusApplications=[];receiptVisibleRows=8;f.elements.total.value='';f.elements.interesMora.value='0';f.elements.interesMora.dataset.edited='';f.elements.ingresoRetencionMoto.value='0';f.elements.descuentoProntoPago.value='0';f.elements.retencionClienteValor.value='0';f.elements.cuentaRetencionCliente.value='';renderAllocations();};
     f.elements.interesMora.oninput=()=>{f.elements.interesMora.dataset.edited='yes';dirty=true;summary();};
@@ -732,10 +733,7 @@
     $('[data-retry-dimensions]')?.addEventListener('click',()=>void retryDimensions());
     wireClient();wireAdvanceSource();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
     f.addEventListener('input',event=>{if(event.target.matches('[data-money]'))window.customerMoneyInput.apply(event.target);});
-    f.addEventListener('keydown',event=>{
-      const input=event.target;if(!input.matches('[data-money]')||event.key!=='Backspace'||input.selectionStart!==input.selectionEnd||input.selectionStart<2||input.value[input.selectionStart-1]!=='.')return;
-      event.preventDefault();input.setRangeText('',input.selectionStart-2,input.selectionStart,'end');input.dispatchEvent(new Event('input',{bubbles:true}));
-    });
+    f.addEventListener('keydown',event=>{if(event.target.matches('[data-money]'))window.customerMoneyInput.erase(event.target,event);});
     f.addEventListener('focusout',event=>{if(event.target.matches('[data-money]'))event.target.value=amount(parseAmount(event.target.value));});
     f.elements.frecuenciaCuotas.onchange=()=>{dirty=true;summary();};f.elements.vencimiento.onchange=()=>{dirty=true;summary();};
     f.elements.sucursalId.onchange=()=>{lines=[];f.elements.bodegaCarteraId.value='';addLine();};
