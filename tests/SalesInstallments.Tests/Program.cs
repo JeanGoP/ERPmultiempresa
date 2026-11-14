@@ -30,6 +30,11 @@ Check(CashReceiptAdvancePolicy.PurchaseAmount(CashReceiptAdvancePolicy.Normalize
     "un recibo exclusivo para SOAT no crea anticipo aplicable a factura");
 Check(CashReceiptAdvancePolicy.PurchaseAmount(CashReceiptAdvancePolicy.Normalize(null,200m))==200m,
     "los recibos antiguos conservan el anticipo íntegro");
+var customAdvance=CashReceiptAdvancePolicy.Normalize([new("ANTICIPO",100m),new("LIBRE",25m,"280509"),new("LIBRE",35m,"280510")],160m);
+Check(customAdvance.Length==3&&CashReceiptAdvancePolicy.PurchaseAmount(customAdvance)==100m,
+    "un recibo admite varias cuentas Zeus libres sin convertirlas en anticipo de compra");
+try{CashReceiptAdvancePolicy.Normalize([new("LIBRE",25m)],25m);throw new Exception("Permitió cuenta libre vacía.");}
+catch(ArgumentException){Console.WriteLine("OK: cuenta Zeus obligatoria en cada fila libre");}
 try{CashReceiptAdvancePolicy.Normalize([new("SOAT",100m),new("SOAT",100m)],200m);throw new Exception("Permitió conceptos repetidos.");}
 catch(ArgumentException){Console.WriteLine("OK: conceptos duplicados rechazados");}
 try{CashReceiptAdvancePolicy.Normalize([new("SOAT",100m)],200m);throw new Exception("Permitió un recibo descuadrado.");}

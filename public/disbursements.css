@@ -91,6 +91,9 @@
 .customer-documents-dialog .customer-receipt-card{margin:0 0 12px;padding:16px 18px;border:1px solid #dce7e1;border-radius:10px;background:#fff}
 .customer-documents-dialog .customer-receipt-card[hidden]{display:none}
 .customer-documents-dialog .customer-receipt-card h3{margin:0 0 12px;color:#173e33;font-size:15px}
+.customer-documents-dialog .customer-free-account-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(140px,1fr) auto;align-items:end;gap:10px;margin:10px 0}
+.customer-documents-dialog .customer-free-account-row label{min-width:0}
+@media(max-width:600px){.customer-documents-dialog .customer-free-account-row{grid-template-columns:minmax(0,1fr) auto}.customer-documents-dialog .customer-free-account-row label:first-child{grid-column:1/-1}}
 .customer-documents-dialog .customer-receipt-fields{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px;align-items:end}
 .customer-documents-dialog .customer-receipt-fields>label{grid-column:span 3;display:grid;gap:5px;min-width:0;font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-receipt-fields>.egreso-wide{grid-column:span 6}

@@ -91,7 +91,7 @@
           if(item.tipo==='ANTICIPO'&&item.conceptos?.length){
             const breakdown=document.createElement('small');
             const names={ANTICIPO:'Compra',SOAT:'SOAT',MATRICULA:'Matrícula',IMPUESTOS:'Impuestos',TRASLADOS:'Traslados',CENTRALES:'Consultas centrales de riesgo',OTROS:'Otros'};
-            breakdown.textContent=item.conceptos.map(x=>`${names[x.codigo]||x.codigo}: ${money(x.valor)}`).join(' · ');
+            breakdown.textContent=item.conceptos.map(x=>`${x.codigo==='LIBRE'?`${x.cuentaZeus} · ${accounts.find(a=>a.codigo===x.cuentaZeus)?.nombre||'Cuenta Zeus'}`:names[x.codigo]||x.codigo}: ${money(x.valor)}`).join(' · ');
             row.cells[4].append(document.createElement('br'),breakdown);
           }
           if(item.tipo==='CARTERA'&&item.moraValor>0){
@@ -574,8 +574,17 @@
     $('[data-contra-wrap]').hidden=kind!=='NORMAL';f.elements.cuentaContrapartida.required=kind==='NORMAL';
     f.elements.total.readOnly=kind!=='NORMAL';
     const conceptArea=$('[data-advance-concepts]');conceptArea.hidden=kind!=='ANTICIPO';
+    conceptArea.querySelectorAll('[data-free-account], [data-free-value]').forEach(field=>field.disabled=kind!=='ANTICIPO');
     if(kind==='ANTICIPO'&&!conceptArea.firstElementChild){
-      conceptArea.innerHTML='<h3>Destino del dinero recibido</h3><p class="egreso-help">Distribuye el valor entre los conceptos que correspondan. Cada uno se contabiliza en su cuenta Zeus; solo el anticipo para compra queda disponible como cuota inicial. Los campos vacíos cuentan como cero.</p><div class="egreso-grid">'+[['ANTICIPO','Anticipo para compra'],['SOAT','SOAT'],['MATRICULA','Matrícula'],['IMPUESTOS','Impuestos'],['TRASLADOS','Traslados'],['CENTRALES','Consultas centrales de riesgo'],['OTROS','Otros']].map(([code,label])=>`<label>${label}<input type="number" data-advance-concept="${code}" min="0" step="0.01"></label>`).join('')+'</div>';
+      conceptArea.innerHTML='<h3>Destino del dinero recibido</h3><div class="egreso-grid">'+[['ANTICIPO','Anticipo para compra'],['SOAT','SOAT'],['MATRICULA','Matrícula']].map(([code,label])=>`<label>${label}<input type="number" data-advance-concept="${code}" min="0" step="0.01"></label>`).join('')+'</div><div class="egreso-toolbar"><h3>Otros destinos</h3><button type="button" class="button secondary" data-add-advance-account>+ Agregar cuenta</button></div><div data-advance-account-rows></div>';
+      const addAccountRow=()=>{
+        const row=document.createElement('div');row.className='customer-free-account-row';
+        row.innerHTML=`<label>Cuenta de Zeus<select data-free-account><option value="">Selecciona una cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label><label>Valor<input data-free-value type="number" min="0.01" step="0.01"></label><button type="button" class="button secondary" data-remove-free-account>Quitar</button>`;
+        row.querySelector('[data-remove-free-account]').onclick=()=>{row.remove();dirty=true;summary();};
+        conceptArea.querySelector('[data-advance-account-rows]').append(row);
+      };
+      conceptArea.querySelector('[data-add-advance-account]').onclick=()=>{addAccountRow();dirty=true;};
+      addAccountRow();
     }
     if(kind!=='CARTERA'){area.replaceChildren();$('[data-zeus-allocations]').replaceChildren();syncReceiptConcept();summary();return;}
     const selected=x=>applications.find(a=>a.facturaVentaId===x.id&&(a.facturaVentaCuotaId??null)===(x.cuotaId??null));
@@ -648,7 +657,7 @@
         if(interest.dataset.edited!=='yes')interest.value=String(suggested);
         f.elements.total.value=String(([...applications,...zeusApplications].reduce((s,x)=>s+Math.round(Number(x.valor||0)*100),0)+Math.round(Number(interest.value||0)*100)+Math.round(Number(f.elements.ingresoRetencionMoto.value||0)*100)-Math.round(Number(f.elements.descuentoProntoPago.value||0)*100))/100||'');
       }
-      if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=String(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].reduce((s,x)=>s+Math.round(Number(x.value||0)*100),0))/100||'');
+      if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=String(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept], [data-free-value]')].reduce((s,x)=>s+Math.round(Number(x.value||0)*100),0))/100||'');
       if(f.elements.tipo.value==='NORMAL'){
         const retained=Number(f.elements.retencionClienteValor.value||0),received=Number(f.elements.total.value||0);
         f.elements.cuentaRetencionCliente.required=retained>0;
@@ -663,7 +672,9 @@
     event.preventDefault();if(busy)return;const f=event.target;
     if(!client){notice('Selecciona un cliente de los resultados.',true);return;}
     const kind=f.elements.tipo.value,total=Number(f.elements.total.value);
-    const conceptos=kind==='ANTICIPO'?[...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].map(x=>({codigo:x.dataset.advanceConcept,valor:Number(x.value||0)})).filter(x=>x.valor>0):[];
+    const freeRows=kind==='ANTICIPO'?[...$('[data-advance-account-rows]').querySelectorAll('.customer-free-account-row')].map(row=>({codigo:'LIBRE',cuentaZeus:row.querySelector('[data-free-account]').value,valor:Number(row.querySelector('[data-free-value]').value||0)})):[];
+    if(freeRows.some(x=>(x.cuentaZeus||x.valor)&&(!x.cuentaZeus||!Number.isFinite(x.valor)||x.valor<=0))){notice('Cada cuenta adicional debe tener una cuenta de Zeus y un valor positivo.',true);return;}
+    const conceptos=kind==='ANTICIPO'?[...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].map(x=>({codigo:x.dataset.advanceConcept,valor:Number(x.value||0)})).filter(x=>x.valor>0).concat(freeRows.filter(x=>x.cuentaZeus)):[];
     if(kind==='ANTICIPO'&&(!conceptos.length||Math.round(conceptos.reduce((sum,x)=>sum+x.valor,0)*100)!==Math.round(total*100))){notice('Indica al menos un destino y comprueba que los valores sumen el total recibido.',true);return;}
     const interesMora=kind==='CARTERA'?Number(f.elements.interesMora.value||0):0;
     const ingresoRetencionMoto=kind==='CARTERA'?Number(f.elements.ingresoRetencionMoto.value||0):0;

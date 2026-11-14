@@ -9,7 +9,7 @@ namespace NexoERP.Api.Sales;
 
 public sealed record CashReceiptApplication(long FacturaVentaId,decimal Valor,long? FacturaVentaCuotaId=null,
     ZeusObligationKey? ObligacionZeus=null);
-public sealed record CashReceiptConcept(string Codigo,decimal Valor);
+public sealed record CashReceiptConcept(string Codigo,decimal Valor,string? CuentaZeus=null);
 public sealed record CashReceiptInput(Guid OperacionGuid,long SucursalId,long ClienteId,DateOnly FechaContable,
     string Tipo,string MedioPago,string? Referencia,string Concepto,decimal Total,string? CuentaContrapartida,
     CashReceiptApplication[] Aplicaciones,[property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] bool PagoExtraordinarioRefinanciacion=false,
@@ -23,7 +23,7 @@ public sealed record CashReceiptInput(Guid OperacionGuid,long SucursalId,long Cl
 public sealed record ExtraordinaryRefinancingPaymentInput(Guid OperacionGuid,DateOnly FechaContable,
     string MedioPago,string? Referencia,string Concepto,decimal Valor);
 
-public sealed class CustomerCashRepository(TenantConnectionFactory connections,ZeusHistoricalPortfolio historical)
+public sealed class CustomerCashRepository(TenantConnectionFactory connections,ZeusHistoricalPortfolio historical,ZeusTransport zeus)
 {
     public async Task<object> RefinancingPaymentsAsync(long company,long invoiceId,CancellationToken ct)
     {
@@ -52,7 +52,7 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections,Z
         await using var q=ZeusRepository.Command(c,"""
             SELECT TOP(51) r.ReciboCajaId,r.FechaContable,r.Tipo,t.RazonSocial,r.Total,r.ZeusEstado,r.ZeusFuente,r.ZeusDocumento,r.ZeusError,r.Concepto,a.Saldo,
                 r.ReversionEstado,r.ReversionFuente,r.ReversionDocumento,r.ReversionError,r.ReversionMotivo,
-                (SELECT d.Codigo codigo,d.Valor valor FROM cxc.ReciboCajaConcepto d WHERE d.EmpresaId=r.EmpresaId AND d.ReciboCajaId=r.ReciboCajaId FOR JSON PATH) AS ConceptosJson,
+                (SELECT d.Codigo codigo,d.Valor valor,d.CuentaZeus cuentaZeus FROM cxc.ReciboCajaConcepto d WHERE d.EmpresaId=r.EmpresaId AND d.ReciboCajaId=r.ReciboCajaId ORDER BY d.LineaId FOR JSON PATH) AS ConceptosJson,
                 r.MoraTasaPct,r.MoraCalculada,r.MoraValor,r.IngresoRetencionMoto,r.DescuentoProntoPago,
                 r.RetencionClienteValor,r.CuentaRetencionCliente
             FROM cxc.ReciboCaja r JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.ClienteId
@@ -309,9 +309,18 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections,Z
         if(!(settings.FuentesAutomaticas??[]).Any(x=>x.Movimiento=="RECIBO_CAJA"&&x.SucursalId==input.SucursalId))
             throw new ArgumentException("Configura la fuente RECIBO_CAJA de esta sucursal.");
         settings=ZeusRouting.Resolve(settings,input.SucursalId,"RECIBO_CAJA",branch);
-        if(input.Tipo=="ANTICIPO")foreach(var line in advanceLines)
-            if(ZeusJournal.GeneralAdvanceAccount(settings,line.Codigo=="ANTICIPO"?"ANTICIPO":"ANTICIPO_"+line.Codigo) is null)
-                throw new ArgumentException($"Configura la cuenta de {line.Codigo} en Integración → Configuración de empresa.");
+        if(input.Tipo=="ANTICIPO")
+        {
+            foreach(var line in advanceLines.Where(x=>x.Codigo!="LIBRE"))
+                if(ZeusJournal.GeneralAdvanceAccount(settings,line.Codigo=="ANTICIPO"?"ANTICIPO":"ANTICIPO_"+line.Codigo) is null)
+                    throw new ArgumentException($"Configura la cuenta de {line.Codigo} en Integración → Configuración de empresa.");
+            if(advanceLines.Any(x=>x.Codigo=="LIBRE"))
+            {
+                var chart=await zeus.AdvanceAccountsAsync(company,settings,ct);
+                if(advanceLines.Where(x=>x.Codigo=="LIBRE").Any(x=>!chart.Any(a=>a.Codigo==x.CuentaZeus)))
+                    throw new ArgumentException("Selecciona cuentas de detalle habilitadas y compatibles para los otros destinos del recibo.");
+            }
+        }
         if(input.Tipo=="NORMAL"&&(input.CuentaContrapartida!.Length>16||input.CuentaContrapartida==cashAccount))
             throw new ArgumentException("Selecciona una cuenta de ingreso válida, diferente de caja/banco.");
         if(input.RetencionClienteValor>0&&input.CuentaRetencionCliente!.Trim()==cashAccount)
@@ -508,8 +517,9 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections,Z
             foreach(var line in advanceLines)
             {
                 ZeusRepository.Add(q,"@Code",line.Codigo);ZeusRepository.Add(q,"@Value",line.Valor);
-                q.CommandText="INSERT cxc.ReciboCajaConcepto(EmpresaId,ReciboCajaId,Codigo,Valor) VALUES(@E,@Id,@Code,@Value)";
-                await q.ExecuteNonQueryAsync(ct);q.Parameters.RemoveAt("@Code");q.Parameters.RemoveAt("@Value");
+                ZeusRepository.Add(q,"@Account",(object?)line.CuentaZeus??DBNull.Value);
+                q.CommandText="INSERT cxc.ReciboCajaConcepto(EmpresaId,ReciboCajaId,Codigo,Valor,CuentaZeus) VALUES(@E,@Id,@Code,@Value,@Account)";
+                await q.ExecuteNonQueryAsync(ct);q.Parameters.RemoveAt("@Code");q.Parameters.RemoveAt("@Value");q.Parameters.RemoveAt("@Account");
             }
             var purchaseAdvance=CashReceiptAdvancePolicy.PurchaseAmount(advanceLines);
             if(purchaseAdvance>0)
@@ -542,7 +552,8 @@ public sealed class CustomerCashRepository(TenantConnectionFactory connections,Z
         if(input.Tipo=="ANTICIPO")foreach(var line in advanceLines)
         {
             var concept=line.Codigo=="ANTICIPO"?"ANTICIPO":"ANTICIPO_"+line.Codigo;
-            movements.Add(new(new ZeusAccount(concept,ZeusJournal.GeneralAdvanceAccount(settings,concept)!.Cuenta),-line.Valor));
+            var account=line.Codigo=="LIBRE"?line.CuentaZeus!:ZeusJournal.GeneralAdvanceAccount(settings,concept)!.Cuenta;
+            movements.Add(new(new ZeusAccount(concept,account),-line.Valor));
         }
         if(input.Tipo=="NORMAL")
         {
