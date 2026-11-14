@@ -241,8 +241,8 @@ function applyAccessControls() {
     if (element) element.hidden = !visible;
   };
 
-  setVisible('[data-nav-group="purchases"]', canPurchases || canServices);
-  setVisible('[data-nav-group="sales"]', Boolean(state.erpSession?.api)&&(hasPermission('VENTAS.FACTURA.CONTABILIZAR')||canSecurity));
+  setVisible('[data-nav-group="purchases"]', canPurchases || canServices || isMasterViewAllowed('suppliers') || isMasterViewAllowed('mappings'));
+  setVisible('[data-nav-group="sales"]', Boolean(state.erpSession?.api)&&(hasPermission('VENTAS.FACTURA.CONTABILIZAR')||canSecurity||isMasterViewAllowed('clients')||hasPermission('MAESTROS.CONCEPTO_VENTA.ADMINISTRAR')||hasPermission('MAESTROS.TIPO_CARTERA.ADMINISTRAR')));
   setVisible('[data-nav-group="treasury"]', Boolean(state.erpSession?.api)&&(hasPermission('TESORERIA.EGRESO.CONTABILIZAR')||hasPermission('TESORERIA.RECIBO.CONTABILIZAR')));
   setVisible('[data-nav-group="inventory"]', canInventory);
   setVisible('[data-nav-group="costs"]', canCosts);
