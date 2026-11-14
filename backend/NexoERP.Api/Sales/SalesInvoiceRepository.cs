@@ -292,18 +292,17 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         if(client<=0)throw new ArgumentException("Selecciona el titular del anticipo.");
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=ZeusRepository.Command(c,"""
-            SELECT a.ReciboCajaId,a.Saldo,r.Concepto,r.FechaContable,r.ZeusEstado,t.RazonSocial,t.NumeroIdentificacion
+            SELECT a.ReciboCajaId,a.Saldo,r.Concepto,r.FechaContable,r.ZeusEstado,t.RazonSocial,t.NumeroIdentificacion,r.ReversionEstado
             FROM cxc.AnticipoCliente a
             JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
             JOIN ter.Tercero t ON t.EmpresaId=a.EmpresaId AND t.TerceroId=a.ClienteId
-            WHERE a.EmpresaId=@E AND a.ClienteId=@C AND a.Saldo>0 AND r.ZeusEstado='CONTABILIZADO'
-              AND r.ReversionEstado IS NULL AND t.Activo=1
+            WHERE a.EmpresaId=@E AND a.ClienteId=@C
             ORDER BY r.FechaContable,a.ReciboCajaId
             """,company);
         ZeusRepository.Add(q,"@C",client);
         var items=new List<object>();
         await using var r=await q.ExecuteReaderAsync(ct);
-        while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1),concepto=r.GetString(2),fecha=r.GetDateTime(3).ToString("yyyy-MM-dd"),zeusEstado=r.GetString(4),titular=r.GetString(5),identificacion=r.GetString(6)});
+        while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1),concepto=r.GetString(2),fecha=r.GetDateTime(3).ToString("yyyy-MM-dd"),zeusEstado=r.GetString(4),titular=r.GetString(5),identificacion=r.GetString(6),disponible=r.GetDecimal(1)>0&&r.GetString(4)=="CONTABILIZADO"&&r.IsDBNull(7)});
         return new{items};
     }
 
@@ -313,12 +312,12 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         if(term.Length<2)return new{items=Array.Empty<object>()};
         await using var c=await connections.OpenAsync(company,false,ct);
         await using var q=ZeusRepository.Command(c,"""
-            SELECT TOP(12) t.TerceroId,t.RazonSocial,t.NumeroIdentificacion,COUNT_BIG(*),SUM(a.Saldo)
+            SELECT TOP(12) t.TerceroId,t.RazonSocial,t.NumeroIdentificacion,COUNT_BIG(*),SUM(a.Saldo),
+                SUM(CASE WHEN a.Saldo>0 AND r.ZeusEstado='CONTABILIZADO' AND r.ReversionEstado IS NULL THEN 1 ELSE 0 END)
             FROM cxc.AnticipoCliente a
             JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
             JOIN ter.Tercero t ON t.EmpresaId=a.EmpresaId AND t.TerceroId=a.ClienteId
-            WHERE a.EmpresaId=@E AND a.Saldo>0 AND r.ZeusEstado='CONTABILIZADO'
-              AND r.ReversionEstado IS NULL AND t.Activo=1
+            WHERE a.EmpresaId=@E
               AND NOT EXISTS(SELECT 1 FROM STRING_SPLIT(@Search,' ') word
                   WHERE word.value<>'' AND t.RazonSocial COLLATE Latin1_General_CI_AI NOT LIKE '%'+word.value+'%'
                   AND t.NumeroIdentificacion NOT LIKE '%'+word.value+'%')
@@ -328,7 +327,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         ZeusRepository.Add(q,"@Search",term);
         var items=new List<object>();
         await using var r=await q.ExecuteReaderAsync(ct);
-        while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),nombre=r.GetString(1),identificacion=r.GetString(2),recibos=r.GetInt64(3),saldo=r.GetDecimal(4)});
+        while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),nombre=r.GetString(1),identificacion=r.GetString(2),recibos=r.GetInt64(3),saldo=r.GetDecimal(4),recibosDisponibles=r.GetInt32(5)});
         return new{items};
     }
 

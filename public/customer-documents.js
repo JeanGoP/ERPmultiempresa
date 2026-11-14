@@ -880,9 +880,9 @@
           const found=await apiRequest(endpoint()+`/advance-owners?q=${encodeURIComponent(term)}`,{cache:'no-store'});
           if(!current(t)||view!=='create'||request!==sequence||input.value.trim()!==term)return;
           const owners=found.items.filter(x=>x.id!==client?.id);
-          status.textContent=owners.length?`${owners.length} titular(es) encontrado(s). Elige uno para ver sus anticipos.`:'No hay anticipos disponibles de otra persona con ese nombre o identificación.';
+          status.textContent=owners.length?`${owners.length} titular(es) encontrado(s). Elige uno para ver sus recibos y su estado.`:'No se encontraron anticipos de esa persona en Nexo. Si el recibo está solo en Zeus, aún no figura en este catálogo.';
           results.hidden=!owners.length;
-          results.innerHTML=owners.map(x=>`<button type="button" data-owner="${x.id}"><strong>${esc(x.nombre)}</strong><small>${esc(x.identificacion)} · ${x.recibos} recibo(s) · ${money(x.saldo)} disponible</small><span>Ver anticipos</span></button>`).join('');
+          results.innerHTML=owners.map(x=>`<button type="button" data-owner="${x.id}"><strong>${esc(x.nombre)}</strong><small>${esc(x.identificacion)} · ${x.recibos} recibo(s) · saldo ${money(x.saldo)} · ${x.recibosDisponibles} aplicable(s)</small><span>Ver recibos</span></button>`).join('');
           results.querySelectorAll('[data-owner]').forEach(button=>button.onclick=()=>void chooseOwner(owners.find(x=>x.id===Number(button.dataset.owner))));
         }catch(error){if(current(t)&&request===sequence)status.textContent=`No se pudo buscar anticipos: ${error.message}`;}
       },250);
@@ -894,11 +894,12 @@
       try{
         const result=await apiRequest(endpoint()+`/advances?clienteId=${owner.id}`,{cache:'no-store'});
         if(!current(t)||view!=='create'||client?.id!==target||request!==sequence)return;
-        const available=new Set(result.items.map(x=>x.id));
+        const available=new Set(result.items.filter(x=>x.disponible).map(x=>x.id));
         advances=advances.filter(x=>!options.anticipos.some(a=>a.id===x.reciboCajaId&&a.titularId===owner.id)||available.has(x.reciboCajaId));
         foreignAdvances=foreignAdvances.filter(x=>x.titularId!==owner.id).concat(result.items.map(x=>({...x,titularId:owner.id})));
         options.anticipos=options.anticipos.filter(x=>x.titularId!==owner.id).concat(foreignAdvances.filter(x=>x.titularId===owner.id));
-        status.textContent=result.items.length?`${result.items.length} anticipo(s) de ${owner.nombre} disponibles. Selecciónalos en la tabla inferior.`:`${owner.nombre} ya no tiene anticipos disponibles.`;
+        const usable=result.items.filter(x=>x.disponible).length;
+        status.textContent=result.items.length?`${result.items.length} recibo(s) de ${owner.nombre}; ${usable} aplicable(s). Revisa el estado en la tabla inferior.`:`${owner.nombre} no tiene anticipos registrados en Nexo.`;
         renderAdvances();
       }catch(error){if(current(t)&&request===sequence)status.textContent=`No se pudieron consultar los anticipos de ${owner.nombre}: ${error.message}`;}
     }
@@ -908,7 +909,7 @@
     const area=$('[data-allocations]');if(!area)return;
     area.classList.add('customer-advance-list');
     const advancesWithoutDetails=(options.anticipos||[]).some(x=>!x.concepto||!x.fecha||!x.zeusEstado);
-    area.innerHTML=`<h3>Cuota inicial / anticipos disponibles</h3><p class="egreso-help">Aplica en bloque hasta cubrir la factura o elige recibos individuales. Puedes ajustar cada importe.</p>${advancesWithoutDetails?'<p class="egreso-help">El servidor aún no entrega fecha, concepto o estado de algunos anticipos. Actualiza el backend para verlos.</p>':''}<div class="egreso-toolbar"><button type="button" class="button secondary" data-apply-advances>Aplicar anticipos disponibles</button><button type="button" class="button secondary" data-clear-advances ${advances.length?'':'disabled'}>Quitar selección</button></div><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Recibo / fecha</th><th>Titular / concepto</th><th>Saldo disponible</th><th>Valor a descontar</th></tr></thead><tbody>${(options.anticipos||[]).map(x=>`<tr><td><input type="checkbox" data-pick-advance="${x.id}" ${advances.some(a=>a.reciboCajaId===x.id)?'checked':''} ${x.zeusEstado&&x.zeusEstado!=='CONTABILIZADO'?'disabled':''}></td><td>RC-${x.id}<br><small>${esc(x.fecha||'—')}</small></td><td>${esc(x.titular||client?.nombre||'—')}<br><small>${esc(x.concepto||'—')}</small></td><td>${money(x.saldo)}</td><td><input data-advance-value="${x.id}" data-money type="text" inputmode="decimal" value="${amount(advances.find(a=>a.reciboCajaId===x.id)?.valor||x.saldo)}" ${advances.some(a=>a.reciboCajaId===x.id)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="5">No hay anticipos disponibles. Busca otro titular o registra un recibo de caja.</td></tr>'}</tbody></table></div><strong data-advance-summary></strong>`;
+    area.innerHTML=`<h3>Cuota inicial / anticipos disponibles</h3><p class="egreso-help">Aplica en bloque hasta cubrir la factura o elige recibos individuales. Puedes ajustar cada importe.</p>${advancesWithoutDetails?'<p class="egreso-help">El servidor aún no entrega fecha, concepto o estado de algunos anticipos. Actualiza el backend para verlos.</p>':''}<div class="egreso-toolbar"><button type="button" class="button secondary" data-apply-advances>Aplicar anticipos disponibles</button><button type="button" class="button secondary" data-clear-advances ${advances.length?'':'disabled'}>Quitar selección</button></div><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Recibo / fecha</th><th>Titular / concepto</th><th>Saldo / estado</th><th>Valor a descontar</th></tr></thead><tbody>${(options.anticipos||[]).map(x=>`<tr><td><input type="checkbox" data-pick-advance="${x.id}" ${advances.some(a=>a.reciboCajaId===x.id)?'checked':''} ${x.disponible===false||x.saldo<=0||x.zeusEstado&&x.zeusEstado!=='CONTABILIZADO'?'disabled':''}></td><td>RC-${x.id}<br><small>${esc(x.fecha||'—')}</small></td><td>${esc(x.titular||client?.nombre||'—')}<br><small>${esc(x.concepto||'—')}</small></td><td>${money(x.saldo)}<br><small>${x.disponible===false?(x.saldo<=0?'Agotado':esc(x.zeusEstado==='CONTABILIZADO'?'Revertido':x.zeusEstado)):'Disponible'}</small></td><td><input data-advance-value="${x.id}" data-money type="text" inputmode="decimal" value="${amount(advances.find(a=>a.reciboCajaId===x.id)?.valor||x.saldo)}" ${advances.some(a=>a.reciboCajaId===x.id)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="5">No hay anticipos disponibles. Busca otro titular o registra un recibo de caja.</td></tr>'}</tbody></table></div><strong data-advance-summary></strong>`;
     area.querySelector('[data-apply-advances]').onclick=()=>{
       let remaining=lines.reduce((sum,x)=>sum+Math.round(x.cantidad*x.precioUnitarioConIva*100),0)
         +conceptLines.reduce((sum,x)=>sum+Math.round(x.valor*100),0);
@@ -916,7 +917,7 @@
       advances=[];
       for(const x of [...(options.anticipos||[])].sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||''))||a.id-b.id)){
         if(remaining<=0)break;
-        if(x.zeusEstado&&x.zeusEstado!=='CONTABILIZADO')continue;
+        if(x.disponible===false||x.saldo<=0||x.zeusEstado&&x.zeusEstado!=='CONTABILIZADO')continue;
         const cents=Math.min(Math.round(x.saldo*100),remaining);
         if(cents>0){advances.push({reciboCajaId:x.id,valor:cents/100});remaining-=cents;}
       }
