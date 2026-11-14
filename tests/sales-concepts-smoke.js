@@ -64,7 +64,7 @@ assert.match(centerMigration,/CentroCostoZeus/);
 assert.match(ui,/name="frecuenciaCuotas"/);
 assert.match(ui,/data-installments/);
 assert.match(api,/SalesInstallments\.Build/);
-assert.match(api,/FROM cxc\.AnticipoCliente a JOIN cxc\.ReciboCaja r/);
+assert.match(api,/FROM cxc\.ReciboCaja r\s+LEFT JOIN cxc\.AnticipoCliente a/);
 assert.match(api,/concepto=r\.GetString\(2\),fecha=r\.GetDateTime\(3\)/);
 assert.match(api,/VencimientoCartera:/);
 assert.match(cash,/FacturaVentaCuotaId/);

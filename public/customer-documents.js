@@ -90,7 +90,7 @@
           const row=rows[index];if(!row)return;
           if(item.tipo==='ANTICIPO'&&item.conceptos?.length){
             const breakdown=document.createElement('small');
-            const names={ANTICIPO:'Compra',SOAT:'SOAT',MATRICULA:'Matrícula',OTROS:'Otros'};
+            const names={ANTICIPO:'Compra',SOAT:'SOAT',MATRICULA:'Matrícula',IMPUESTOS:'Impuestos',TRASLADOS:'Traslados',CENTRALES:'Consultas centrales de riesgo',OTROS:'Otros'};
             breakdown.textContent=item.conceptos.map(x=>`${names[x.codigo]||x.codigo}: ${money(x.valor)}`).join(' · ');
             row.cells[4].append(document.createElement('br'),breakdown);
           }
@@ -575,7 +575,7 @@
     f.elements.total.readOnly=kind!=='NORMAL';
     const conceptArea=$('[data-advance-concepts]');conceptArea.hidden=kind!=='ANTICIPO';
     if(kind==='ANTICIPO'&&!conceptArea.firstElementChild){
-      conceptArea.innerHTML='<h3>Destino del dinero recibido</h3><p class="egreso-help">Distribuye el valor entre los conceptos que correspondan. Cada uno se contabiliza en su cuenta Zeus; solo el anticipo para compra queda disponible como cuota inicial. Los campos vacíos cuentan como cero.</p><div class="egreso-grid">'+[['ANTICIPO','Anticipo para compra'],['SOAT','SOAT'],['MATRICULA','Matrícula'],['OTROS','Otros']].map(([code,label])=>`<label>${label}<input type="number" data-advance-concept="${code}" min="0" step="0.01"></label>`).join('')+'</div>';
+      conceptArea.innerHTML='<h3>Destino del dinero recibido</h3><p class="egreso-help">Distribuye el valor entre los conceptos que correspondan. Cada uno se contabiliza en su cuenta Zeus; solo el anticipo para compra queda disponible como cuota inicial. Los campos vacíos cuentan como cero.</p><div class="egreso-grid">'+[['ANTICIPO','Anticipo para compra'],['SOAT','SOAT'],['MATRICULA','Matrícula'],['IMPUESTOS','Impuestos'],['TRASLADOS','Traslados'],['CENTRALES','Consultas centrales de riesgo'],['OTROS','Otros']].map(([code,label])=>`<label>${label}<input type="number" data-advance-concept="${code}" min="0" step="0.01"></label>`).join('')+'</div>';
     }
     if(kind!=='CARTERA'){area.replaceChildren();$('[data-zeus-allocations]').replaceChildren();syncReceiptConcept();summary();return;}
     const selected=x=>applications.find(a=>a.facturaVentaId===x.id&&(a.facturaVentaCuotaId??null)===(x.cuotaId??null));

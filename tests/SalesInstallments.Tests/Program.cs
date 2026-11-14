@@ -17,15 +17,15 @@ Check(NitVerification.Calculate("901436467")=="6"
     &&NitVerification.Calculate("900.499.748") is null,
     "el backend calcula el dígito de verificación al crear y editar empresas");
 
-var mixedAdvance=CashReceiptAdvancePolicy.Normalize([new("ANTICIPO",500m),new("SOAT",200m),new("MATRICULA",100m),new("OTROS",50m)],850m);
+var mixedAdvance=CashReceiptAdvancePolicy.Normalize([new("ANTICIPO",500m),new("SOAT",200m),new("MATRICULA",100m),new("IMPUESTOS",75m),new("TRASLADOS",60m),new("CENTRALES",40m),new("OTROS",50m)],1025m);
 Check(LateInterestPolicy.Calculate(new DateOnly(2026,10,31),2m,[(new DateOnly(2026,10,1),1_000_000m)])==20_000m,
     "mora mensual durante 30 días sobre la cuota abonada");
 Check(LateInterestPolicy.Calculate(new DateOnly(2026,10,16),2m,[(new DateOnly(2026,10,1),100_000m),(new DateOnly(2026,11,1),50_000m)])==1_000m,
     "mora proporcional a días de atraso y sin cobrar cuotas futuras");
 Check(LateInterestPolicy.Calculate(new DateOnly(2026,10,2),1m,[(new DateOnly(2026,10,1),1m)])==0m,
     "mora redondeada a centavos al final del cálculo");
-Check(CashReceiptAdvancePolicy.PurchaseAmount(mixedAdvance)==500m&&mixedAdvance.Sum(x=>x.Valor)==850m,
-    "el recibo separa cuatro destinos y solo el anticipo de compra queda disponible para factura");
+Check(CashReceiptAdvancePolicy.PurchaseAmount(mixedAdvance)==500m&&mixedAdvance.Sum(x=>x.Valor)==1025m,
+    "el recibo separa siete destinos y solo el anticipo de compra queda disponible para factura");
 Check(CashReceiptAdvancePolicy.PurchaseAmount(CashReceiptAdvancePolicy.Normalize([new("SOAT",200m)],200m))==0m,
     "un recibo exclusivo para SOAT no crea anticipo aplicable a factura");
 Check(CashReceiptAdvancePolicy.PurchaseAmount(CashReceiptAdvancePolicy.Normalize(null,200m))==200m,
@@ -35,9 +35,12 @@ catch(ArgumentException){Console.WriteLine("OK: conceptos duplicados rechazados"
 try{CashReceiptAdvancePolicy.Normalize([new("SOAT",100m)],200m);throw new Exception("Permitió un recibo descuadrado.");}
 catch(ArgumentException){Console.WriteLine("OK: total del recibo debe cuadrar con sus conceptos");}
 var separatedAccounts=new ZeusSettings(true,"Zeus","Pruebas","12","00","Local","zeussql","FA",
-    [new("ANTICIPO","280505"),new("ANTICIPO_SOAT","280506"),new("ANTICIPO_MATRICULA","280507"),new("ANTICIPO_OTROS","280508")],[]);
+    [new("ANTICIPO","280505"),new("ANTICIPO_SOAT","280506"),new("ANTICIPO_MATRICULA","280507"),new("ANTICIPO_IMPUESTOS","280509"),new("ANTICIPO_TRASLADOS","280510"),new("ANTICIPO_CENTRALES","280511"),new("ANTICIPO_OTROS","280508")],[]);
 Check(ZeusJournal.GeneralAdvanceAccount(separatedAccounts,"ANTICIPO_SOAT")?.Cuenta=="280506"
     &&ZeusJournal.GeneralAdvanceAccount(separatedAccounts,"ANTICIPO_MATRICULA")?.Cuenta=="280507"
+    &&ZeusJournal.GeneralAdvanceAccount(separatedAccounts,"ANTICIPO_IMPUESTOS")?.Cuenta=="280509"
+    &&ZeusJournal.GeneralAdvanceAccount(separatedAccounts,"ANTICIPO_TRASLADOS")?.Cuenta=="280510"
+    &&ZeusJournal.GeneralAdvanceAccount(separatedAccounts,"ANTICIPO_CENTRALES")?.Cuenta=="280511"
     &&ZeusJournal.GeneralAdvanceAccount(separatedAccounts,"ANTICIPO_OTROS")?.Cuenta=="280508",
     "cada destino de anticipo tiene su propia cuenta Zeus");
 
