@@ -9,7 +9,7 @@
   const catalogSearch=window.customerCatalogSearch;
   const $=selector=>dialog.querySelector(selector);
   let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],withholdingAccounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='',portfolioTypes=[];
-  let operation='',client=null,lines=[],conceptLines=[],applications=[],zeusApplications=[],advances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8,zeusSearch='',articleIndex=[],clientIndex=[];
+  let operation='',client=null,lines=[],conceptLines=[],applications=[],zeusApplications=[],advances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8,zeusSearch='',articleIndex=[],clientIndex=[],catalogRefreshVersion=0;
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='receipt'?'cash-receipts':'sales-invoices'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
@@ -368,7 +368,7 @@
   async function create(){
     const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];zeusApplications=[];advances=[];extraInstallments=[];receiptVisibleRows=8;zeusSearch='';dimensions=null;dimensionsError='';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
     try{
-      const [opts,chart,withholdingChart,dims,types]=await Promise.all([apiRequest(endpoint()+'/options'),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='receipt'?apiRequest(endpoint()+'/withholding-accounts'):Promise.resolve([]),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions').catch(error=>({error:error.message})):Promise.resolve(null),loadPortfolioTypes()]);
+      const [opts,chart,withholdingChart,dims,types]=await Promise.all([apiRequest(endpoint()+'/options',{cache:'no-store'}),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='receipt'?apiRequest(endpoint()+'/withholding-accounts'):Promise.resolve([]),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions').catch(error=>({error:error.message})):Promise.resolve(null),loadPortfolioTypes()]);
       if(!current(t))return;options=opts;accounts=chart;withholdingAccounts=withholdingChart;dimensions=dims?.error?null:dims;dimensionsError=dims?.error||'';portfolioTypes=types;articleIndex=mode==='invoice'?catalogSearch.indexArticles(opts.articulos,opts.seriales):[];
       if(mode==='invoice')invoiceForm();else receiptForm();notice(dimensionsError?`No se pudieron consultar los centros de costo de Zeus: ${dimensionsError}`:'',Boolean(dimensionsError));
     }catch(error){if(current(t))notice(error.message,true);}
@@ -752,7 +752,10 @@
     const input=catalogDialog.querySelector('[data-catalog-query]');
     const results=catalogDialog.querySelector('.customer-catalog-results');
     const count=catalogDialog.querySelector('[data-catalog-count]');
+    let refreshing=articleMode,catalogError='';
     function renderResults(){
+      if(refreshing){count.textContent='Actualizando existencias…';results.innerHTML='<p class="customer-catalog-empty">Consultando el inventario actual.</p>';return;}
+      if(catalogError){count.textContent='No se pudieron actualizar las existencias.';results.innerHTML=`<p class="customer-catalog-empty">${esc(catalogError)}</p><button type="button" class="button secondary" data-retry-catalog>Reintentar</button>`;results.querySelector('[data-retry-catalog]').onclick=()=>{catalogDialog.close();openCatalogPicker(kind,index);};return;}
       const query=input.value.trim();
       if(!query){count.textContent='';results.innerHTML='<p class="customer-catalog-empty">Escribe para encontrar el artículo o concepto. No necesitas recorrer un listado.</p>';return;}
       const found=articleMode?catalogSearch.findArticles(articleIndex,branch,query):catalogSearch.findConcepts(options.conceptos,query);
@@ -785,6 +788,18 @@
     input.oninput=renderResults;
     input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();const first=results.querySelector('[data-result]:not(:disabled)');if(first)first.click();}};
     renderResults();catalogDialog.showModal();input.focus();
+    if(articleMode){
+      const request=++catalogRefreshVersion,t=token,selectedCompany=company;
+      apiRequest(endpoint()+'/options',{cache:'no-store'}).then(fresh=>{
+        if(request!==catalogRefreshVersion||!current(t)||!catalogDialog.open||company!==selectedCompany)return;
+        options.articulos=fresh.articulos;options.seriales=fresh.seriales;
+        articleIndex=catalogSearch.indexArticles(fresh.articulos,fresh.seriales);
+        refreshing=false;renderLines();renderResults();
+      }).catch(error=>{
+        if(request!==catalogRefreshVersion||!current(t)||!catalogDialog.open)return;
+        refreshing=false;catalogError=error.message;renderResults();
+      });
+    }
   }
   function openSerialPicker(index){
     const line=lines[index],article=articleChoices().find(x=>x.id===line.articuloId&&x.bodegaId===line.bodegaId);
