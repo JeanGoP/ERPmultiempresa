@@ -35,14 +35,17 @@
     if (label) label.textContent = title;
   });
   const moduleNames = ['sales', 'purchases', 'treasury', 'inventory', 'reports', 'costs', 'zeus', 'administration'];
-  const taskNavigation = document.createElement('div');
+  const taskNavigation = document.createElement('nav');
   taskNavigation.className = 'task-navigation';
-  taskNavigation.innerHTML = '<p class="task-nav-label">MÓDULOS</p><div class="task-modules" aria-label="Módulos"></div><div class="task-context"><div class="task-context-header"><strong></strong></div><div class="task-context-links"></div></div>';
+  taskNavigation.setAttribute('aria-label', 'Navegación por módulos');
+  taskNavigation.innerHTML = '<p class="task-nav-label">MÓDULOS</p><div class="task-modules"></div>';
   nav.before(taskNavigation);
   nav.hidden = true;
   const moduleList = taskNavigation.querySelector('.task-modules');
-  const contextTitle = taskNavigation.querySelector('.task-context-header strong');
-  const contextLinks = taskNavigation.querySelector('.task-context-links');
+  const contextLinks = document.createElement('div');
+  contextLinks.id = 'taskSubmenu';
+  contextLinks.className = 'task-submenu';
+  contextLinks.setAttribute('role', 'group');
   const moduleButtons = new Map();
   let selectedModule = 'purchases';
 
@@ -57,6 +60,7 @@
     button.type = 'button';
     button.className = 'task-module';
     button.dataset.module = name;
+    button.setAttribute('aria-controls', 'taskSubmenu');
     const icon = document.createElement('span');
     icon.className = 'task-module-icon';
     icon.setAttribute('aria-hidden', 'true');
@@ -71,7 +75,6 @@
   function renderContext() {
     const group = groupFor(selectedModule);
     if (!group) return;
-    contextTitle.textContent = moduleButtons.get(selectedModule)?.textContent.trim() || '';
     contextLinks.replaceChildren();
     let visibleMasters = 0;
     visibleTasks(group).forEach(source => {
@@ -99,8 +102,10 @@
     selectedModule = name;
     moduleButtons.forEach((button, key) => {
       button.classList.toggle('active', key === name);
-      button.setAttribute('aria-pressed', String(key === name));
+      button.setAttribute('aria-expanded', String(key === name));
     });
+    moduleButtons.get(name)?.after(contextLinks);
+    contextLinks.setAttribute('aria-label', `Opciones de ${moduleButtons.get(name)?.textContent.trim() || name}`);
     renderContext();
   }
   function syncModules() {
