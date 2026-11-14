@@ -696,7 +696,11 @@
       <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit" ${dimensionsError?'disabled':''}>Emitir factura o solicitar autorización</button></div></fieldset></form>`;
     $('[data-retry-dimensions]')?.addEventListener('click',()=>void retryDimensions());
     wireClient();wireAdvanceSource();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
-    f.addEventListener('focusin',event=>{if(event.target.matches('[data-money]'))event.target.value=String(parseAmount(event.target.value)||'');});
+    f.addEventListener('input',event=>{if(event.target.matches('[data-money]'))window.customerMoneyInput.apply(event.target);});
+    f.addEventListener('keydown',event=>{
+      const input=event.target;if(!input.matches('[data-money]')||event.key!=='Backspace'||input.selectionStart!==input.selectionEnd||input.selectionStart<2||input.value[input.selectionStart-1]!=='.')return;
+      event.preventDefault();input.setRangeText('',input.selectionStart-2,input.selectionStart,'end');input.dispatchEvent(new Event('input',{bubbles:true}));
+    });
     f.addEventListener('focusout',event=>{if(event.target.matches('[data-money]'))event.target.value=amount(parseAmount(event.target.value));});
     f.elements.frecuenciaCuotas.onchange=()=>{dirty=true;summary();};f.elements.vencimiento.onchange=()=>{dirty=true;summary();};
     f.elements.sucursalId.onchange=()=>{lines=[];f.elements.bodegaCarteraId.value='';addLine();};
