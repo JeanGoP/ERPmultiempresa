@@ -480,7 +480,7 @@
       </div></section>
       <section class="customer-receipt-card" data-advance-concepts hidden></section>
       <section class="customer-receipt-card" data-normal-withholding hidden><h3>Retención practicada por el cliente</h3>
-        <div class="customer-receipt-charge-grid"><div><label>Valor retenido<input name="retencionClienteValor" type="number" min="0" step="0.01" value="0"></label></div>
+        <div class="customer-receipt-charge-grid"><div><label>Valor retenido<input name="retencionClienteValor" data-money type="text" inputmode="decimal" value="0"></label></div>
         <div><label>Cuenta de retención en Zeus<select name="cuentaRetencionCliente"><option value="">Selecciona cuenta…</option>${withholdingAccounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select></label></div></div>
         <small data-normal-withholding-summary></small></section>
       <section class="customer-receipt-card customer-receipt-portfolio" data-portfolio-section hidden>
@@ -490,14 +490,15 @@
       </section>
       <section class="customer-receipt-card customer-receipt-charges" data-late-interest hidden>
         <h3>Ajustes del recaudo</h3><div class="customer-receipt-charge-grid">
-          <div><label>Interés de mora<input name="interesMora" type="number" min="0" step="0.01" value="0"></label><small>Tasa mensual <span data-late-rate></span> % · Sugerido: <b data-late-suggested></b></small></div>
-          <div><label>Otros ingresos<input name="ingresoRetencionMoto" type="number" min="0" step="0.01" value="0"></label><small>Ingreso adicional; no reduce la cartera.</small></div>
-          <div><label>Descuento por pronto pago<input name="descuentoProntoPago" type="number" min="0" step="0.01" value="0"></label><small>Reduce el valor recibido y cancela el mismo valor de cartera.</small></div>
+          <div><label>Interés de mora<input name="interesMora" data-money type="text" inputmode="decimal" value="0"></label><small>Tasa mensual <span data-late-rate></span> % · Sugerido: <b data-late-suggested></b></small></div>
+          <div><label>Otros ingresos<input name="ingresoRetencionMoto" data-money type="text" inputmode="decimal" value="0"></label><small>Ingreso adicional; no reduce la cartera.</small></div>
+          <div><label>Descuento por pronto pago<input name="descuentoProntoPago" data-money type="text" inputmode="decimal" value="0"></label><small>Reduce el valor recibido y cancela el mismo valor de cartera.</small></div>
         </div>
       </section>
-      <div class="customer-receipt-footer"><div class="customer-receipt-total"><label>Valor total a recibir<input name="total" type="number" min="0.01" step="0.01" required></label><small data-summary></small></div><button class="button primary" type="submit">Contabilizar recibo</button></div>
+      <div class="customer-receipt-footer"><div class="customer-receipt-total"><label>Valor total a recibir<input name="total" data-money type="text" inputmode="decimal" required></label><small data-summary></small></div><button class="button primary" type="submit">Contabilizar recibo</button></div>
     </fieldset></form>`;
-    wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
+    wireClient();const f=$('[data-document]');f.addEventListener('input',event=>{if(event.target.matches('[data-money]'))window.customerMoneyInput.apply(event.target);dirty=true;summary();});
+    f.addEventListener('focusout',event=>{if(event.target.matches('[data-money]')&&event.target.value.trim())event.target.value=amount(parseAmount(event.target.value));});
     f.elements.tipo.onchange=()=>{applications=[];zeusApplications=[];receiptVisibleRows=8;f.elements.total.value='';f.elements.interesMora.value='0';f.elements.interesMora.dataset.edited='';f.elements.ingresoRetencionMoto.value='0';f.elements.descuentoProntoPago.value='0';f.elements.retencionClienteValor.value='0';f.elements.cuentaRetencionCliente.value='';renderAllocations();};
     f.elements.interesMora.oninput=()=>{f.elements.interesMora.dataset.edited='yes';dirty=true;summary();};
     f.elements.claseCarteraFiltro.onchange=()=>{receiptVisibleRows=8;renderAllocations();};
@@ -545,7 +546,7 @@
       ${identifiers.length?`<small class="customer-receipt-identifiers">${esc(identifiers.join(' · '))}</small>`:''}
       ${products.length>1?`<button type="button" class="customer-products-toggle" data-products="${index}" aria-expanded="false">Ver productos (${products.length})</button>
       <div class="customer-products-list" data-product-list="${index}" hidden>${products.map(product=>`<div><strong>${esc(product.nombre)}</strong><small>${esc(product.cantidad)} unidad(es)</small>${productIdentifiers(product).length?`<small>${esc(productIdentifiers(product).join(' · '))}</small>`:''}</div>`).join('')}</div>`:''}</td>
-      <td>${money(invoice.saldo)}</td><td><input type="number" data-amount="${index}" min="0.01" max="${invoice.saldo}" step="0.01" value="${selected(invoice)?.valor||invoice.saldo}" ${selected(invoice)?'':'disabled'}></td></tr>`;
+      <td>${money(invoice.saldo)}</td><td><input data-money type="text" inputmode="decimal" data-amount="${index}" value="${amount(selected(invoice)?.valor||invoice.saldo)}" ${selected(invoice)?'':'disabled'}></td></tr>`;
   }
   function receiptEligibility(facturas,selectedApplications,globalOrder,receiptDate){
     const all=facturas.filter(x=>x.zeusEstado==='CONTABILIZADO'&&x.fecha<=receiptDate)
@@ -568,7 +569,7 @@
     if(mode==='invoice'){renderAdvances();return;}
     const f=$('[data-document]'),kind=f.elements.tipo.value;
     $('[data-normal-withholding]').hidden=kind!=='NORMAL';
-    f.elements.cuentaRetencionCliente.required=kind==='NORMAL'&&Number(f.elements.retencionClienteValor.value||0)>0;
+    f.elements.cuentaRetencionCliente.required=kind==='NORMAL'&&parseAmount(f.elements.retencionClienteValor.value)>0;
     $('[data-late-interest]').hidden=kind!=='CARTERA';
     $('[data-portfolio-section]').hidden=kind!=='CARTERA';
     $('[data-contra-wrap]').hidden=kind!=='NORMAL';f.elements.cuentaContrapartida.required=kind==='NORMAL';
@@ -576,10 +577,11 @@
     const conceptArea=$('[data-advance-concepts]');conceptArea.hidden=kind!=='ANTICIPO';
     conceptArea.querySelectorAll('[data-free-account], [data-free-value]').forEach(field=>field.disabled=kind!=='ANTICIPO');
     if(kind==='ANTICIPO'&&!conceptArea.firstElementChild){
-      conceptArea.innerHTML='<h3>Destino del dinero recibido</h3><div class="customer-advance-fixed">'+[['ANTICIPO','Anticipo para compra'],['SOAT','SOAT'],['MATRICULA','Matrícula']].map(([code,label])=>`<label>${label}<input type="number" data-advance-concept="${code}" min="0" step="0.01"></label>`).join('')+'</div><div class="customer-extra-destinations"><div class="customer-extra-destinations-heading"><h3>Otros destinos</h3><button type="button" class="button secondary" data-add-advance-account>+ Agregar cuenta</button></div><div class="customer-free-account-head" aria-hidden="true"><span>Cuenta de Zeus</span><span>Valor</span></div><div data-advance-account-rows></div></div>';
+      conceptArea.innerHTML='<h3>Destino del dinero recibido</h3><div class="customer-advance-fixed">'+[['ANTICIPO','Anticipo para compra'],['SOAT','SOAT'],['MATRICULA','Matrícula']].map(([code,label])=>`<label>${label}<input data-money type="text" inputmode="decimal" data-advance-concept="${code}"></label>`).join('')+'</div><div class="customer-extra-destinations"><div class="customer-extra-destinations-heading"><h3>Otros destinos</h3><button type="button" class="button secondary" data-add-advance-account>+ Agregar cuenta</button></div><div class="customer-free-account-head" aria-hidden="true"><span>Cuenta de Zeus</span><span>Valor</span></div><div data-advance-account-rows></div></div>';
       const addAccountRow=()=>{
         const row=document.createElement('div');row.className='customer-free-account-row';
-        row.innerHTML=`<select data-free-account aria-label="Cuenta de Zeus"><option value="">Selecciona una cuenta…</option>${accounts.map(a=>`<option value="${esc(a.codigo)}">${esc(a.codigo+' · '+a.nombre)}</option>`).join('')}</select><input data-free-value aria-label="Valor" placeholder="Valor" type="number" min="0.01" step="0.01"><button type="button" class="button secondary" data-remove-free-account aria-label="Quitar cuenta">Quitar</button>`;
+        row.innerHTML='<div class="customer-free-account-picker"><input data-free-account-query type="search" aria-label="Buscar cuenta de Zeus" role="combobox" aria-autocomplete="list" aria-expanded="false" placeholder="Buscar por código o nombre…" autocomplete="off"><input data-free-account type="hidden"><div class="customer-free-account-results" data-free-account-results role="listbox" hidden></div></div><input data-free-value data-money aria-label="Valor" placeholder="Valor" type="text" inputmode="decimal"><button type="button" class="button secondary" data-remove-free-account aria-label="Quitar cuenta">Quitar</button>';
+        wireFreeAccountSearch(row);
         row.querySelector('[data-remove-free-account]').onclick=()=>{row.remove();dirty=true;summary();};
         conceptArea.querySelector('[data-advance-account-rows]').append(row);
       };
@@ -608,9 +610,31 @@
       renderAllocations();dirty=true;
     });
     area.querySelectorAll('[data-amount]').forEach(input=>input.oninput=()=>{
-      const invoice=shown[Number(input.dataset.amount)],item=selected(invoice);if(item)item.valor=Number(input.value);
+      const invoice=shown[Number(input.dataset.amount)],item=selected(invoice);if(item)item.valor=parseAmount(input.value);
       summary();dirty=true;
     });area.querySelectorAll('[data-amount]').forEach(input=>input.onchange=()=>renderAllocations());renderZeusAllocations();syncReceiptConcept();summary();
+  }
+  function wireFreeAccountSearch(row){
+    const input=row.querySelector('[data-free-account-query]'),code=row.querySelector('[data-free-account]'),results=row.querySelector('[data-free-account-results]');
+    const normalize=text=>String(text??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    let visible=[],active=0;
+    const hide=()=>{results.hidden=true;input.setAttribute('aria-expanded','false');};
+    const choose=item=>{code.value=item.codigo;input.value=`${item.codigo} · ${item.nombre}`;hide();dirty=true;summary();};
+    const show=()=>{
+      const term=normalize(input.value.trim());
+      visible=(term?accounts.filter(a=>normalize(`${a.codigo} ${a.nombre}`).includes(term)):accounts).slice(0,8);
+      active=0;results.innerHTML=visible.map((a,i)=>`<button type="button" role="option" data-account-index="${i}"><strong>${esc(a.codigo)}</strong><span>${esc(a.nombre)}</span></button>`).join('')||'<small>No se encontraron cuentas.</small>';
+      results.hidden=false;input.setAttribute('aria-expanded','true');
+      results.querySelectorAll('[data-account-index]').forEach(button=>button.onclick=()=>choose(visible[Number(button.dataset.accountIndex)]));
+    };
+    input.onfocus=show;
+    input.oninput=()=>{code.value='';show();};
+    input.onkeydown=event=>{
+      if(event.key==='Escape'){hide();return;}
+      if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();active=(active+(event.key==='ArrowDown'?1:-1)+visible.length)%Math.max(visible.length,1);results.querySelectorAll('[data-account-index]').forEach((button,i)=>button.setAttribute('aria-selected',String(i===active)));}
+      if(event.key==='Enter'&&!results.hidden&&visible.length){event.preventDefault();choose(visible[active]);}
+    };
+    input.onblur=()=>setTimeout(hide,120);
   }
   function renderZeusAllocations(){
     const area=$('[data-zeus-allocations]');if(!area)return;
@@ -619,14 +643,14 @@
     if(!items.length){area.innerHTML='';return;}
     const filtered=items.map((item,index)=>({item,index})).filter(({item})=>!zeusSearch||[item.clave.numero,item.clave.tipo,item.clave.cuenta,item.clave.vencimiento].some(value=>value.toLowerCase().includes(zeusSearch)));
     const shown=filtered.slice(0,80);
-    area.innerHTML=`<h3>Cuotas anteriores registradas en Zeus</h3><small>${filtered.length} cuota(s) · mostrando ${shown.length}. Escribe para acotar la búsqueda.</small><div class="table-wrap customer-receipt-dues"><table><thead><tr><th>Aplicar</th><th>Factura / vencimiento</th><th>Cuenta</th><th>Saldo</th><th>Abono</th></tr></thead><tbody>${shown.map(({item:x,index:i})=>`<tr><td><input type="checkbox" data-zeus-pick="${i}" ${selected(x)?'checked':''} ${applications.length?'disabled':''}></td><td>${esc(x.clave.tipo+' '+x.clave.numero)}<small>${esc(x.clave.vencimiento)}</small></td><td>${esc(x.clave.cuenta)}</td><td>${money(x.saldo)}</td><td><input type="number" data-zeus-amount="${i}" min="0.01" max="${x.saldo}" step="0.01" value="${selected(x)?.valor||x.saldo}" ${selected(x)?'':'disabled'}></td></tr>`).join('')}</tbody></table></div>`;
+    area.innerHTML=`<h3>Cuotas anteriores registradas en Zeus</h3><small>${filtered.length} cuota(s) · mostrando ${shown.length}. Escribe para acotar la búsqueda.</small><div class="table-wrap customer-receipt-dues"><table><thead><tr><th>Aplicar</th><th>Factura / vencimiento</th><th>Cuenta</th><th>Saldo</th><th>Abono</th></tr></thead><tbody>${shown.map(({item:x,index:i})=>`<tr><td><input type="checkbox" data-zeus-pick="${i}" ${selected(x)?'checked':''} ${applications.length?'disabled':''}></td><td>${esc(x.clave.tipo+' '+x.clave.numero)}<small>${esc(x.clave.vencimiento)}</small></td><td>${esc(x.clave.cuenta)}</td><td>${money(x.saldo)}</td><td><input data-money type="text" inputmode="decimal" data-zeus-amount="${i}" value="${amount(selected(x)?.valor||x.saldo)}" ${selected(x)?'':'disabled'}></td></tr>`).join('')}</tbody></table></div>`;
     area.querySelectorAll('[data-zeus-pick]').forEach(box=>box.onchange=()=>{
       const item=items[Number(box.dataset.zeusPick)];zeusApplications=zeusApplications.filter(x=>key(x.obligacionZeus)!==key(item.clave));
       if(box.checked)zeusApplications.push({facturaVentaId:0,facturaVentaCuotaId:null,obligacionZeus:item.clave,valor:item.saldo});
       renderAllocations();dirty=true;
     });
     area.querySelectorAll('[data-zeus-amount]').forEach(input=>input.oninput=()=>{
-      const item=items[Number(input.dataset.zeusAmount)],app=selected(item);if(app)app.valor=Number(input.value);
+      const item=items[Number(input.dataset.zeusAmount)],app=selected(item);if(app)app.valor=parseAmount(input.value);
       syncReceiptConcept();summary();dirty=true;
     });
   }
@@ -654,32 +678,32 @@
         const suggested=lateInterestSuggestion(),interest=f.elements.interesMora;
         $('[data-late-rate]').textContent=String(options.moraMensualPct||0);
         $('[data-late-suggested]').textContent=money(suggested);
-        if(interest.dataset.edited!=='yes')interest.value=String(suggested);
-        f.elements.total.value=String(([...applications,...zeusApplications].reduce((s,x)=>s+Math.round(Number(x.valor||0)*100),0)+Math.round(Number(interest.value||0)*100)+Math.round(Number(f.elements.ingresoRetencionMoto.value||0)*100)-Math.round(Number(f.elements.descuentoProntoPago.value||0)*100))/100||'');
+        if(interest.dataset.edited!=='yes')interest.value=amount(suggested);
+        f.elements.total.value=amount(([...applications,...zeusApplications].reduce((s,x)=>s+Math.round(Number(x.valor||0)*100),0)+Math.round(parseAmount(interest.value)*100)+Math.round(parseAmount(f.elements.ingresoRetencionMoto.value)*100)-Math.round(parseAmount(f.elements.descuentoProntoPago.value)*100))/100);
       }
-      if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=String(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept], [data-free-value]')].reduce((s,x)=>s+Math.round(Number(x.value||0)*100),0))/100||'');
+      if(f.elements.tipo.value==='ANTICIPO')f.elements.total.value=amount(Math.round([...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept], [data-free-value]')].reduce((s,x)=>s+Math.round(parseAmount(x.value)*100),0))/100);
       if(f.elements.tipo.value==='NORMAL'){
-        const retained=Number(f.elements.retencionClienteValor.value||0),received=Number(f.elements.total.value||0);
+        const retained=parseAmount(f.elements.retencionClienteValor.value),received=parseAmount(f.elements.total.value);
         f.elements.cuentaRetencionCliente.required=retained>0;
         $('[data-normal-withholding-summary]').textContent=retained>0?`Pago registrado: ${money(received+retained)} · Recibido: ${money(received)} · Retenido: ${money(retained)}`:'';
       }
       $('[data-summary]').textContent=f.elements.tipo.value==='CARTERA'
-        ?`Cuotas ${money([...applications,...zeusApplications].reduce((s,x)=>s+Number(x.valor||0),0))} · Mora ${money(Number(f.elements.interesMora.value||0))} · Otros ingresos ${money(Number(f.elements.ingresoRetencionMoto.value||0))} · Descuento ${money(Number(f.elements.descuentoProntoPago.value||0))}`
-        :`Total recibido: ${money(Number(f.elements.total.value))}`;
+        ?`Cuotas ${money([...applications,...zeusApplications].reduce((s,x)=>s+Number(x.valor||0),0))} · Mora ${money(parseAmount(f.elements.interesMora.value))} · Otros ingresos ${money(parseAmount(f.elements.ingresoRetencionMoto.value))} · Descuento ${money(parseAmount(f.elements.descuentoProntoPago.value))}`
+        :`Total recibido: ${money(parseAmount(f.elements.total.value))}`;
     }else invoiceSummary();
   }
   async function submitReceipt(event){
     event.preventDefault();if(busy)return;const f=event.target;
     if(!client){notice('Selecciona un cliente de los resultados.',true);return;}
-    const kind=f.elements.tipo.value,total=Number(f.elements.total.value);
-    const freeRows=kind==='ANTICIPO'?[...$('[data-advance-account-rows]').querySelectorAll('.customer-free-account-row')].map(row=>({codigo:'LIBRE',cuentaZeus:row.querySelector('[data-free-account]').value,valor:Number(row.querySelector('[data-free-value]').value||0)})):[];
-    if(freeRows.some(x=>(x.cuentaZeus||x.valor)&&(!x.cuentaZeus||!Number.isFinite(x.valor)||x.valor<=0))){notice('Cada cuenta adicional debe tener una cuenta de Zeus y un valor positivo.',true);return;}
-    const conceptos=kind==='ANTICIPO'?[...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].map(x=>({codigo:x.dataset.advanceConcept,valor:Number(x.value||0)})).filter(x=>x.valor>0).concat(freeRows.filter(x=>x.cuentaZeus)):[];
+    const kind=f.elements.tipo.value,total=parseAmount(f.elements.total.value);
+    const freeRows=kind==='ANTICIPO'?[...$('[data-advance-account-rows]').querySelectorAll('.customer-free-account-row')].map(row=>({codigo:'LIBRE',cuentaZeus:row.querySelector('[data-free-account]').value,valor:parseAmount(row.querySelector('[data-free-value]').value),busqueda:row.querySelector('[data-free-account-query]').value})):[];
+    if(freeRows.some(x=>(x.busqueda||x.valor)&&(!x.cuentaZeus||!Number.isFinite(x.valor)||x.valor<=0))){notice('Selecciona una cuenta de los resultados y escribe un valor positivo en cada destino adicional.',true);return;}
+    const conceptos=kind==='ANTICIPO'?[...$('[data-advance-concepts]').querySelectorAll('[data-advance-concept]')].map(x=>({codigo:x.dataset.advanceConcept,valor:parseAmount(x.value)})).filter(x=>x.valor>0).concat(freeRows.filter(x=>x.cuentaZeus).map(({codigo,cuentaZeus,valor})=>({codigo,cuentaZeus,valor}))):[];
     if(kind==='ANTICIPO'&&(!conceptos.length||Math.round(conceptos.reduce((sum,x)=>sum+x.valor,0)*100)!==Math.round(total*100))){notice('Indica al menos un destino y comprueba que los valores sumen el total recibido.',true);return;}
-    const interesMora=kind==='CARTERA'?Number(f.elements.interesMora.value||0):0;
-    const ingresoRetencionMoto=kind==='CARTERA'?Number(f.elements.ingresoRetencionMoto.value||0):0;
-    const descuentoProntoPago=kind==='CARTERA'?Number(f.elements.descuentoProntoPago.value||0):0;
-    const retencionClienteValor=kind==='NORMAL'?Number(f.elements.retencionClienteValor.value||0):0;
+    const interesMora=kind==='CARTERA'?parseAmount(f.elements.interesMora.value):0;
+    const ingresoRetencionMoto=kind==='CARTERA'?parseAmount(f.elements.ingresoRetencionMoto.value):0;
+    const descuentoProntoPago=kind==='CARTERA'?parseAmount(f.elements.descuentoProntoPago.value):0;
+    const retencionClienteValor=kind==='NORMAL'?parseAmount(f.elements.retencionClienteValor.value):0;
     const cuentaRetencionCliente=kind==='NORMAL'&&retencionClienteValor>0?f.elements.cuentaRetencionCliente.value:null;
     const cuotas=[...applications,...zeusApplications].reduce((s,a)=>s+Number(a.valor||0),0);
     if(kind==='CARTERA'&&(!applications.length&&!zeusApplications.length||applications.length&&zeusApplications.length||!Number.isFinite(interesMora)||interesMora<0||!Number.isFinite(ingresoRetencionMoto)||ingresoRetencionMoto<0||!Number.isFinite(descuentoProntoPago)||descuentoProntoPago<0||descuentoProntoPago>=cuotas||Math.round((cuotas+interesMora+ingresoRetencionMoto-descuentoProntoPago)*100)!==Math.round(total*100))){notice('Revisa las cuotas y el descuento: el valor recibido debe ser igual a cuotas más cargos menos descuento. Cobra las cuotas Zeus en un recibo separado.',true);return;}
