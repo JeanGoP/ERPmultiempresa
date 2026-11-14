@@ -689,7 +689,7 @@
       <div class="table-wrap customer-sale-lines"><table><thead><tr><th>Artículo / bodega</th><th>Cant.</th><th>Precio con IVA</th><th>Descuento %</th><th>IVA</th><th>Seriales</th><th>Acción</th></tr></thead><tbody data-lines></tbody></table></div>
       <div class="table-wrap"><table><thead><tr><th>Concepto de venta</th><th>Cuenta de ingreso Zeus</th><th>Valor</th><th></th></tr></thead><tbody data-concept-lines></tbody></table></div>
       <div class="customer-profit-preview" data-profit-preview></div>
-      <div class="customer-advance-source"><label for="customerAdvanceOwner">Anticipo a nombre de otra persona</label><div class="customer-client-combobox"><input id="customerAdvanceOwner" data-advance-owner-query type="search" autocomplete="off" placeholder="Busca por nombre o identificación…" aria-controls="customerAdvanceOwnerResults"><div id="customerAdvanceOwnerResults" class="customer-advance-source-results" data-advance-owner-results hidden></div></div><small data-advance-owner-status></small></div>
+      <div class="customer-advance-source"><label for="customerAdvanceOwner">Anticipo a nombre de otra persona</label><input id="customerAdvanceOwner" data-advance-owner-query type="search" maxlength="100" autocomplete="off" placeholder="Busca por nombre o identificación…" aria-controls="customerAdvanceOwnerResults"><div id="customerAdvanceOwnerResults" class="customer-advance-source-results" data-advance-owner-results hidden></div><small data-advance-owner-status role="status" aria-live="polite"></small></div>
       <div data-allocations></div><div class="customer-invoice-settings"><p class="egreso-help" data-general-center-hint>El centro de costo se toma de la bodega de la venta.</p>
       <section class="customer-installment-settings"><div class="customer-extra-heading"><strong>Cuotas extraordinarias</strong><button type="button" class="button secondary" data-add-extra>+ Agregar cuota extra</button></div><div data-extra-rows></div><h3 class="customer-regular-heading">Plan de cuotas</h3><div class="customer-installment-fields"><label>Primer vencimiento<input name="vencimiento" type="date" value="${today()}" required></label><label>Número de cuotas ordinarias<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label><label>Vencimiento de las siguientes cuotas<select name="frecuenciaCuotas" required><option value="DIA_FIJO_MES">Mismo día de cada mes</option><option value="CADA_30_DIAS">Cada 30 días</option></select></label></div><small>Mensual: conserva el día del primer vencimiento. También puedes elegir cada 30 días.</small></section></div>
       <div data-installments></div>
@@ -869,32 +869,40 @@
   }
   function wireAdvanceSource(){
     const input=$('[data-advance-owner-query]'),results=$('[data-advance-owner-results]'),status=$('[data-advance-owner-status]');
-    let sequence=0;
+    let sequence=0,timer;
     const hide=()=>{results.hidden=true;results.replaceChildren();};
     input.oninput=()=>{
-      sequence++;status.textContent='';
-      const found=catalogSearch.findClients(clientIndex,input.value.trim()).items.filter(x=>x.id!==client?.id);
-      if(input.value.trim().length<2){hide();return;}
-      results.hidden=false;
-      results.innerHTML=found.map(x=>`<button type="button" data-owner="${x.id}"><strong>${esc(x.nombre)}</strong><small>${esc(x.identificacion)}</small></button>`).join('')||'<p>No se encontraron clientes.</p>';
-      results.querySelectorAll('[data-owner]').forEach(button=>button.onclick=async()=>{
-        if(!client){status.textContent='Selecciona primero el cliente de la factura.';hide();return;}
-        const owner=found.find(x=>x.id===Number(button.dataset.owner));if(!owner)return;
-        const request=++sequence,t=token,target=client.id;hide();input.value='';status.textContent=`Consultando anticipos de ${owner.nombre}…`;
+      clearTimeout(timer);const request=++sequence,t=token,term=input.value.trim();hide();
+      if(term.length<2){status.textContent='Escribe al menos dos letras o números para buscar anticipos disponibles.';return;}
+      status.textContent='Buscando titulares con anticipos disponibles…';
+      timer=setTimeout(async()=>{
         try{
-          const result=await apiRequest(endpoint()+`/advances?clienteId=${owner.id}`,{cache:'no-store'});
-          if(!current(t)||view!=='create'||client?.id!==target||request!==sequence)return;
-          const available=new Set(result.items.map(x=>x.id));
-          advances=advances.filter(x=>!options.anticipos.some(a=>a.id===x.reciboCajaId&&a.titularId===owner.id)||available.has(x.reciboCajaId));
-          foreignAdvances=foreignAdvances.filter(x=>x.titularId!==owner.id).concat(result.items.map(x=>({...x,titularId:owner.id})));
-          options.anticipos=options.anticipos.filter(x=>x.titularId!==owner.id).concat(foreignAdvances.filter(x=>x.titularId===owner.id));
-          status.textContent=result.items.length?`${result.items.length} anticipo(s) de ${owner.nombre} disponibles para seleccionar.`:`${owner.nombre} no tiene anticipos disponibles.`;
-          renderAdvances();
-        }catch(error){if(current(t)&&request===sequence)status.textContent=error.message;}
-      });
+          const found=await apiRequest(endpoint()+`/advance-owners?q=${encodeURIComponent(term)}`,{cache:'no-store'});
+          if(!current(t)||view!=='create'||request!==sequence||input.value.trim()!==term)return;
+          const owners=found.items.filter(x=>x.id!==client?.id);
+          status.textContent=owners.length?`${owners.length} titular(es) encontrado(s). Elige uno para ver sus anticipos.`:'No hay anticipos disponibles de otra persona con ese nombre o identificación.';
+          results.hidden=!owners.length;
+          results.innerHTML=owners.map(x=>`<button type="button" data-owner="${x.id}"><strong>${esc(x.nombre)}</strong><small>${esc(x.identificacion)} · ${x.recibos} recibo(s) · ${money(x.saldo)} disponible</small><span>Ver anticipos</span></button>`).join('');
+          results.querySelectorAll('[data-owner]').forEach(button=>button.onclick=()=>void chooseOwner(owners.find(x=>x.id===Number(button.dataset.owner))));
+        }catch(error){if(current(t)&&request===sequence)status.textContent=`No se pudo buscar anticipos: ${error.message}`;}
+      },250);
     };
+    async function chooseOwner(owner){
+      if(!owner)return;
+      if(!client){status.textContent='Selecciona primero el cliente de la factura.';return;}
+      clearTimeout(timer);const request=++sequence,t=token,target=client.id;hide();input.value='';status.textContent=`Consultando anticipos de ${owner.nombre}…`;
+      try{
+        const result=await apiRequest(endpoint()+`/advances?clienteId=${owner.id}`,{cache:'no-store'});
+        if(!current(t)||view!=='create'||client?.id!==target||request!==sequence)return;
+        const available=new Set(result.items.map(x=>x.id));
+        advances=advances.filter(x=>!options.anticipos.some(a=>a.id===x.reciboCajaId&&a.titularId===owner.id)||available.has(x.reciboCajaId));
+        foreignAdvances=foreignAdvances.filter(x=>x.titularId!==owner.id).concat(result.items.map(x=>({...x,titularId:owner.id})));
+        options.anticipos=options.anticipos.filter(x=>x.titularId!==owner.id).concat(foreignAdvances.filter(x=>x.titularId===owner.id));
+        status.textContent=result.items.length?`${result.items.length} anticipo(s) de ${owner.nombre} disponibles. Selecciónalos en la tabla inferior.`:`${owner.nombre} ya no tiene anticipos disponibles.`;
+        renderAdvances();
+      }catch(error){if(current(t)&&request===sequence)status.textContent=`No se pudieron consultar los anticipos de ${owner.nombre}: ${error.message}`;}
+    }
     input.onkeydown=event=>{if(event.key==='Escape'&&!results.hidden){event.preventDefault();event.stopPropagation();hide();}else if(event.key==='Enter'&&!results.hidden){event.preventDefault();results.querySelector('[data-owner]')?.click();}};
-    input.onblur=()=>setTimeout(hide,120);
   }
   function renderAdvances(){
     const area=$('[data-allocations]');if(!area)return;

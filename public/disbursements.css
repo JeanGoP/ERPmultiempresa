@@ -100,9 +100,10 @@
 .customer-documents-dialog .customer-advance-source{max-width:520px;margin:16px 0 8px;display:grid;gap:5px}
 .customer-documents-dialog .customer-advance-source>label{font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-advance-source>small{color:#587267;font-size:11px}
-.customer-documents-dialog .customer-advance-source-results{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:25;max-height:230px;overflow:auto;padding:5px;border:1px solid #c7d9cd;border-radius:8px;background:#fff;box-shadow:0 14px 35px #193c2730}
+.customer-documents-dialog .customer-advance-source-results{max-height:230px;overflow:auto;padding:5px;border:1px solid #c7d9cd;border-radius:8px;background:#fff}
 .customer-documents-dialog .customer-advance-source-results button{display:grid;gap:3px;width:100%;padding:8px 10px;border:0;border-radius:6px;background:transparent;text-align:left;color:#173c2f}
 .customer-documents-dialog .customer-advance-source-results button:hover{background:#eaf5ed}
+.customer-documents-dialog .customer-advance-source-results button span{font-size:11px;color:#166c50;font-weight:700}
 .customer-documents-dialog .customer-advance-source-results small,.customer-documents-dialog .customer-advance-source-results p{font-size:11px;color:#697d71}
 .customer-documents-dialog [data-client-results]{position:absolute;top:calc(100% + 4px);right:0;left:0;z-index:25;max-height:270px;overflow-y:auto;padding:5px;border:1px solid #c7d9cd;border-radius:8px;background:#fff;box-shadow:0 14px 35px #193c2730}
 .customer-documents-dialog [data-client-results] button{display:grid;gap:3px;width:100%;min-height:44px;padding:8px 10px;border:0;border-radius:6px;color:#173c2f;background:transparent;text-align:left}

@@ -307,6 +307,31 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         return new{items};
     }
 
+    public async Task<object> AdvanceOwnersAsync(long company,string? search,CancellationToken ct)
+    {
+        var term=search?.Trim()??"";
+        if(term.Length<2)return new{items=Array.Empty<object>()};
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=ZeusRepository.Command(c,"""
+            SELECT TOP(12) t.TerceroId,t.RazonSocial,t.NumeroIdentificacion,COUNT_BIG(*),SUM(a.Saldo)
+            FROM cxc.AnticipoCliente a
+            JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
+            JOIN ter.Tercero t ON t.EmpresaId=a.EmpresaId AND t.TerceroId=a.ClienteId
+            WHERE a.EmpresaId=@E AND a.Saldo>0 AND r.ZeusEstado='CONTABILIZADO'
+              AND r.ReversionEstado IS NULL AND t.Activo=1
+              AND NOT EXISTS(SELECT 1 FROM STRING_SPLIT(@Search,' ') word
+                  WHERE word.value<>'' AND t.RazonSocial COLLATE Latin1_General_CI_AI NOT LIKE '%'+word.value+'%'
+                  AND t.NumeroIdentificacion NOT LIKE '%'+word.value+'%')
+            GROUP BY t.TerceroId,t.RazonSocial,t.NumeroIdentificacion
+            ORDER BY t.RazonSocial
+            """,company);
+        ZeusRepository.Add(q,"@Search",term);
+        var items=new List<object>();
+        await using var r=await q.ExecuteReaderAsync(ct);
+        while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),nombre=r.GetString(1),identificacion=r.GetString(2),recibos=r.GetInt64(3),saldo=r.GetDecimal(4)});
+        return new{items};
+    }
+
     public async Task<object> PostAsync(long company,SalesInvoiceInput input,long user,CancellationToken ct)
     {
         if(input.OperacionGuid==Guid.Empty||input.ClienteId<=0||input.SucursalId<=0||input.FechaContable.Year<2000||input.Vencimiento<input.FechaContable)

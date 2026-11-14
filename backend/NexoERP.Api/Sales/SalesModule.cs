@@ -171,6 +171,8 @@ public static class SalesModule
             Results.Ok(await sales.OptionsAsync(empresaId,clienteId,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/sales-invoices/advances",async(long empresaId,long clienteId,SalesInvoiceRepository sales,CancellationToken ct)=>
             Results.Ok(await sales.AdvancesAsync(empresaId,clienteId,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
+        group.MapGet("/sales-invoices/advance-owners",async(long empresaId,string? q,SalesInvoiceRepository sales,CancellationToken ct)=>
+            Results.Ok(await sales.AdvanceOwnersAsync(empresaId,q,ct))).RequireErpPermission("VENTAS.FACTURA.CONTABILIZAR");
         group.MapGet("/sales-invoices/accounting-dimensions",async(long empresaId,ZeusRepository settings,ZeusTransport zeus,ILogger<SalesInvoiceRepository> logger,HttpContext http,CancellationToken ct)=>
         {
             try
