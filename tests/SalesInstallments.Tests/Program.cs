@@ -91,6 +91,15 @@ Check(receivables.All(x=>(string?)x.Element("NUMEFAC")=="0000000060")
     "las doce cuotas usan el consecutivo del comprobante Zeus");
 Check((string?)xml.Descendants("Transac").Single(x=>(string?)x.Element("CODICTA")=="413502001").Element("NUMEFAC")=="FV-1",
     "la referencia interna del ERP no sustituye el número de cartera");
+var otherOwnerInvoice=snapshot with{Movimientos=[
+    new(new ZeusAccount("CLIENTE","130505"),700m,VencimientoCartera:monthly[0].Vencimiento.ToDateTime(TimeOnly.MinValue)),
+    new(new ZeusAccount("ANTICIPO","280505",TerceroCodigo:"999",ClienteProveedorCodigo:"999"),500m),
+    new(new ZeusAccount("INGRESO","413502001"),-1200m)
+]};
+var otherOwnerLines=XElement.Parse(ZeusXml.Build(otherOwnerInvoice,Guid.NewGuid(),"0000000061")).Descendants("Transac").ToArray();
+Check((string?)otherOwnerLines.Single(x=>(string?)x.Element("CODICTA")=="280505").Element("NITTRA")=="999"
+    &&(string?)otherOwnerLines.Single(x=>(string?)x.Element("CODICTA")=="130505").Element("NITTRA")=="123",
+    "el anticipo de otro titular descarga su tercero y la cartera queda al cliente facturado");
 var previousFormat=XElement.Parse(ZeusXml.Build(snapshot with{ClienteDocumento=snapshot.ClienteDocumento! with{CarteraConsecutivoCompleto=false}},Guid.NewGuid(),"0000000060"));
 Check(previousFormat.Descendants("Transac").Where(x=>(string?)x.Element("CODICTA")=="130505")
     .All(x=>(string?)x.Element("NUMEFAC")=="00000060"),"los comprobantes ya enviados con ocho dígitos conservan su referencia de cobro");

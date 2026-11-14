@@ -51,7 +51,7 @@ public static class ZeusXml
         {
             var a=movement.Regla;var line=Create("Transac",DetailText,DetailNumber);
             Set(line,"ANOTRA",period);Set(line,"IDFUENTE",config.Fuente);Set(line,"NUMDOCTRA",number);Set(line,"FECHATRA",date);
-            Set(line,"CODICTA",a.Cuenta);Set(line,"NITTRA",s.Proveedor.CodigoTercero);Set(line,"CLIPRV",s.Proveedor.CodigoProveedor);
+            Set(line,"CODICTA",a.Cuenta);Set(line,"NITTRA",string.IsNullOrWhiteSpace(a.TerceroCodigo)?s.Proveedor.CodigoTercero:a.TerceroCodigo);Set(line,"CLIPRV",string.IsNullOrWhiteSpace(a.ClienteProveedorCodigo)?s.Proveedor.CodigoProveedor:a.ClienteProveedorCodigo);
             Set(line,"DESCRITRA",$"Factura {origin.Factura} - {a.Concepto}"+(movement.NumeroCuota is int installmentNumber?$" - CUOTA {installmentNumber}":""));Set(line,"OrigenError",$"Entrada {origin.RecepcionId} {a.Concepto}");
             Set(line,"BU",config.UnidadNegocio);Set(line,"IDUSUARIO",config.UsuarioZeus);Set(line,"TIPOFAC",config.TipoFactura);
             Set(line,"NUMEFAC",invoiceDocument is not null&&a.Concepto=="CLIENTE"

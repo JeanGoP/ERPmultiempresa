@@ -4,7 +4,7 @@ namespace NexoERP.Api.Zeus;
 
 public sealed record ZeusAccount(string Concepto, string Cuenta, decimal? Tarifa = null, long? ArticuloId = null,
     long? ProveedorId = null, string CentroCosto = "", string Auxiliar = "", string Item = "",
-    string Presupuesto = "", string Reserva = "");
+    string Presupuesto = "", string Reserva = "", string TerceroCodigo = "", string ClienteProveedorCodigo = "");
 public sealed record ZeusSupplier(long ProveedorId, string CodigoProveedor, string CodigoTercero);
 public sealed record ZeusSettings(bool Habilitado, string ServidorEsperado, string BaseEsperada, string Fuente,
     string Serie, string UnidadNegocio, string UsuarioZeus, string TipoFactura,

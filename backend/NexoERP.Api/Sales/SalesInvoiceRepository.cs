@@ -210,8 +210,9 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             WHERE l.EmpresaId=@E AND l.FacturaVentaId=@Id ORDER BY l.FacturaVentaLineaId;
             SELECT Codigo,Nombre,CuentaIngresoZeus,CentroCostoZeus,Valor,MostrarEnCuerpo,MostrarEnTotales,UbicacionFormato
             FROM ven.FacturaVentaConcepto WHERE EmpresaId=@E AND FacturaVentaId=@Id ORDER BY FacturaVentaConceptoId;
-            SELECT r.ReciboCajaId,r.FechaContable,r.Concepto,a.Valor
+            SELECT r.ReciboCajaId,r.FechaContable,r.Concepto,a.Valor,t.RazonSocial,t.NumeroIdentificacion
             FROM ven.FacturaAnticipo a JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
+            JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.ClienteId
             WHERE a.EmpresaId=@E AND a.FacturaVentaId=@Id ORDER BY r.FechaContable,r.ReciboCajaId;
             SELECT c.NumeroCuota,c.FechaVencimiento,c.ValorOriginal,c.SaldoPendiente,c.TipoCuota
             FROM ven.FacturaVentaCuota c JOIN ven.FacturaVenta f ON f.EmpresaId=c.EmpresaId AND f.FacturaVentaId=c.FacturaVentaId
@@ -236,7 +237,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         while(await r.ReadAsync(ct))concepts.Add(new{codigo=r.GetString(0),nombre=r.GetString(1),cuenta=r.GetString(2),centroCosto=r.IsDBNull(3)?null:r.GetString(3),valor=r.GetDecimal(4),mostrarEnCuerpo=r.GetBoolean(5),mostrarEnTotales=r.GetBoolean(6),ubicacionFormato=r.GetString(7)});
         var receipts=new List<object>();
         await r.NextResultAsync(ct);
-        while(await r.ReadAsync(ct))receipts.Add(new{reciboId=r.GetInt64(0),fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),concepto=r.GetString(2),valor=r.GetDecimal(3)});
+        while(await r.ReadAsync(ct))receipts.Add(new{reciboId=r.GetInt64(0),fecha=r.GetDateTime(1).ToString("yyyy-MM-dd"),concepto=r.GetString(2),valor=r.GetDecimal(3),titular=r.GetString(4),identificacion=r.GetString(5)});
         var installments=new List<object>();
         await r.NextResultAsync(ct);
         while(await r.ReadAsync(ct))installments.Add(new{numero=r.GetInt32(0),vence=r.GetDateTime(1).ToString("yyyy-MM-dd"),valor=r.GetDecimal(2),saldo=r.GetDecimal(3),tipo=r.GetString(4)});
@@ -284,6 +285,26 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         }
         await r.NextResultAsync(ct);await r.ReadAsync(ct);
         return new{sucursales=branches,clientes=customers,articulos=articles,seriales=serials,anticipos=advances,conceptos=concepts,bodegas=warehouses,maxDescuentoVentaPct=r.GetDecimal(0)};
+    }
+
+    public async Task<object> AdvancesAsync(long company,long client,CancellationToken ct)
+    {
+        if(client<=0)throw new ArgumentException("Selecciona el titular del anticipo.");
+        await using var c=await connections.OpenAsync(company,false,ct);
+        await using var q=ZeusRepository.Command(c,"""
+            SELECT a.ReciboCajaId,a.Saldo,r.Concepto,r.FechaContable,r.ZeusEstado,t.RazonSocial,t.NumeroIdentificacion
+            FROM cxc.AnticipoCliente a
+            JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
+            JOIN ter.Tercero t ON t.EmpresaId=a.EmpresaId AND t.TerceroId=a.ClienteId
+            WHERE a.EmpresaId=@E AND a.ClienteId=@C AND a.Saldo>0 AND r.ZeusEstado='CONTABILIZADO'
+              AND r.ReversionEstado IS NULL AND t.Activo=1
+            ORDER BY r.FechaContable,a.ReciboCajaId
+            """,company);
+        ZeusRepository.Add(q,"@C",client);
+        var items=new List<object>();
+        await using var r=await q.ExecuteReaderAsync(ct);
+        while(await r.ReadAsync(ct))items.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1),concepto=r.GetString(2),fecha=r.GetDateTime(3).ToString("yyyy-MM-dd"),zeusEstado=r.GetString(4),titular=r.GetString(5),identificacion=r.GetString(6)});
+        return new{items};
     }
 
     public async Task<object> PostAsync(long company,SalesInvoiceInput input,long user,CancellationToken ct)
@@ -463,13 +484,21 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         var balance=total-advanceTotal;
         var schedule=SalesInstallments.BuildWithExtras(input.Vencimiento,input.Cuotas,input.FrecuenciaCuotas,balance,
             input.FechaContable,input.CuotasExtras);
+        var advanceOwners=new Dictionary<long,(long ClientId,string Third,string Customer)>();
         foreach(var advance in advances.OrderBy(x=>x.ReciboCajaId))
         {
             q.Parameters.Add("@Receipt",SqlDbType.BigInt).Value=advance.ReciboCajaId;
-            q.CommandText="SELECT a.Saldo,r.ZeusEstado,r.ReversionEstado FROM cxc.AnticipoCliente a WITH(UPDLOCK,HOLDLOCK) JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId WHERE a.EmpresaId=@E AND a.ReciboCajaId=@Receipt AND a.ClienteId=@C";
+            q.CommandText="SELECT a.ClienteId,a.Saldo,r.ZeusEstado,r.ReversionEstado,r.Snapshot FROM cxc.AnticipoCliente a WITH(UPDLOCK,HOLDLOCK) JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId WHERE a.EmpresaId=@E AND a.ReciboCajaId=@Receipt";
             await using(var r=await q.ExecuteReaderAsync(ct))
-                if(!await r.ReadAsync(ct)||r.GetDecimal(0)<advance.Valor||r.GetString(1)!="CONTABILIZADO"||!r.IsDBNull(2))
-                    throw new ArgumentException("El anticipo no pertenece al cliente, no tiene saldo o no está confirmado en Zeus.");
+            {
+                if(!await r.ReadAsync(ct)||r.GetDecimal(1)<advance.Valor||r.GetString(2)!="CONTABILIZADO"||!r.IsDBNull(3))
+                    throw new ArgumentException("El anticipo no tiene saldo o no está confirmado en Zeus.");
+                var owner=r.IsDBNull(4)?null:JsonSerializer.Deserialize<ZeusSnapshot>(r.GetString(4))?.Proveedor;
+                if(owner is null&&r.GetInt64(0)==input.ClienteId)owner=new(input.ClienteId,identification,identification);
+                if(owner is null||string.IsNullOrWhiteSpace(owner.CodigoTercero)||string.IsNullOrWhiteSpace(owner.CodigoProveedor))
+                    throw new ArgumentException("No se pudo identificar el titular original del anticipo en Zeus.");
+                advanceOwners.Add(advance.ReciboCajaId,(r.GetInt64(0),owner.CodigoTercero,owner.CodigoProveedor));
+            }
             q.Parameters.RemoveAt("@Receipt");
         }
         ZeusRepository.Add(q,"@N",input.Numero.Trim());ZeusRepository.Add(q,"@Due",input.Vencimiento.ToDateTime(TimeOnly.MinValue));
@@ -498,10 +527,12 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         }
         foreach(var advance in advances)
         {
+            var owner=advanceOwners[advance.ReciboCajaId];
             q.Parameters.Add("@Receipt",SqlDbType.BigInt).Value=advance.ReciboCajaId;
             q.Parameters.Add("@Value",SqlDbType.Decimal).Value=advance.Valor;
-            q.CommandText="UPDATE cxc.AnticipoCliente SET Saldo=Saldo-@Value WHERE EmpresaId=@E AND ReciboCajaId=@Receipt AND ClienteId=@C AND Saldo>=@Value; IF @@ROWCOUNT<>1 THROW 52311,'El anticipo cambió; no se emitió la factura.',1; INSERT ven.FacturaAnticipo(EmpresaId,FacturaVentaId,ReciboCajaId,Valor) VALUES(@E,@Id,@Receipt,@Value)";
-            await q.ExecuteNonQueryAsync(ct);q.Parameters.RemoveAt("@Receipt");q.Parameters.RemoveAt("@Value");
+            q.Parameters.Add("@AdvanceClient",SqlDbType.BigInt).Value=owner.ClientId;
+            q.CommandText="UPDATE cxc.AnticipoCliente SET Saldo=Saldo-@Value WHERE EmpresaId=@E AND ReciboCajaId=@Receipt AND ClienteId=@AdvanceClient AND Saldo>=@Value; IF @@ROWCOUNT<>1 THROW 52311,'El anticipo cambió; no se emitió la factura.',1; INSERT ven.FacturaAnticipo(EmpresaId,FacturaVentaId,ReciboCajaId,Valor) VALUES(@E,@Id,@Receipt,@Value)";
+            await q.ExecuteNonQueryAsync(ct);q.Parameters.RemoveAt("@Receipt");q.Parameters.RemoveAt("@Value");q.Parameters.RemoveAt("@AdvanceClient");
         }
         var lineNumber=0;
         var movements=schedule.Select(x=>new ZeusMovement(new ZeusAccount("CLIENTE",receivableAccount,CentroCosto:generalCenter),x.Valor,
@@ -554,7 +585,11 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         {
             var advanceAccount=ZeusJournal.GeneralAdvanceAccount(settings)?.Cuenta
                 ??throw new ArgumentException("Configura la cuenta general de anticipos antes de aplicarlos en factura.");
-            movements.Add(new(new ZeusAccount("ANTICIPO",advanceAccount,CentroCosto:generalCenter),advanceTotal));
+            foreach(var advance in advances)
+            {
+                var owner=advanceOwners[advance.ReciboCajaId];
+                movements.Add(new(new ZeusAccount("ANTICIPO",advanceAccount,CentroCosto:generalCenter,TerceroCodigo:owner.Third,ClienteProveedorCodigo:owner.Customer),advance.Valor));
+            }
         }
         var missingCenter=movements.FirstOrDefault(x=>requiredCenters.Contains(x.Regla.Cuenta)&&string.IsNullOrWhiteSpace(x.Regla.CentroCosto));
         if(missingCenter is not null)throw new ArgumentException($"Configura el centro de costo de la bodega para {missingCenter.Regla.Concepto}; la cuenta {missingCenter.Regla.Cuenta} lo exige.");

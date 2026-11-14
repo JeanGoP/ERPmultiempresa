@@ -2,6 +2,8 @@
 (() => {
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money=value=>new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',minimumFractionDigits:2,maximumFractionDigits:2}).format(value||0);
+  const amount=value=>value==null||value===''||!Number.isFinite(Number(value))?'':new Intl.NumberFormat('es-CO',{maximumFractionDigits:2}).format(Number(value));
+  const parseAmount=value=>{const text=String(value??'').trim().replace(/\s/g,'');if(!text)return 0;return Number(text.includes(',')?text.replace(/\./g,'').replace(',','.'):text.match(/\.\d{1,2}$/)?text:text.replace(/\./g,''));};
   const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'America/Bogota'});
   const dialog=document.createElement('dialog');dialog.className='erp-dialog egreso-dialog customer-documents-dialog';document.body.append(dialog);
   const serialDialog=document.createElement('dialog');serialDialog.className='erp-dialog customer-serial-dialog';document.body.append(serialDialog);
@@ -9,7 +11,7 @@
   const catalogSearch=window.customerCatalogSearch;
   const $=selector=>dialog.querySelector(selector);
   let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],withholdingAccounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='',portfolioTypes=[];
-  let operation='',client=null,lines=[],conceptLines=[],applications=[],zeusApplications=[],advances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8,zeusSearch='',articleIndex=[],clientIndex=[],catalogRefreshVersion=0;
+  let operation='',client=null,lines=[],conceptLines=[],applications=[],zeusApplications=[],advances=[],foreignAdvances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8,zeusSearch='',articleIndex=[],clientIndex=[],catalogRefreshVersion=0;
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='receipt'?'cash-receipts':'sales-invoices'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
@@ -162,7 +164,7 @@
         ${h.error?`<p class="error">${esc(h.error)}</p>`:''}
         <h3>Artículos</h3>${table(['Artículo','Bodega','Cantidad','Precio con IVA','IVA','Total'],data.articulos.map(x=>`<tr><td>${esc(x.codigo+' · '+x.descripcion)}</td><td>${esc(x.bodegaCodigo+' · '+x.bodega)}</td><td>${esc(x.cantidad)}</td><td>${money(x.precio)}</td><td>${esc(x.ivaTarifa)} %</td><td>${money(x.base+x.iva)}</td></tr>`).join(''),'Sin artículos.')}
         <h3>Conceptos</h3>${table(['Concepto','Cuenta Zeus','Centro de costo','Valor'],data.conceptos.map(x=>`<tr><td>${esc(x.codigo+' · '+x.nombre)}</td><td>${esc(x.cuenta)}</td><td>${esc(x.centroCosto||'—')}</td><td>${money(x.valor)}</td></tr>`).join(''),'Sin conceptos.')}
-        <h3>Anticipos aplicados</h3>${table(['Recibo','Fecha','Concepto','Valor aplicado'],data.anticipos.map(x=>`<tr><td>RC-${esc(x.reciboId)}</td><td>${esc(x.fecha)}</td><td>${esc(x.concepto)}</td><td>${money(x.valor)}</td></tr>`).join(''),'Sin anticipos aplicados.')}
+        <h3>Anticipos aplicados</h3>${table(['Recibo','Fecha','Titular original','Concepto','Valor aplicado'],data.anticipos.map(x=>`<tr><td>RC-${esc(x.reciboId)}</td><td>${esc(x.fecha)}</td><td>${esc(x.titular)}<small>${esc(x.identificacion)}</small></td><td>${esc(x.concepto)}</td><td>${money(x.valor)}</td></tr>`).join(''),'Sin anticipos aplicados.')}
         <h3>Plan de cuotas</h3><p class="egreso-help">Primer vencimiento: ${esc(h.primerVencimiento)} · ${esc(h.cuotas)} cuota(s) · ${h.frecuencia==='PERSONALIZADA'?'Fechas pactadas en nota de cartera':h.frecuencia==='CADA_30_DIAS'?'Cada 30 días':'Mismo día de cada mes'}</p>
         ${table(['Cuota','Tipo','Vencimiento','Valor','Saldo'],data.cuotas.map(x=>`<tr><td>${esc(x.numero)}</td><td>${x.tipo==='EXTRA'?'Extra':'Ordinaria'}</td><td>${esc(x.vence)}</td><td>${money(x.valor)}</td><td>${money(x.saldo)}</td></tr>`).join(''),'La cuota inicial cubrió toda la factura.')}
         <div class="customer-invoice-totals"><span>Total ${money(h.total)}</span><span>Anticipos ${money(h.anticipo)}</span><strong>Saldo ${money(h.saldo)}</strong></div>
@@ -366,7 +368,7 @@
     if(dialog.open)return;mode='invoice';company=state.erpSession.company.id;search='';receiptFilter='';shell();dialog.showModal();await viewInvoice(id,null);
   };
   async function create(){
-    const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];zeusApplications=[];advances=[];extraInstallments=[];receiptVisibleRows=8;zeusSearch='';dimensions=null;dimensionsError='';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
+    const t=++token;view='create';operation=crypto.randomUUID();client=null;lines=[];conceptLines=[];applications=[];zeusApplications=[];advances=[];foreignAdvances=[];extraInstallments=[];receiptVisibleRows=8;zeusSearch='';dimensions=null;dimensionsError='';dirty=false;shell();$('[data-search-form]').hidden=true;$('[data-create-nav]').hidden=false;notice('Cargando catálogos…');
     try{
       const [opts,chart,withholdingChart,dims,types]=await Promise.all([apiRequest(endpoint()+'/options',{cache:'no-store'}),mode==='invoice'?Promise.resolve([]):apiRequest(endpoint()+'/accounts'),mode==='receipt'?apiRequest(endpoint()+'/withholding-accounts'):Promise.resolve([]),mode==='invoice'?apiRequest(endpoint()+'/accounting-dimensions').catch(error=>({error:error.message})):Promise.resolve(null),loadPortfolioTypes()]);
       if(!current(t))return;options=opts;accounts=chart;withholdingAccounts=withholdingChart;dimensions=dims?.error?null:dims;dimensionsError=dims?.error||'';portfolioTypes=types;articleIndex=mode==='invoice'?catalogSearch.indexArticles(opts.articulos,opts.seriales):[];
@@ -459,7 +461,7 @@
   async function refreshClient(){
     if(!client)return;const t=token,selected=client.id;
     try{const [result,historic]=await Promise.all([apiRequest(endpoint()+`/options?clienteId=${selected}`),mode==='receipt'?apiRequest(endpoint()+`/zeus-obligations?clienteId=${selected}`).catch(error=>({items:[],error:error.message})):Promise.resolve({items:[]})]);if(!current(t)||client?.id!==selected)return;
-      if(mode==='invoice')options.anticipos=result.anticipos;else{options.facturas=result.facturas;options.anticipos=result.anticipos;options.ordenCobroCartera=result.ordenCobroCartera;options.moraMensualPct=result.moraMensualPct;}
+      if(mode==='invoice'){foreignAdvances=[];options.anticipos=result.anticipos;$('[data-advance-owner-query]').value='';$('[data-advance-owner-results]').hidden=true;}else{options.facturas=result.facturas;options.anticipos=result.anticipos;options.ordenCobroCartera=result.ordenCobroCartera;options.moraMensualPct=result.moraMensualPct;}
       options.historicas=historic.items;applications=[];zeusApplications=[];advances=[];receiptVisibleRows=8;zeusSearch='';renderAllocations();$('[data-client-hint]').textContent=historic.error?'No se pudo consultar la cartera histórica de Zeus: '+historic.error:'';
     }catch(error){if(current(t))notice('No se pudieron consultar saldos del cliente: '+error.message,true);}
   }
@@ -687,12 +689,15 @@
       <div class="table-wrap customer-sale-lines"><table><thead><tr><th>Artículo / bodega</th><th>Cant.</th><th>Precio con IVA</th><th>Descuento %</th><th>IVA</th><th>Seriales</th><th>Acción</th></tr></thead><tbody data-lines></tbody></table></div>
       <div class="table-wrap"><table><thead><tr><th>Concepto de venta</th><th>Cuenta de ingreso Zeus</th><th>Valor</th><th></th></tr></thead><tbody data-concept-lines></tbody></table></div>
       <div class="customer-profit-preview" data-profit-preview></div>
+      <div class="customer-advance-source"><label for="customerAdvanceOwner">Anticipo a nombre de otra persona</label><div class="customer-client-combobox"><input id="customerAdvanceOwner" data-advance-owner-query type="search" autocomplete="off" placeholder="Busca por nombre o identificación…" aria-controls="customerAdvanceOwnerResults"><div id="customerAdvanceOwnerResults" class="customer-advance-source-results" data-advance-owner-results hidden></div></div><small data-advance-owner-status></small></div>
       <div data-allocations></div><div class="customer-invoice-settings"><p class="egreso-help" data-general-center-hint>El centro de costo se toma de la bodega de la venta.</p>
       <section class="customer-installment-settings"><div class="customer-extra-heading"><strong>Cuotas extraordinarias</strong><button type="button" class="button secondary" data-add-extra>+ Agregar cuota extra</button></div><div data-extra-rows></div><h3 class="customer-regular-heading">Plan de cuotas</h3><div class="customer-installment-fields"><label>Primer vencimiento<input name="vencimiento" type="date" value="${today()}" required></label><label>Número de cuotas ordinarias<input name="cuotas" type="number" min="1" max="120" step="1" value="1" required></label><label>Vencimiento de las siguientes cuotas<select name="frecuenciaCuotas" required><option value="DIA_FIJO_MES">Mismo día de cada mes</option><option value="CADA_30_DIAS">Cada 30 días</option></select></label></div><small>Mensual: conserva el día del primer vencimiento. También puedes elegir cada 30 días.</small></section></div>
       <div data-installments></div>
       <div class="egreso-toolbar"><strong data-summary></strong><button class="button primary" type="submit" ${dimensionsError?'disabled':''}>Emitir factura o solicitar autorización</button></div></fieldset></form>`;
     $('[data-retry-dimensions]')?.addEventListener('click',()=>void retryDimensions());
-    wireClient();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
+    wireClient();wireAdvanceSource();const f=$('[data-document]');f.oninput=()=>{dirty=true;summary();};
+    f.addEventListener('focusin',event=>{if(event.target.matches('[data-money]'))event.target.value=String(parseAmount(event.target.value)||'');});
+    f.addEventListener('focusout',event=>{if(event.target.matches('[data-money]'))event.target.value=amount(parseAmount(event.target.value));});
     f.elements.frecuenciaCuotas.onchange=()=>{dirty=true;summary();};f.elements.vencimiento.onchange=()=>{dirty=true;summary();};
     f.elements.sucursalId.onchange=()=>{lines=[];f.elements.bodegaCarteraId.value='';addLine();};
     f.elements.bodegaCarteraId.onchange=()=>{updateGeneralCenterHint();dirty=true;};
@@ -702,10 +707,10 @@
   }
   function renderExtraInstallments(){
     const area=$('[data-extra-rows]');if(!area)return;
-    area.innerHTML=extraInstallments.map((x,i)=>`<div class="customer-extra-row" data-extra="${i}"><label>Vencimiento<input data-extra-date type="date" value="${esc(x.vencimiento)}" required></label><label>Valor<input data-extra-amount type="number" min="0.01" step="0.01" value="${x.valor||''}" required></label><button type="button" class="button secondary" data-remove-extra>Quitar</button></div>`).join('');
+    area.innerHTML=extraInstallments.map((x,i)=>`<div class="customer-extra-row" data-extra="${i}"><label>Vencimiento<input data-extra-date type="date" value="${esc(x.vencimiento)}" required></label><label>Valor<input data-extra-amount data-money type="text" inputmode="decimal" value="${x.valor?amount(x.valor):''}" required></label><button type="button" class="button secondary" data-remove-extra>Quitar</button></div>`).join('');
     area.querySelectorAll('[data-extra]').forEach(row=>{const x=extraInstallments[Number(row.dataset.extra)];
       row.querySelector('[data-extra-date]').onchange=event=>{x.vencimiento=event.target.value;dirty=true;summary();};
-      row.querySelector('[data-extra-amount]').oninput=event=>{x.valor=Number(event.target.value);dirty=true;summary();};
+      row.querySelector('[data-extra-amount]').oninput=event=>{x.valor=parseAmount(event.target.value);dirty=true;summary();};
       row.querySelector('[data-remove-extra]').onclick=()=>{extraInstallments.splice(Number(row.dataset.extra),1);renderExtraInstallments();dirty=true;};
     });summary();
   }
@@ -726,7 +731,7 @@
       const item=choices.find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);
       return `<tr data-line="${index}"><td><div class="customer-article-choice"><span><strong>${item?esc(item.codigo+' · '+item.descripcion):'Sin artículo seleccionado'}</strong><small>${item?esc(item.bodegaCodigo+' · '+item.bodega+' · Disponible '+item.existencia):'Busca por nombre, código, chasis, motor o VIN'}</small></span><button type="button" class="button secondary" data-find-article>${item?'Cambiar':'Buscar'}</button></div></td>
         <td><input data-qty type="number" min="0.000001" step="0.000001" value="${esc(line.cantidad)}" required></td>
-        <td><input data-base-price type="number" min="0.01" step="0.01" value="${esc(line.precioBaseConIva||'')}" aria-label="Precio con IVA" required></td>
+        <td><input data-base-price data-money type="text" inputmode="decimal" value="${line.precioBaseConIva?amount(line.precioBaseConIva):''}" aria-label="Precio con IVA" required></td>
         <td><input data-discount type="number" min="0" max="100" step="0.01" value="${esc(line.descuentoPorcentaje||0)}" aria-label="Descuento porcentual"></td>
         <td class="customer-vat-cell" ${item?.iva==null?'title="IVA pendiente de clasificar"':''}>${item?.iva==null?'—':esc(item.iva+' %')}</td>
         <td>${item?.serial?`<button type="button" class="button secondary customer-serial-trigger" data-choose-serial>Buscar seriales</button><small class="customer-serial-count">${line.unidadesSerializadas.length} de ${esc(line.cantidad)} seleccionada(s)</small>`:'—'}</td>
@@ -737,7 +742,7 @@
       row.querySelector('[data-find-article]').onclick=()=>openCatalogPicker('article',Number(row.dataset.line));
       row.querySelector('[data-qty]').oninput=event=>{line.cantidad=Number(event.target.value);summary();dirty=true;};
       const refreshPrice=()=>{updateLinePrice(line);summary();dirty=true;};
-      row.querySelector('[data-base-price]').oninput=event=>{line.precioBaseConIva=Number(event.target.value);refreshPrice();};
+      row.querySelector('[data-base-price]').oninput=event=>{line.precioBaseConIva=parseAmount(event.target.value);refreshPrice();};
       row.querySelector('[data-discount]').oninput=event=>{line.descuentoPorcentaje=Number(event.target.value);refreshPrice();};
       row.querySelector('[data-choose-serial]')?.addEventListener('click',()=>openSerialPicker(Number(row.dataset.line)));
       row.querySelector('[data-remove]').onclick=()=>{lines.splice(Number(row.dataset.line),1);renderLines();dirty=true;};
@@ -850,19 +855,48 @@
   function renderConcepts(){
     const area=$('[data-concept-lines]');if(!area)return;
     area.innerHTML=conceptLines.map((line,index)=>{const selected=(options.conceptos||[]).find(x=>x.id===line.conceptoVentaId);
-      return `<tr data-concept-line="${index}"><td><div class="customer-article-choice"><span><strong>${selected?esc(selected.codigo+' · '+selected.nombre):'Sin concepto seleccionado'}</strong></span><button type="button" class="button secondary" data-find-concept>${selected?'Cambiar':'Buscar'}</button></div></td><td>${esc(selected?.cuentaIngresoZeus||'—')}</td><td><input data-concept-value type="number" min="0.01" step="0.01" value="${esc(line.valor||'')}" required></td><td><button type="button" class="button secondary" data-remove-concept>Quitar</button></td></tr>`;
+      return `<tr data-concept-line="${index}"><td><div class="customer-article-choice"><span><strong>${selected?esc(selected.codigo+' · '+selected.nombre):'Sin concepto seleccionado'}</strong></span><button type="button" class="button secondary" data-find-concept>${selected?'Cambiar':'Buscar'}</button></div></td><td>${esc(selected?.cuentaIngresoZeus||'—')}</td><td><input data-concept-value data-money type="text" inputmode="decimal" value="${line.valor?amount(line.valor):''}" required></td><td><button type="button" class="button secondary" data-remove-concept>Quitar</button></td></tr>`;
     }).join('');
     area.querySelectorAll('[data-concept-line]').forEach(row=>{const line=conceptLines[Number(row.dataset.conceptLine)];
       row.querySelector('[data-find-concept]').onclick=()=>openCatalogPicker('concept',Number(row.dataset.conceptLine));
-      row.querySelector('[data-concept-value]').oninput=event=>{line.valor=Number(event.target.value);summary();dirty=true;};
+      row.querySelector('[data-concept-value]').oninput=event=>{line.valor=parseAmount(event.target.value);summary();dirty=true;};
       row.querySelector('[data-remove-concept]').onclick=()=>{conceptLines.splice(Number(row.dataset.conceptLine),1);renderConcepts();dirty=true;};
     });summary();
+  }
+  function wireAdvanceSource(){
+    const input=$('[data-advance-owner-query]'),results=$('[data-advance-owner-results]'),status=$('[data-advance-owner-status]');
+    let sequence=0;
+    const hide=()=>{results.hidden=true;results.replaceChildren();};
+    input.oninput=()=>{
+      sequence++;status.textContent='';
+      const found=catalogSearch.findClients(clientIndex,input.value.trim()).items.filter(x=>x.id!==client?.id);
+      if(input.value.trim().length<2){hide();return;}
+      results.hidden=false;
+      results.innerHTML=found.map(x=>`<button type="button" data-owner="${x.id}"><strong>${esc(x.nombre)}</strong><small>${esc(x.identificacion)}</small></button>`).join('')||'<p>No se encontraron clientes.</p>';
+      results.querySelectorAll('[data-owner]').forEach(button=>button.onclick=async()=>{
+        if(!client){status.textContent='Selecciona primero el cliente de la factura.';hide();return;}
+        const owner=found.find(x=>x.id===Number(button.dataset.owner));if(!owner)return;
+        const request=++sequence,t=token,target=client.id;hide();input.value='';status.textContent=`Consultando anticipos de ${owner.nombre}…`;
+        try{
+          const result=await apiRequest(endpoint()+`/advances?clienteId=${owner.id}`,{cache:'no-store'});
+          if(!current(t)||view!=='create'||client?.id!==target||request!==sequence)return;
+          const available=new Set(result.items.map(x=>x.id));
+          advances=advances.filter(x=>!options.anticipos.some(a=>a.id===x.reciboCajaId&&a.titularId===owner.id)||available.has(x.reciboCajaId));
+          foreignAdvances=foreignAdvances.filter(x=>x.titularId!==owner.id).concat(result.items.map(x=>({...x,titularId:owner.id})));
+          options.anticipos=options.anticipos.filter(x=>x.titularId!==owner.id).concat(foreignAdvances.filter(x=>x.titularId===owner.id));
+          status.textContent=result.items.length?`${result.items.length} anticipo(s) de ${owner.nombre} disponibles para seleccionar.`:`${owner.nombre} no tiene anticipos disponibles.`;
+          renderAdvances();
+        }catch(error){if(current(t)&&request===sequence)status.textContent=error.message;}
+      });
+    };
+    input.onkeydown=event=>{if(event.key==='Escape'&&!results.hidden){event.preventDefault();event.stopPropagation();hide();}else if(event.key==='Enter'&&!results.hidden){event.preventDefault();results.querySelector('[data-owner]')?.click();}};
+    input.onblur=()=>setTimeout(hide,120);
   }
   function renderAdvances(){
     const area=$('[data-allocations]');if(!area)return;
     area.classList.add('customer-advance-list');
     const advancesWithoutDetails=(options.anticipos||[]).some(x=>!x.concepto||!x.fecha||!x.zeusEstado);
-    area.innerHTML=`<h3>Cuota inicial / anticipos disponibles</h3><p class="egreso-help">Aplica en bloque hasta cubrir la factura o elige recibos individuales. Puedes ajustar cada importe.</p>${advancesWithoutDetails?'<p class="egreso-help">El servidor aún no entrega fecha, concepto o estado de algunos anticipos. Actualiza el backend para verlos.</p>':''}<div class="egreso-toolbar"><button type="button" class="button secondary" data-apply-advances>Aplicar anticipos disponibles</button><button type="button" class="button secondary" data-clear-advances ${advances.length?'':'disabled'}>Quitar selección</button></div><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Recibo / fecha</th><th>Concepto</th><th>Saldo disponible</th><th>Valor a descontar</th></tr></thead><tbody>${(options.anticipos||[]).map(x=>`<tr><td><input type="checkbox" data-pick-advance="${x.id}" ${advances.some(a=>a.reciboCajaId===x.id)?'checked':''} ${x.zeusEstado&&x.zeusEstado!=='CONTABILIZADO'?'disabled':''}></td><td>RC-${x.id}<br><small>${esc(x.fecha||'—')}</small></td><td>${esc(x.concepto||'—')}</td><td>${money(x.saldo)}</td><td><input data-advance-value="${x.id}" type="number" min="0.01" max="${x.saldo}" step="0.01" value="${advances.find(a=>a.reciboCajaId===x.id)?.valor||x.saldo}" ${advances.some(a=>a.reciboCajaId===x.id)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="5">No hay anticipos disponibles. Registra primero un recibo de caja si el cliente pagó cuota inicial.</td></tr>'}</tbody></table></div><strong data-advance-summary></strong>`;
+    area.innerHTML=`<h3>Cuota inicial / anticipos disponibles</h3><p class="egreso-help">Aplica en bloque hasta cubrir la factura o elige recibos individuales. Puedes ajustar cada importe.</p>${advancesWithoutDetails?'<p class="egreso-help">El servidor aún no entrega fecha, concepto o estado de algunos anticipos. Actualiza el backend para verlos.</p>':''}<div class="egreso-toolbar"><button type="button" class="button secondary" data-apply-advances>Aplicar anticipos disponibles</button><button type="button" class="button secondary" data-clear-advances ${advances.length?'':'disabled'}>Quitar selección</button></div><div class="table-wrap"><table><thead><tr><th>Aplicar</th><th>Recibo / fecha</th><th>Titular / concepto</th><th>Saldo disponible</th><th>Valor a descontar</th></tr></thead><tbody>${(options.anticipos||[]).map(x=>`<tr><td><input type="checkbox" data-pick-advance="${x.id}" ${advances.some(a=>a.reciboCajaId===x.id)?'checked':''} ${x.zeusEstado&&x.zeusEstado!=='CONTABILIZADO'?'disabled':''}></td><td>RC-${x.id}<br><small>${esc(x.fecha||'—')}</small></td><td>${esc(x.titular||client?.nombre||'—')}<br><small>${esc(x.concepto||'—')}</small></td><td>${money(x.saldo)}</td><td><input data-advance-value="${x.id}" data-money type="text" inputmode="decimal" value="${amount(advances.find(a=>a.reciboCajaId===x.id)?.valor||x.saldo)}" ${advances.some(a=>a.reciboCajaId===x.id)?'':'disabled'}></td></tr>`).join('')||'<tr><td colspan="5">No hay anticipos disponibles. Busca otro titular o registra un recibo de caja.</td></tr>'}</tbody></table></div><strong data-advance-summary></strong>`;
     area.querySelector('[data-apply-advances]').onclick=()=>{
       let remaining=lines.reduce((sum,x)=>sum+Math.round(x.cantidad*x.precioUnitarioConIva*100),0)
         +conceptLines.reduce((sum,x)=>sum+Math.round(x.valor*100),0);
@@ -878,7 +912,7 @@
     };
     area.querySelector('[data-clear-advances]').onclick=()=>{advances=[];renderAdvances();dirty=true;notice('Selección de anticipos retirada.');};
     area.querySelectorAll('[data-pick-advance]').forEach(box=>box.onchange=()=>{const id=Number(box.dataset.pickAdvance),advance=options.anticipos.find(x=>x.id===id);advances=advances.filter(x=>x.reciboCajaId!==id);if(box.checked)advances.push({reciboCajaId:id,valor:advance.saldo});renderAdvances();dirty=true;});
-    area.querySelectorAll('[data-advance-value]').forEach(input=>input.oninput=()=>{const x=advances.find(a=>a.reciboCajaId===Number(input.dataset.advanceValue));if(x)x.valor=Number(input.value);summary();dirty=true;});summary();
+    area.querySelectorAll('[data-advance-value]').forEach(input=>input.oninput=()=>{const x=advances.find(a=>a.reciboCajaId===Number(input.dataset.advanceValue));if(x)x.valor=parseAmount(input.value);summary();dirty=true;});summary();
   }
   function invoiceSummary(){
     const f=$('[data-document]');if(!f)return;
@@ -932,6 +966,7 @@
     const required=dimensions?.cuentasRequierenCentroCosto||[];
     if(!centers[0]&&(selectedWarehouses.some(x=>required.includes(x.cuentaIngreso))||conceptLines.some(x=>required.includes(options.conceptos.find(c=>c.id===x.conceptoVentaId)?.cuentaIngresoZeus)))){notice('Configura el centro de costo de la bodega antes de facturar.',true);return;}
     const totalCents=lines.reduce((s,x)=>s+Math.round(x.cantidad*x.precioUnitarioConIva*100),0)+conceptLines.reduce((s,x)=>s+Math.round(x.valor*100),0);
+    if(advances.some(x=>!Number.isFinite(x.valor)||x.valor<=0||Math.abs(x.valor*100-Math.round(x.valor*100))>1e-6||x.valor>(options.anticipos.find(a=>a.id===x.reciboCajaId)?.saldo||0))){notice('Revisa los valores de los anticipos seleccionados.',true);return;}
     const financedCents=totalCents-advances.reduce((s,x)=>s+Math.round(x.valor*100),0);
     if(financedCents<0){notice('La cuota inicial no puede superar el total de la factura.',true);return;}
     const extraCents=extraInstallments.reduce((s,x)=>s+Math.round(x.valor*100),0);
