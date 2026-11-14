@@ -260,9 +260,12 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             SELECT u.UnidadSerializadaId,u.ArticuloId,u.BodegaActualId,u.Estado,ui.Tipo,ui.Valor
             FROM inv.UnidadSerializada u LEFT JOIN inv.UnidadIdentificador ui ON ui.EmpresaId=u.EmpresaId AND ui.UnidadSerializadaId=u.UnidadSerializadaId
             WHERE u.EmpresaId=@E AND u.Estado='DISPONIBLE' AND u.BodegaActualId IS NOT NULL;
-            SELECT a.ReciboCajaId,a.Saldo,r.Concepto,r.FechaContable,r.ZeusEstado
-            FROM cxc.AnticipoCliente a JOIN cxc.ReciboCaja r ON r.EmpresaId=a.EmpresaId AND r.ReciboCajaId=a.ReciboCajaId
-            WHERE a.EmpresaId=@E AND a.ClienteId=@C AND a.Saldo>0 ORDER BY r.FechaContable,a.ReciboCajaId;
+            SELECT r.ReciboCajaId,COALESCE(a.Saldo,0),r.Concepto,r.FechaContable,r.ZeusEstado,r.ReversionEstado,
+                COALESCE((SELECT STRING_AGG(c.Codigo,', ') FROM cxc.ReciboCajaConcepto c WHERE c.EmpresaId=r.EmpresaId AND c.ReciboCajaId=r.ReciboCajaId),'ANTICIPO')
+            FROM cxc.ReciboCaja r
+            LEFT JOIN cxc.AnticipoCliente a ON a.EmpresaId=r.EmpresaId AND a.ReciboCajaId=r.ReciboCajaId
+            WHERE r.EmpresaId=@E AND r.ClienteId=@C AND r.Tipo='ANTICIPO'
+            ORDER BY r.FechaContable,r.ReciboCajaId;
             SELECT ConceptoVentaId,Codigo,Nombre,CuentaIngresoZeus,MostrarEnCuerpo,MostrarEnTotales FROM ven.ConceptoVenta WHERE EmpresaId=@E AND Activo=1 ORDER BY Codigo;
             SELECT b.BodegaId,b.Codigo,b.Nombre,b.SucursalId,z.Configuracion
             FROM inv.Bodega b LEFT JOIN core.ZeusBodegaCuenta z ON z.EmpresaId=b.EmpresaId AND z.BodegaId=b.BodegaId
@@ -276,7 +279,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))customers.Add(new{id=r.GetInt64(0),identificacion=r.GetString(1),nombre=r.GetString(2),zeusEstado=r.GetString(3)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))articles.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),descripcion=r.GetString(2),tipo=r.GetString(3),inventario=r.GetBoolean(4),serial=r.GetBoolean(5),iva=r.IsDBNull(6)?(decimal?)null:r.GetDecimal(6),bodegaId=r.GetInt64(7),bodegaCodigo=r.GetString(8),bodega=r.GetString(9),sucursalId=r.GetInt64(10),existencia=r.GetDecimal(11),costoPromedio=r.IsDBNull(12)?(decimal?)null:r.GetDecimal(12),precioListaConIva=r.IsDBNull(13)?(decimal?)null:r.GetDecimal(13)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))serials.Add(new{id=r.GetInt64(0),articuloId=r.GetInt64(1),bodegaId=r.GetInt64(2),estado=r.GetString(3),tipo=r.IsDBNull(4)?null:r.GetString(4),valor=r.IsDBNull(5)?null:r.GetString(5)});
-        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))advances.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1),concepto=r.GetString(2),fecha=r.GetDateTime(3).ToString("yyyy-MM-dd"),zeusEstado=r.GetString(4)});
+        await r.NextResultAsync(ct);while(await r.ReadAsync(ct))advances.Add(new{id=r.GetInt64(0),saldo=r.GetDecimal(1),concepto=r.GetString(2),fecha=r.GetDateTime(3).ToString("yyyy-MM-dd"),zeusEstado=r.GetString(4),disponible=r.GetDecimal(1)>0&&r.GetString(4)=="CONTABILIZADO"&&r.IsDBNull(5),destinos=r.GetString(6)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))concepts.Add(new{id=r.GetInt64(0),codigo=r.GetString(1),nombre=r.GetString(2),cuentaIngresoZeus=r.GetString(3),mostrarEnCuerpo=r.GetBoolean(4),mostrarEnTotales=r.GetBoolean(5)});
         await r.NextResultAsync(ct);while(await r.ReadAsync(ct))
         {
