@@ -48,6 +48,7 @@
   contextLinks.setAttribute('role', 'group');
   const moduleButtons = new Map();
   let selectedModule = 'purchases';
+  let collapsedByUser = false;
 
   function groupFor(name) { return nav.querySelector(`[data-nav-group="${name}"]`); }
   function visibleTasks(group) {
@@ -60,7 +61,6 @@
     button.type = 'button';
     button.className = 'task-module';
     button.dataset.module = name;
-    button.setAttribute('aria-controls', 'taskSubmenu');
     const icon = document.createElement('span');
     icon.className = 'task-module-icon';
     icon.setAttribute('aria-hidden', 'true');
@@ -68,7 +68,10 @@
     const label = document.createElement('span');
     label.textContent = group.querySelector('summary span:nth-child(2)')?.textContent || name;
     button.append(icon, label);
-    button.addEventListener('click', () => selectModule(name));
+    button.addEventListener('click', () => {
+      collapsedByUser = selectedModule === name;
+      selectModule(collapsedByUser ? null : name);
+    });
     moduleList.append(button);
     moduleButtons.set(name, button);
   });
@@ -104,6 +107,10 @@
       button.classList.toggle('active', key === name);
       button.setAttribute('aria-expanded', String(key === name));
     });
+    if (!name) {
+      contextLinks.remove();
+      return;
+    }
     moduleButtons.get(name)?.after(contextLinks);
     contextLinks.setAttribute('aria-label', `Opciones de ${moduleButtons.get(name)?.textContent.trim() || name}`);
     renderContext();
@@ -113,9 +120,10 @@
       const group = groupFor(name);
       button.hidden = !group || group.hidden || visibleTasks(group).length === 0;
     });
-    if (moduleButtons.get(selectedModule)?.hidden) {
+    if (selectedModule && moduleButtons.get(selectedModule)?.hidden) selectedModule = null;
+    if (!selectedModule && !collapsedByUser) {
       const first = moduleNames.find(name => !moduleButtons.get(name)?.hidden);
-      if (first) selectedModule = first;
+      selectedModule = first || null;
     }
     selectModule(selectedModule);
   }
@@ -187,7 +195,10 @@
   function openDestination(button) {
     dialog.close();
     const group = button.closest('details[data-nav-group]');
-    if (group) selectModule(group.dataset.navGroup);
+    if (group) {
+      collapsedByUser = false;
+      selectModule(group.dataset.navGroup);
+    }
     if (document.body.classList.contains('mobile-nav-open')) document.querySelector('#mobileNavClose')?.click();
     button.click();
   }
