@@ -1116,7 +1116,19 @@ function renderInventoryOperationPanel() {
     <p class="wide" data-transfer-permission hidden>Para completar traslados necesitas los permisos de despacho y recepción.</p>
     <button class="button primary wide" type="submit">Confirmar traslado</button>
     <div class="operation-result wide" role="status" hidden></div>`;
-  panel.replaceChildren(heading, form);
+  const saved = document.createElement('section');
+  saved.className = 'transfer-saved';
+  saved.hidden = true;
+  saved.innerHTML = `
+    <h3 tabindex="-1"></h3>
+    <p data-saved-message></p>
+    <p data-saved-zeus hidden></p>
+    <p data-saved-observation hidden></p>
+    <div class="transfer-saved-actions">
+      <button class="button primary" type="button">Nuevo traslado</button>
+      <div data-saved-documents></div>
+    </div>`;
+  panel.replaceChildren(heading, form, saved);
   const fields = form.elements;
   const articleSearch = fields.articleSearch;
   const articleResults = form.querySelector('[data-article-results]');
@@ -1130,6 +1142,12 @@ function renderInventoryOperationPanel() {
   const permissionMessage = form.querySelector('[data-transfer-permission]');
   const submit = form.querySelector('[type="submit"]');
   const output = form.querySelector('.operation-result');
+  const savedHeading = saved.querySelector('h3');
+  const savedMessage = saved.querySelector('[data-saved-message]');
+  const savedZeus = saved.querySelector('[data-saved-zeus]');
+  const savedObservation = saved.querySelector('[data-saved-observation]');
+  const savedDocuments = saved.querySelector('[data-saved-documents]');
+  const newTransfer = saved.querySelector('button');
 
   const company = state.erpSession?.company?.id;
   const apiActive = state.runtimeMode === 'api' && state.erpSession?.api && company;
@@ -1155,22 +1173,43 @@ function renderInventoryOperationPanel() {
   for (const field of [fields.origin, fields.destination]) {
     fillOperationSelect(field, warehouses, 'bodegaId', row => `${row.codigo} · ${row.nombre}`);
   }
-  fields.date.value = accountingToday();
-  const initialPeriod = receiptPeriodForDate(fields.date.value);
-  if (initialPeriod) fields.period.value = String(initialPeriod.periodoInventarioId);
-  fields.number.value = `MOV-${Date.now().toString().slice(-6)}`;
+  setOperationDefaults();
 
   const isTransfer = () => fields.type.value === 'transfer';
   const isCurrent = () => form.isConnected && company === state.erpSession?.company?.id;
   if (apiActive) window.transferDocuments?.attachHistory(heading, company, refreshAfterReversal);
 
+  function setOperationDefaults() {
+    fields.date.value = accountingToday();
+    const period = receiptPeriodForDate(fields.date.value);
+    fields.period.value = period ? String(period.periodoInventarioId) : '';
+    fields.number.value = `MOV-${Date.now().toString().slice(-6)}`;
+  }
+
+  newTransfer.addEventListener('click', () => {
+    lastTransfer = null;
+    form.reset();
+    setOperationDefaults();
+    articleSelection = null;
+    articleMatches = [];
+    articleResults.replaceChildren();
+    unitList.replaceChildren();
+    output.hidden = true;
+    output.replaceChildren();
+    saved.hidden = true;
+    form.hidden = false;
+    void configure();
+    fields.origin.focus();
+  });
+
   function refreshAfterReversal(originalId) {
     if (!isCurrent() || !isTransfer()) return;
     if (lastTransfer?.documentoId === originalId) {
-      output.textContent = `Traslado ${lastTransfer.numero} revertido.`;
-      window.transferDocuments?.appendActions(output, company, originalId, refreshAfterReversal);
+      savedHeading.textContent = `Traslado ${lastTransfer.numero} revertido`;
+      savedMessage.textContent = 'La mercancía volvió a la bodega de origen.';
+      savedZeus.hidden = true;
     }
-    void loadTransferAvailability();
+    if (!form.hidden) void loadTransferAvailability();
   }
   function closeArticleResults() {
     articleResults.hidden = true;
@@ -1447,22 +1486,17 @@ function renderInventoryOperationPanel() {
     lastTransfer = created;
     const destinationName = warehouses.find(row => Number(row.bodegaId) === draft.destination)?.nombre;
     const destinationLabel = destinationName ? `la bodega ${destinationName}` : 'la bodega destino';
-    output.textContent = `Traslado ${created.numero} completado. Mercancía disponible en ${destinationLabel}.`;
-    if (posted.zeus?.mensaje) {
-      const posting = document.createElement('p');
-      posting.textContent = posted.zeus.mensaje;
-      output.append(posting);
-    }
-    if (created.observacion) {
-      const note = document.createElement('p');
-      note.className = 'transfer-saved-observation';
-      note.textContent = `Observaciones: ${created.observacion}`;
-      output.append(note);
-    }
-    window.transferDocuments?.appendActions(output, company, created.documentoId, refreshAfterReversal);
-    fields.number.value = `MOV-${Date.now().toString().slice(-6)}`;
-    fields.observation.value = '';
-    await loadTransferAvailability({clear:true});
+    savedHeading.textContent = `Traslado ${created.numero} completado`;
+    savedMessage.textContent = `Mercancía disponible en ${destinationLabel}.`;
+    savedZeus.textContent = posted.zeus?.mensaje || '';
+    savedZeus.hidden = !posted.zeus?.mensaje;
+    savedObservation.textContent = created.observacion ? `Observaciones: ${created.observacion}` : '';
+    savedObservation.hidden = !created.observacion;
+    savedDocuments.replaceChildren();
+    window.transferDocuments?.appendActions(savedDocuments, company, created.documentoId, refreshAfterReversal);
+    form.hidden = true;
+    saved.hidden = false;
+    savedHeading.focus();
   }
 
   async function postReturn(date, period) {
@@ -1507,7 +1541,7 @@ function renderInventoryOperationPanel() {
   });
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    if (busy || !apiActive || (isTransfer() && !canCompleteTransfer)) return;
+    if (form.hidden || busy || !apiActive || (isTransfer() && !canCompleteTransfer)) return;
     const date = fields.date.value;
     const period = Number(fields.period.value);
     busy = true;

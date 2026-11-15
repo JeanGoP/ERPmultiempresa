@@ -711,7 +711,6 @@ footer p { margin: 0; }
   .inventory-operation-form > .transfer-units:not([hidden]) { grid-column:span 3; }
   .inventory-operation-form > .transfer-units:not([hidden]) + .transfer-observation { grid-column:span 1; }
 }
-.transfer-saved-observation { margin:8px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .inventory-workspace:has(.transfer-article-results:not([hidden])) { overflow:visible; }
 .transfer-article-picker { position:relative; min-width:0; }
 .transfer-article-results { position:absolute; z-index:12; inset:100% 0 auto; display:grid; max-height:240px; overflow:auto; border:1px solid var(--line); border-radius:8px; background:#fff; box-shadow:0 10px 24px #172b2426; }

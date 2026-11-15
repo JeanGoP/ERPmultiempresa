@@ -1,7 +1,13 @@
 .transfer-operation-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
 .transfer-document-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .transfer-document-actions .button { margin:0; }
-.operation-result > .transfer-document-actions { margin-top:10px; }
+.transfer-saved {
+  display:grid; gap:7px; padding:18px 20px; border:1px solid #cddfd6; border-radius:12px; background:#f4faf7;
+}
+.transfer-saved h3 { margin:0; color:var(--green-dark); font-size:17px; }
+.transfer-saved p { margin:0; color:var(--muted); font-size:13px; overflow-wrap:anywhere; }
+.transfer-saved [data-saved-observation] { white-space:pre-wrap; }
+.transfer-saved-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:6px; }
 .transfer-documents.erp-dialog { width:min(94vw, 940px); max-height:90dvh; }
 .transfer-documents .dialog-heading { align-items:center; padding-block:16px; }
 .transfer-documents .dialog-heading h2 { margin:0; overflow-wrap:anywhere; }
