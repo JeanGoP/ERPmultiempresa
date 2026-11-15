@@ -11,7 +11,8 @@
   const catalogSearch=window.customerCatalogSearch;
   const $=selector=>dialog.querySelector(selector);
   let mode='',view='create',company=0,shellMode='',shellCompany=0,token=0,busy=false,dirty=false,options=null,accounts=[],withholdingAccounts=[],dimensions=null,dimensionsError='',search='',receiptFilter='',next=null,refinancingSearch='',portfolioTypes=[];
-  let operation='',client=null,lines=[],conceptLines=[],applications=[],zeusApplications=[],advances=[],foreignAdvances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8,zeusSearch='',articleIndex=[],clientIndex=[],catalogRefreshVersion=0;
+  let operation='',client=null,lines=[],conceptLines=[],applications=[],zeusApplications=[],advances=[],foreignAdvances=[],extraInstallments=[],automaticReceiptConcept='',receiptVisibleRows=8,zeusSearch='',articleIndex=[],clientIndex=[];
+  let invoiceFormToken=0,invoiceCatalogRequest=null,refreshClientSuggestions=null,refreshArticlePicker=null,refreshSerialPicker=null;
   const endpoint=()=>`/api/v1/companies/${company}/${mode==='receipt'?'cash-receipts':'sales-invoices'}`;
   const current=t=>t===token&&dialog.open&&String(company)===String(state.erpSession?.company?.id);
   const notice=(message,error=false)=>{const area=$('[data-message]');if(area){area.textContent=message;area.classList.toggle('error',error);}};
@@ -401,14 +402,19 @@
       input.setAttribute('aria-activedescendant',buttons[activeIndex].id);
       buttons[activeIndex].scrollIntoView({block:'nearest'});
     }
-    function renderClientSuggestions(){
+    function renderClientSuggestions(preserveSelection=false){
       const term=input.value.trim();
       if(term.length<2||client&&input.value===clientLabel(client)){hideSuggestions();return;}
       const found=catalogSearch.findClients(clientIndex,term);
+      const activeCustomer=preserveSelection?visible[activeIndex]?.id:null;
       visible=found.items;activeIndex=-1;
       results.hidden=false;input.setAttribute('aria-expanded','true');input.removeAttribute('aria-activedescendant');
       results.innerHTML=visible.map((candidate,index)=>`<button id="customerClientOption${index}" type="button" role="option" aria-selected="false" data-client-option="${index}"><strong>${esc(candidate.nombre)}</strong><small>${esc(candidate.identificacion)}</small></button>`).join('')||`<p>${loading?'Buscando clientes…':'No hay clientes con ese dato.'}</p>`;
       results.querySelectorAll('[data-client-option]').forEach(button=>button.onclick=()=>void chooseClient(visible[Number(button.dataset.clientOption)]));
+      if(activeCustomer!=null){
+        const index=visible.findIndex(candidate=>candidate.id===activeCustomer);
+        if(index>=0)activateSuggestion(index);
+      }
     }
     async function chooseClient(selected){
       if(!selected)return;
@@ -418,7 +424,7 @@
       if(changed)await refreshClient();
     }
     results.onpointerdown=event=>event.preventDefault();
-    input.onfocus=renderClientSuggestions;
+    input.onfocus=()=>renderClientSuggestions();
     input.onblur=()=>setTimeout(()=>{if(!results.contains(document.activeElement))hideSuggestions();},120);
     input.onkeydown=event=>{
       if(event.key==='Escape'&&!results.hidden){event.preventDefault();event.stopPropagation();hideSuggestions();return;}
@@ -453,9 +459,16 @@
       if(mode==='invoice'||term.length<2)return;
       loading=true;if(!visible.length)renderClientSuggestions();
       timer=setTimeout(async()=>{
-        try{const result=await apiRequest(endpoint()+'/options?q='+encodeURIComponent(term));if(!current(t)||request!==sequence||input.value!==term)return;options.clientes=result.clientes;setClientOptions();loading=false;renderClientSuggestions();}
+        try{const result=await apiRequest(endpoint()+'/options?q='+encodeURIComponent(term),{cache:'no-store'});if(!current(t)||request!==sequence||input.value!==term)return;options.clientes=result.clientes;setClientOptions();loading=false;renderClientSuggestions();}
         catch(error){if(current(t)&&request===sequence){loading=false;renderClientSuggestions();$('[data-client-hint]').textContent=error.message;}}
       },250);
+    };
+    refreshClientSuggestions=()=>{
+      if(client&&input.value===clientLabel(client)){
+        const updated=options.clientes.find(candidate=>candidate.id===client.id);
+        if(updated){client=updated;const label=clientLabel(updated);if(input.value!==label)input.value=label;}
+      }
+      if(!results.hidden)renderClientSuggestions(true);
     };
   }
   async function refreshClient(){
@@ -741,6 +754,7 @@
     $('[data-add-line]').onclick=()=>addLine();$('[data-add-concept]').onclick=addConcept;
     $('[data-add-extra]').onclick=()=>{extraInstallments.push({vencimiento:'',valor:0});renderExtraInstallments();dirty=true;};
     f.onsubmit=submitInvoice;addLine(false);renderConcepts();renderAllocations();renderExtraInstallments();
+    invoiceFormToken=token;
   }
   function renderExtraInstallments(){
     const area=$('[data-extra-rows]');if(!area)return;
@@ -755,23 +769,103 @@
     const branch=$('[data-document]')?.elements.sucursalId.value;
     return (options.articulos||[]).filter(a=>String(a.sucursalId)===branch);
   }
+  function refreshInvoiceCatalog(force=false){
+    const t=token;
+    if(!current(t)||invoiceFormToken!==t)return Promise.resolve(false);
+    if(!force&&invoiceCatalogRequest?.token===t&&invoiceCatalogRequest.pending)return invoiceCatalogRequest.promise;
+    const request={token:t,pending:true};
+    invoiceCatalogRequest=request;
+    request.promise=apiRequest(endpoint()+'/options',{cache:'no-store'}).then(fresh=>{
+      if(!current(t))return false;
+      if(invoiceCatalogRequest!==request)return invoiceCatalogRequest.promise;
+      options.articulos=fresh.articulos;
+      options.seriales=fresh.seriales;
+      options.bodegas=fresh.bodegas;
+      options.maxDescuentoVentaPct=fresh.maxDescuentoVentaPct;
+      articleIndex=catalogSearch.indexArticles(fresh.articulos,fresh.seriales);
+      const customersChanged=options.clientes.length!==fresh.clientes.length||options.clientes.some((customer,index)=>{
+        const latest=fresh.clientes[index];
+        return customer.id!==latest.id||customer.nombre!==latest.nombre||customer.identificacion!==latest.identificacion||customer.zeusEstado!==latest.zeusEstado;
+      });
+      if(customersChanged){
+        options.clientes=fresh.clientes;
+        setClientOptions();
+        refreshClientSuggestions?.();
+      }
+      updateInvoiceCatalogRows();
+      if(catalogDialog.open)refreshArticlePicker?.();
+      if(serialDialog.open)refreshSerialPicker?.();
+      return true;
+    }).catch(error=>{
+      if(!current(t))return false;
+      if(invoiceCatalogRequest!==request)return invoiceCatalogRequest.promise;
+      throw error;
+    }).finally(()=>{request.pending=false;});
+    return request.promise;
+  }
+  function refreshOpenInvoice(companyId,force=false){
+    if(document.hidden||busy||String(companyId)!==String(company))return;
+    void refreshInvoiceCatalog(force).catch(()=>{});
+  }
+  const catalogChannel=typeof BroadcastChannel==='function'?new BroadcastChannel('nexo-sales-catalog'):null;
+  catalogChannel?.addEventListener('message',event=>refreshOpenInvoice(event.data,true));
+  window.notifySaleCatalogChange=companyId=>{
+    refreshOpenInvoice(companyId,true);
+    catalogChannel?.postMessage(companyId);
+  };
+  window.addEventListener('focus',()=>refreshOpenInvoice(company));
+  document.addEventListener('visibilitychange',()=>refreshOpenInvoice(company));
+
   function addLine(markDirty=true){lines.push({articuloId:0,bodegaId:0,cantidad:1,precioBaseConIva:0,descuentoPorcentaje:0,precioUnitarioConIva:0,unidadesSerializadas:[]});renderLines();if(markDirty)dirty=true;}
   function updateLinePrice(line){line.precioUnitarioConIva=Math.round(Number(line.precioBaseConIva||0)*(1-Number(line.descuentoPorcentaje||0)/100)*100)/100;}
+  function updateInvoiceWarehouseOptions(){
+    const f=$('[data-document]');
+    $('[data-concept-warehouse]').hidden=lines.length>0;
+    const warehouses=(options.bodegas||[]).filter(x=>String(x.sucursalId)===f.elements.sucursalId.value);
+    const select=f.elements.bodegaCarteraId;
+    const choices=[['','Selecciona bodega…'],...warehouses.map(x=>[String(x.id),`${x.codigo} · ${x.nombre}`])];
+    if(select.options.length!==choices.length||choices.some(([value,text],index)=>select.options[index].value!==value||select.options[index].text!==text)){
+      const previous=select.value;
+      select.replaceChildren(...choices.map(([value,text])=>new Option(text,value)));
+      select.value=choices.some(([value])=>value===previous)?previous:'';
+    }
+    select.required=lines.length===0;
+  }
+  function updateInvoiceCatalogRows(){
+    updateInvoiceWarehouseOptions();
+    const choices=articleChoices();
+    const replaceText=(element,text)=>{if(element.textContent!==text)element.textContent=text;};
+    $('[data-lines]').querySelectorAll('[data-line]').forEach(row=>{
+      const index=Number(row.dataset.line),line=lines[index];
+      const item=choices.find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);
+      replaceText(row.querySelector('[data-article-name]'),item?`${item.codigo} · ${item.descripcion}`:line.articuloId?'Artículo ya no disponible':'Sin artículo seleccionado');
+      replaceText(row.querySelector('[data-article-stock]'),item?`${item.bodegaCodigo} · ${item.bodega} · Disponible ${item.existencia}`:'Busca por nombre, código, chasis, motor o VIN');
+      const iva=row.querySelector('.customer-vat-cell');
+      replaceText(iva,item?.iva==null?'—':`${item.iva} %`);
+      iva.title=item?.iva==null?'IVA pendiente de clasificar':'';
+      const serialCell=row.querySelector('[data-serial-cell]');
+      const serialButton=serialCell.querySelector('[data-choose-serial]');
+      if(Boolean(item?.serial)!==Boolean(serialButton)){
+        serialCell.innerHTML=serialCellContent(line,item);
+        serialCell.querySelector('[data-choose-serial]')?.addEventListener('click',()=>void openSerialPicker(index));
+      }
+    });
+    updateGeneralCenterHint();renderInvoiceProfitPreview();
+  }
+  function serialCellContent(line,item){
+    return item?.serial?`<button type="button" class="button secondary customer-serial-trigger" data-choose-serial>Buscar seriales</button><small class="customer-serial-count">${line.unidadesSerializadas.length} de ${esc(line.cantidad)} seleccionada(s)</small>`:'—';
+  }
   function renderLines(){
     const area=$('[data-lines]');if(!area)return;const choices=articleChoices();
-    const f=$('[data-document]'),warehouseWrap=$('[data-concept-warehouse]');warehouseWrap.hidden=lines.length>0;
-    const warehouses=(options.bodegas||[]).filter(x=>String(x.sucursalId)===f.elements.sucursalId.value);
-    const selectedWarehouse=f.elements.bodegaCarteraId.value;
-    f.elements.bodegaCarteraId.innerHTML='<option value="">Selecciona bodega…</option>'+warehouses.map(x=>`<option value="${x.id}">${esc(x.codigo+' · '+x.nombre)}</option>`).join('');
-    f.elements.bodegaCarteraId.value=selectedWarehouse;f.elements.bodegaCarteraId.required=lines.length===0;
+    updateInvoiceWarehouseOptions();
     area.innerHTML=lines.map((line,index)=>{
       const item=choices.find(a=>a.id===line.articuloId&&a.bodegaId===line.bodegaId);
-      return `<tr data-line="${index}"><td><div class="customer-article-choice"><span><strong>${item?esc(item.codigo+' · '+item.descripcion):'Sin artículo seleccionado'}</strong><small>${item?esc(item.bodegaCodigo+' · '+item.bodega+' · Disponible '+item.existencia):'Busca por nombre, código, chasis, motor o VIN'}</small></span><button type="button" class="button secondary" data-find-article>${item?'Cambiar':'Buscar'}</button></div></td>
+      return `<tr data-line="${index}"><td><div class="customer-article-choice"><span><strong data-article-name>${item?esc(item.codigo+' · '+item.descripcion):'Sin artículo seleccionado'}</strong><small data-article-stock>${item?esc(item.bodegaCodigo+' · '+item.bodega+' · Disponible '+item.existencia):'Busca por nombre, código, chasis, motor o VIN'}</small></span><button type="button" class="button secondary" data-find-article>${item?'Cambiar':'Buscar'}</button></div></td>
         <td><input data-qty type="number" min="0.000001" step="0.000001" value="${esc(line.cantidad)}" required></td>
         <td><input data-base-price data-money type="text" inputmode="decimal" value="${line.precioBaseConIva?amount(line.precioBaseConIva):''}" aria-label="Precio con IVA" required></td>
         <td><input data-discount type="number" min="0" max="100" step="0.01" value="${esc(line.descuentoPorcentaje||0)}" aria-label="Descuento porcentual"></td>
         <td class="customer-vat-cell" ${item?.iva==null?'title="IVA pendiente de clasificar"':''}>${item?.iva==null?'—':esc(item.iva+' %')}</td>
-        <td>${item?.serial?`<button type="button" class="button secondary customer-serial-trigger" data-choose-serial>Buscar seriales</button><small class="customer-serial-count">${line.unidadesSerializadas.length} de ${esc(line.cantidad)} seleccionada(s)</small>`:'—'}</td>
+        <td data-serial-cell>${serialCellContent(line,item)}</td>
         <td class="customer-remove-cell"><button type="button" class="button secondary" data-remove aria-label="Quitar artículo">Quitar</button></td></tr>`;
     }).join('');
     area.querySelectorAll('[data-line]').forEach(row=>{
@@ -781,7 +875,7 @@
       const refreshPrice=()=>{updateLinePrice(line);summary();dirty=true;};
       row.querySelector('[data-base-price]').oninput=event=>{line.precioBaseConIva=parseAmount(event.target.value);refreshPrice();};
       row.querySelector('[data-discount]').oninput=event=>{line.descuentoPorcentaje=Number(event.target.value);refreshPrice();};
-      row.querySelector('[data-choose-serial]')?.addEventListener('click',()=>openSerialPicker(Number(row.dataset.line)));
+      row.querySelector('[data-choose-serial]')?.addEventListener('click',()=>void openSerialPicker(Number(row.dataset.line)));
       row.querySelector('[data-remove]').onclick=()=>{lines.splice(Number(row.dataset.line),1);renderLines();dirty=true;};
     });updateGeneralCenterHint();summary();
   }
@@ -797,7 +891,7 @@
     let refreshing=articleMode,catalogError='';
     function renderResults(){
       if(refreshing){count.textContent='Actualizando existencias…';results.innerHTML='<p class="customer-catalog-empty">Consultando el inventario actual.</p>';return;}
-      if(catalogError){count.textContent='No se pudieron actualizar las existencias.';results.innerHTML=`<p class="customer-catalog-empty">${esc(catalogError)}</p><button type="button" class="button secondary" data-retry-catalog>Reintentar</button>`;results.querySelector('[data-retry-catalog]').onclick=()=>{catalogDialog.close();openCatalogPicker(kind,index);};return;}
+      if(catalogError){count.textContent='No se pudieron actualizar las existencias.';results.innerHTML=`<p class="customer-catalog-empty">${esc(catalogError)}</p><button type="button" class="button secondary" data-retry-catalog>Reintentar</button>`;results.querySelector('[data-retry-catalog]').onclick=()=>void loadArticles();return;}
       const query=input.value.trim();
       if(!query){count.textContent='';results.innerHTML='<p class="customer-catalog-empty">Escribe para encontrar el artículo o concepto. No necesitas recorrer un listado.</p>';return;}
       const found=articleMode?catalogSearch.findArticles(articleIndex,branch,query):catalogSearch.findConcepts(options.conceptos,query);
@@ -829,30 +923,36 @@
     catalogDialog.querySelector('[data-close-catalog]').onclick=()=>catalogDialog.close();
     input.oninput=renderResults;
     input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();const first=results.querySelector('[data-result]:not(:disabled)');if(first)first.click();}};
+    const pickerIsOpen=()=>catalogDialog.open&&input.isConnected;
+    const loadArticles=async()=>{
+      refreshing=true;catalogError='';renderResults();
+      try{await refreshInvoiceCatalog();}
+      catch(error){if(pickerIsOpen()){refreshing=false;catalogError=error.message;renderResults();}}
+    };
+    refreshArticlePicker=articleMode?()=>{
+      if(pickerIsOpen()){refreshing=false;catalogError='';renderResults();}
+    }:null;
     renderResults();catalogDialog.showModal();input.focus();
-    if(articleMode){
-      const request=++catalogRefreshVersion,t=token,selectedCompany=company;
-      apiRequest(endpoint()+'/options',{cache:'no-store'}).then(fresh=>{
-        if(request!==catalogRefreshVersion||!current(t)||!catalogDialog.open||company!==selectedCompany)return;
-        options.articulos=fresh.articulos;options.seriales=fresh.seriales;
-        articleIndex=catalogSearch.indexArticles(fresh.articulos,fresh.seriales);
-        refreshing=false;renderLines();renderResults();
-      }).catch(error=>{
-        if(request!==catalogRefreshVersion||!current(t)||!catalogDialog.open)return;
-        refreshing=false;catalogError=error.message;renderResults();
-      });
-    }
+    if(articleMode)void loadArticles();
   }
-  function openSerialPicker(index){
-    const line=lines[index],article=articleChoices().find(x=>x.id===line.articuloId&&x.bodegaId===line.bodegaId);
-    if(!article){notice('Selecciona primero el artículo y la bodega.',true);return;}
+  function availableArticleSerials(line){
     const units=new Map();
     for(const serial of options.seriales||[]){
       if(serial.articuloId!==line.articuloId||serial.bodegaId!==line.bodegaId)continue;
       if(!units.has(serial.id))units.set(serial.id,{id:serial.id,identifiers:[]});
-      units.get(serial.id).identifiers.push(`${serial.tipo}: ${serial.valor}`);
+      if(serial.tipo&&serial.valor)units.get(serial.id).identifiers.push(`${serial.tipo}: ${serial.valor}`);
     }
-    const available=[...units.values()],chosen=new Set(line.unidadesSerializadas);
+    return units;
+  }
+  async function openSerialPicker(index){
+    const t=token,selectedLine=lines[index];
+    try{if(!await refreshInvoiceCatalog())return;}
+    catch(error){if(current(t))notice(`No se pudieron consultar los seriales disponibles. ${error.message}`,true);return;}
+    if(lines[index]!==selectedLine||serialDialog.open||catalogDialog.open)return;
+    const line=lines[index],article=articleChoices().find(x=>x.id===line.articuloId&&x.bodegaId===line.bodegaId);
+    if(!article){notice('Selecciona primero el artículo y la bodega.',true);return;}
+    let available=[...availableArticleSerials(line).values()];
+    const chosen=new Set(line.unidadesSerializadas.filter(id=>available.some(unit=>unit.id===id)));
     const reserved=new Set(lines.flatMap((other,i)=>i===index?[]:other.unidadesSerializadas));
     const required=Number(line.cantidad);
     if(!Number.isInteger(required)||required<1){notice('Para artículos serializados, escribe primero una cantidad entera mayor que cero.',true);return;}
@@ -879,6 +979,13 @@
     serialDialog.querySelector('[data-save-serial]').onclick=()=>{
       if(chosen.size!==required){status.textContent=`Selecciona exactamente ${required} unidad(es) para continuar.`;return;}
       line.unidadesSerializadas=[...chosen];serialDialog.close();renderLines();dirty=true;
+    };
+    refreshSerialPicker=()=>{
+      const fresh=[...availableArticleSerials(line).values()];
+      if(JSON.stringify(fresh)===JSON.stringify(available))return;
+      available=fresh;
+      for(const id of chosen)if(!available.some(unit=>unit.id===id))chosen.delete(id);
+      renderOptions();
     };
     renderOptions();serialDialog.showModal();serialDialog.querySelector('[data-serial-search]').focus();
   }
@@ -960,17 +1067,21 @@
     area.querySelectorAll('[data-pick-advance]').forEach(box=>box.onchange=()=>{const id=Number(box.dataset.pickAdvance),advance=options.anticipos.find(x=>x.id===id);advances=advances.filter(x=>x.reciboCajaId!==id);if(box.checked)advances.push({reciboCajaId:id,valor:advance.saldo});renderAdvances();dirty=true;});
     area.querySelectorAll('[data-advance-value]').forEach(input=>input.oninput=()=>{const x=advances.find(a=>a.reciboCajaId===Number(input.dataset.advanceValue));if(x)x.valor=parseAmount(input.value);summary();dirty=true;});summary();
   }
-  function invoiceSummary(){
-    const f=$('[data-document]');if(!f)return;
-    const goods=Math.round(lines.reduce((s,x)=>s+Math.round(x.cantidad*x.precioUnitarioConIva*100),0))/100;
+  function renderInvoiceProfitPreview(){
+    const preview=$('[data-profit-preview]');if(!preview)return;
     const priced=lines.filter(x=>x.articuloId&&x.bodegaId&&x.cantidad>0&&x.precioUnitarioConIva>0);
     const inventoryLines=priced.map(x=>({line:x,item:(options.articulos||[]).find(a=>a.id===x.articuloId&&a.bodegaId===x.bodegaId)})).filter(x=>x.item?.inventario);
     const unknownCost=inventoryLines.some(x=>x.item.costoPromedio==null||x.item.iva==null);
     const netRevenue=inventoryLines.reduce((sum,x)=>sum+(x.item.iva==null?0:Math.round(x.line.cantidad*x.line.precioUnitarioConIva/(1+x.item.iva/100)*100)/100),0);
     const estimatedCost=inventoryLines.reduce((sum,x)=>sum+x.line.cantidad*(x.item.costoPromedio||0),0);
     const margin=netRevenue-estimatedCost;
-    const preview=$('[data-profit-preview]');
-    if(preview)preview.innerHTML=inventoryLines.length?`<strong>Rentabilidad estimada de artículos inventariables</strong><span>Venta sin IVA: ${unknownCost?'pendiente':money(netRevenue)} · Margen: ${unknownCost?'no calculable':money(margin)}</span><small>Es una estimación: el costo definitivo se registra al emitir la factura y puede diferir para unidades serializadas.</small>`:'';
+    const content=inventoryLines.length?`<strong>Rentabilidad estimada de artículos inventariables</strong><span>Venta sin IVA: ${unknownCost?'pendiente':money(netRevenue)} · Margen: ${unknownCost?'no calculable':money(margin)}</span><small>Es una estimación: el costo definitivo se registra al emitir la factura y puede diferir para unidades serializadas.</small>`:'';
+    if(preview.innerHTML!==content)preview.innerHTML=content;
+  }
+  function invoiceSummary(){
+    const f=$('[data-document]');if(!f)return;
+    const goods=Math.round(lines.reduce((s,x)=>s+Math.round(x.cantidad*x.precioUnitarioConIva*100),0))/100;
+    renderInvoiceProfitPreview();
     const concepts=Math.round(conceptLines.reduce((s,x)=>s+Math.round(x.valor*100),0))/100;
     const advance=Math.round(advances.reduce((s,x)=>s+Math.round(x.valor*100),0))/100;
     const total=goods+concepts,balance=Math.round((total-advance)*100)/100,terms=Number(f.elements.cuotas.value);
@@ -997,11 +1108,21 @@
     event.preventDefault();if(busy)return;const f=event.target;
     if(dimensionsError||!dimensions){notice('Consulta los centros de costo de Zeus antes de emitir la factura o solicitar autorización.',true);return;}
     if(!client){notice('Selecciona un cliente de los resultados.',true);return;}
+    const t=token,submit=f.querySelector('[type="submit"]');
+    busy=true;submit.disabled=true;
+    try{if(!await refreshInvoiceCatalog())return;}
+    catch(error){if(current(t))notice(`No se pudieron verificar las existencias y el IVA. ${error.message}`,true);return;}
+    finally{busy=false;if(submit.isConnected)submit.disabled=false;}
+    if(!client){notice('Selecciona un cliente de los resultados.',true);return;}
     if(lines.some(x=>!x.articuloId||!x.bodegaId||x.cantidad<=0||x.precioBaseConIva<=0||x.descuentoPorcentaje<0||x.descuentoPorcentaje>=100||x.precioUnitarioConIva<=0)){notice('Completa artículos, cantidades, precio con IVA y descuento válido.',true);return;}
     if(!lines.length&&!conceptLines.length){notice('Agrega al menos un artículo o un concepto.',true);return;}
     const priceIssues=[];
     for(const line of lines){const a=options.articulos.find(x=>x.id===line.articuloId&&x.bodegaId===line.bodegaId);
-      if(a?.iva==null||a.inventario&&line.cantidad>a.existencia||a?.serial&&line.unidadesSerializadas.length!==line.cantidad){notice('Revisa el IVA, las existencias y los seriales seleccionados.',true);return;}
+      if(a?.iva==null||a.inventario&&line.cantidad>a.existencia){notice('Revisa el IVA y las existencias del artículo antes de emitir.',true);return;}
+      if(a.serial){
+        const serials=availableArticleSerials(line);
+        if(line.unidadesSerializadas.length!==line.cantidad||line.unidadesSerializadas.some(id=>!serials.has(id))){notice('Revisa los seriales seleccionados. Consulta las unidades disponibles.',true);return;}
+      }
       if(a.precioListaConIva&&line.precioUnitarioConIva<Math.round(a.precioListaConIva*(1-options.maxDescuentoVentaPct/100)*100)/100)priceIssues.push(`${a.codigo}: descuento superior a ${options.maxDescuentoVentaPct} %`);
       if(line.descuentoPorcentaje>options.maxDescuentoVentaPct&&!priceIssues.some(issue=>issue.startsWith(`${a.codigo}: descuento`)))priceIssues.push(`${a.codigo}: descuento ${line.descuentoPorcentaje} % superior al permitido`);
       if(a.inventario&&a.costoPromedio>0&&line.precioUnitarioConIva<Math.round(a.costoPromedio*(1+a.iva/100)*100)/100)priceIssues.push(`${a.codigo}: precio bajo costo`);}

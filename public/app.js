@@ -86,6 +86,18 @@ async function apiRequest(path, options = {}) {
   const validationMessage=payload?.errors?Object.values(payload.errors).flat()[0]:null;
   if (!response.ok) { const error=new Error(payload?.error || validationMessage || payload?.detail || payload?.title || `La API respondió ${response.status}.`);error.status=response.status;throw error; }
   if(options.method==='POST'&&/\/receipts\/\d+\/post$/.test(path)&&payload?.zeus) receiptZeusNotice(path,payload.zeus);
+  if (['POST', 'PUT', 'DELETE'].includes(options.method)) {
+    const companyPath = path.match(/^\/api\/v1\/companies\/(\d+)\/([^?]+)/);
+    const saleCatalogWrites = [
+      /^master-data\/(?:articles|clients)(?:\/\d+)?$/,
+      /^(?:sales-invoices|sales-price-approvals\/\d+\/issue|inventory\/entries)$/,
+      /^(?:receipts\/\d+\/(?:post|transfer)|transfers\/\d+\/(?:dispatch|receive))$/,
+      /^(?:(?:supplier|sales)-returns\/\d+\/post|(?:physical-counts|landed-cost-distributions)\/\d+\/apply|inventory\/movements\/\d+\/reverse)$/
+    ];
+    if (companyPath && saleCatalogWrites.some(pattern => pattern.test(companyPath[2]))) {
+      window.notifySaleCatalogChange?.(companyPath[1]);
+    }
+  }
   return payload;
 }
 
@@ -418,6 +430,35 @@ function syncManualSupplierFromNit(){
 }
 function apiClientToMaster(x){return {id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',personType:x.tipoPersona,firstName:x.nombre1||'',lastName:x.apellido1||'',seller:x.vendedorZeus||'',clientType:x.tipoClienteZeus||'',division:x.divisionPoliticaZeus||'',zeusEstado:x.zeusEstado,zeusMensaje:x.zeusMensaje,active:x.activo};}
 
+function apiArticleToMaster(article) {
+  return {
+    id: article.articuloId, code: article.codigo, description: article.descripcion, brand: article.marca,
+    type: article.tipo, unitId: article.unidadBaseId, inventory: article.manejaInventario,
+    lot: article.manejaLote, serial: article.manejaSerial, expiry: article.requiereVencimiento,
+    ivaVenta: article.porcentajeIvaVenta, precioListaConIva: article.precioListaConIva, active: article.activo
+  };
+}
+
+let articleRefreshVersion = 0;
+async function refreshArticleMaster() {
+  const context = state.apiContext;
+  const company = state.erpSession?.company;
+  if (!context || !company || !state.erpSession.api || state.runtimeMode !== 'api') return;
+  const version = ++articleRefreshVersion;
+  try {
+    const articles = await apiRequest(`/api/v1/companies/${company.id}/master-data/articles`, {cache:'no-store'});
+    if (version !== articleRefreshVersion || context !== state.apiContext || company !== state.erpSession?.company) return;
+    const current = articles.map(apiArticleToMaster);
+    if (JSON.stringify(context.masterData.articles) === JSON.stringify(current)) return;
+    context.masterData.articles = current;
+    if (state.masterView === 'articles' && !elements.masterDataModule.hidden) renderArticleMasterPage();
+  } catch (error) {
+    if (version === articleRefreshVersion && context === state.apiContext && company === state.erpSession?.company && state.masterView === 'articles' && !elements.masterDataModule.hidden) {
+      showMasterNotice(`No fue posible actualizar los artículos. ${error.message}`, true);
+    }
+  }
+}
+
 async function loadApiCompanyContext() {
   if(state.runtimeMode!=='api'||!state.erpSession?.company?.id||!apiToken()) return;
   clientPageRequestVersion++;
@@ -426,7 +467,7 @@ async function loadApiCompanyContext() {
   const clientQuery=state.masterView==='clients'?elements.masterSearch.value.trim():'';
   try {
     const [suppliers,units,articles,mappings,warehouses,periods,accountingPeriods,accounts,companies,permissions,brands,branches,clients]=await Promise.all([
-      apiRequest(`${base}/master-data/suppliers`),apiRequest(`${base}/master-data/units`),apiRequest(`${base}/master-data/articles`),
+      apiRequest(`${base}/master-data/suppliers`),apiRequest(`${base}/master-data/units`),apiRequest(`${base}/master-data/articles`, {cache:'no-store'}),
       apiRequest(`${base}/master-data/item-mappings`),apiRequest(`${base}/warehouses`),apiRequest(`${base}/inventory-periods`),
       apiRequest(`${base}/accounting-periods`),apiRequest(`${base}/accounting-accounts`),apiRequest('/api/v1/companies'),apiRequest(`${base}/permissions`),
       apiRequest(`${base}/master-data/brands`).then(rows=>({rows,error:null})).catch(error=>({rows:[],error:error.message})),
@@ -442,7 +483,7 @@ async function loadApiCompanyContext() {
       clients:clients.page.items.map(apiClientToMaster),clientsPage:clients.page,clientsError:clients.error,
       suppliers:suppliers.map(x=>({id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',xmlData:x.datosXmlJson||null,zeusEstado:x.zeusEstado,zeusMensaje:x.zeusMensaje,active:x.activo})),
       units:units.map(x=>({id:x.unidadMedidaId,code:x.codigo,name:x.nombre,symbol:x.simbolo,active:x.activa})),
-      articles:articles.map(x=>({id:x.articuloId,code:x.codigo,description:x.descripcion,brand:x.marca,type:x.tipo,unitId:x.unidadBaseId,inventory:x.manejaInventario,lot:x.manejaLote,serial:x.manejaSerial,expiry:x.requiereVencimiento,ivaVenta:x.porcentajeIvaVenta,precioListaConIva:x.precioListaConIva,active:x.activo})),
+      articles:articles.map(apiArticleToMaster),
       warehouses:warehouses.map(x=>({id:x.bodegaId,code:x.codigo,name:x.nombre,locations:x.usaUbicaciones,transit:x.esTransito,sucursalId:x.sucursalId,active:true})),
       mappings:mappings.map(x=>({id:x.homologacionArticuloProveedorId,supplierId:x.terceroId,externalCode:x.codigoExterno,externalDescription:x.descripcionExterna||'',articleId:x.articuloId,unitId:null,factor:x.factorAUnidadBase,active:x.activa})),
     }};
@@ -656,7 +697,11 @@ function renderClientMasterTable(data) {
       await loadClientMasterPage(1);
       showMasterNotice(`Sincronización incremental: ${created} nuevos, ${updated} con cambios y ${skipped} omitidos de ${processed} revisados. ${reviewComplete?'La revisión de clientes existentes completó una vuelta.':'La revisión de clientes existentes continuará desde este punto en la próxima ejecución.'}`);
     }catch(error){showMasterNotice(`La sincronización se detuvo después de ${processed} clientes. ${error.message}`,true);}
-    finally{customerZeusSyncRunning=false;sync.disabled=false;refresh.disabled=false;if(state.masterView==='clients'&&!elements.masterDataModule.hidden)renderMasterView();}
+    finally{
+      if (created || updated) window.notifySaleCatalogChange?.(company);
+      customerZeusSyncRunning=false;sync.disabled=false;refresh.disabled=false;
+      if(state.masterView==='clients'&&!elements.masterDataModule.hidden)renderMasterView();
+    }
   });
   elements.masterTable.replaceChildren(sync,refresh,table);return clients.length;
 }
@@ -714,6 +759,7 @@ function showMasterView(view) {
   document.querySelectorAll('[data-registration-mode],[data-inventory-view]').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('[data-master-view]').forEach(x=>x.classList.toggle('active',x.dataset.masterView===view));
   elements.masterSearch.value=''; renderMasterView();if(view==='clients')void loadClientMasterPage(1);window.scrollTo({top:0,behavior:'smooth'});
+  if (view === 'articles') void refreshArticleMaster();
 }
 
 function securityBase(){return `/api/v1/companies/${state.erpSession.company.id}/security`;}
@@ -978,7 +1024,7 @@ async function refreshInventory(){
       }
       if(view==='expiry')params.set('dias','365');
       const endpoint={stock:'inventory/stock',kardex:'inventory/kardex',serials:'inventory/serialized-units',expiry:'inventory/expiry-alerts'}[view];
-      rows=await apiRequest(`${base}/${endpoint}?${params}`);
+      rows=await apiRequest(`${base}/${endpoint}?${params}`, {cache:'no-store'});
     }else{
       const query=elements.inventorySearch.value.trim().toLocaleLowerCase('es-CO');
       rows=inventoryDemo[view].filter(x=>!query||Object.values(x).join(' ').toLocaleLowerCase('es-CO').includes(query));
