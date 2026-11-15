@@ -1306,6 +1306,7 @@ function renderInventoryOperationPanel() {
     } else {
       stockPanel.dataset.stockState = 'available';
       stockMessage.textContent = `Disponible en origen: ${quantityFormat.format(availability.available)}`;
+      if (article.serial) stockMessage.textContent += '. Selecciona los chasis o seriales que vas a trasladar.';
     }
     if (availability && availability.registered > availability.available) {
       stockMessage.textContent += ` · Saldo registrado: ${quantityFormat.format(availability.registered)}`;
