@@ -1105,6 +1105,7 @@ function renderInventoryOperationPanel() {
       </div>
       <div class="transfer-units-list" data-unit-list></div>
     </fieldset>
+    <label class="wide transfer-observation" data-op-field="observation"><span>Observaciones (opcional)</span><textarea name="observation" rows="2" maxlength="500"></textarea></label>
     <label data-op-field="serials" hidden><span>Seriales (IDs separados por coma)</span><input name="serials" placeholder="Opcional"></label>
     <label class="wide" data-op-field="reason" hidden><span>Motivo</span><input name="reason" value="Movimiento operativo de inventario"></label>
     <button class="button primary wide" type="submit">Despachar traslado</button>
@@ -1254,7 +1255,7 @@ function renderInventoryOperationPanel() {
       : !fields.source.value));
     refreshButton.disabled = busy;
     unitPanel.disabled = busy || Boolean(pendingDispatch);
-    for (const field of [fields.type,fields.origin,fields.destination,articleSearch,fields.number,fields.date,fields.period,fields.quantity,fields.source,fields.serials,fields.reason]) {
+    for (const field of [fields.type,fields.origin,fields.destination,articleSearch,fields.number,fields.date,fields.period,fields.quantity,fields.source,fields.serials,fields.reason,fields.observation]) {
       field.disabled = busy || Boolean(pendingDispatch);
     }
   }
@@ -1348,7 +1349,7 @@ function renderInventoryOperationPanel() {
   async function configure() {
     sourceRequest?.abort();
     const transferring = isTransfer();
-    for (const key of ['origin','destination','article']) form.querySelector(`[data-op-field="${key}"]`).hidden = !transferring;
+    for (const key of ['origin','destination','article','observation']) form.querySelector(`[data-op-field="${key}"]`).hidden = !transferring;
     for (const key of ['source','serials','reason']) form.querySelector(`[data-op-field="${key}"]`).hidden = transferring;
     fields.origin.required = fields.destination.required = articleSearch.required = transferring;
     articleSearch.setCustomValidity(transferring && articleSearch.value && !articleSelection ? 'Selecciona un artículo de los resultados.' : '');
@@ -1391,6 +1392,7 @@ function renderInventoryOperationPanel() {
       const origin = Number(fields.origin.value);
       const destination = Number(fields.destination.value);
       const number = fields.number.value.trim();
+      const observation = fields.observation.value.trim();
       const latest = await loadTransferAvailability();
       if (!latest) throw new Error(unitsError || 'No se pudo comprobar la disponibilidad del artículo.');
       if (!Number.isFinite(quantity) || quantity <= 0 || quantity > latest.available) {
@@ -1404,10 +1406,14 @@ function renderInventoryOperationPanel() {
         body:JSON.stringify({
           numero:number, bodegaOrigenId:origin, bodegaTransitoId:null, bodegaDestinoId:destination,
           fechaSalida:`${date}T12:00:00`,
+          observacion:observation || null,
           lineas:[{articuloId:article.id, loteId:null, cantidad:quantity, unidadSerializadaIds:requestedUnits}]
         })
       });
       if (created.yaExistia) throw new Error('Ya existe un traslado con ese número. Usa otro número para crear este traslado.');
+      if (observation && created.observacion !== observation) {
+        throw new Error(`El traslado ${created.numero} quedó en borrador. El servidor no confirmó la observación. Actualiza el backend antes de despachar con observaciones.`);
+      }
       pendingDispatch = {document:created, date, period};
     }
     const draft = pendingDispatch;
@@ -1429,14 +1435,22 @@ function renderInventoryOperationPanel() {
           method:'POST',
           body:JSON.stringify({periodoInventarioId:draft.period, fechaContable:draft.date, fechaRecepcion:`${draft.date}T12:00:00`})
         });
-        output.textContent = `Traslado recibido · ${result.movimientos} movimientos · estado ${result.estado}.`;
+        output.firstChild.textContent = `Traslado ${created.numero} recibido · ${result.movimientos} movimientos · estado ${result.estado}.`;
+        receive.remove();
       } catch (error) {
         output.firstChild.textContent = `No se pudo recibir el traslado ${created.numero}. ${error.message} `;
         receive.disabled = false;
       }
     });
     output.append(receive);
+    if (created.observacion) {
+      const note = document.createElement('p');
+      note.className = 'transfer-saved-observation';
+      note.textContent = `Observaciones: ${created.observacion}`;
+      output.append(note);
+    }
     fields.number.value = `MOV-${Date.now().toString().slice(-6)}`;
+    fields.observation.value = '';
     await loadTransferAvailability({clear:true});
   }
 

@@ -22,6 +22,9 @@ public sealed class InventoryOperationsRepository(TenantConnectionFactory connec
 
     public async Task<CreatedInventoryDocumentResponse> CreateTransferAsync(long e,CreateTransferRequest r,CancellationToken ct)
     {
+        var observation = string.IsNullOrWhiteSpace(r.Observacion) ? null : r.Observacion.Trim();
+        if (observation?.Length > 500)
+            throw new ArgumentException("La observación del traslado puede tener hasta 500 caracteres.");
         await using var connection=await connections.OpenAsync(e,false,ct);await using var transaction=await connection.BeginTransactionAsync(ct);var tx=(SqlTransaction)transaction;
         var existing=await FindDocumentAsync(connection,tx,"inv.Traslado","TrasladoId",e,r.Numero,ct);if(existing is not null){await transaction.RollbackAsync(ct);return new(existing.Value,r.Numero,"BORRADOR",true);}
         var assignedUnits = new HashSet<long>();
@@ -54,9 +57,25 @@ public sealed class InventoryOperationsRepository(TenantConnectionFactory connec
             else if (units.Count != 0)
                 throw new ArgumentException("El artículo seleccionado no maneja chasis ni seriales.");
         }
-        await using var header=connection.CreateCommand();header.Transaction=tx;header.CommandText="INSERT inv.Traslado(EmpresaId,TrasladoGuid,Numero,BodegaOrigenId,BodegaTransitoId,BodegaDestinoId,FechaSalida,CreadoPorUsuarioId) OUTPUT inserted.TrasladoId VALUES(@E,@G,@N,@O,@T,@D,@F,@U);";Add(header,"@E",SqlDbType.BigInt,e);Add(header,"@G",SqlDbType.UniqueIdentifier,r.TrasladoGuid??Guid.NewGuid());Add(header,"@N",SqlDbType.NVarChar,r.Numero.Trim(),50);Add(header,"@O",SqlDbType.BigInt,r.BodegaOrigenId);Add(header,"@T",SqlDbType.BigInt,r.BodegaTransitoId);Add(header,"@D",SqlDbType.BigInt,r.BodegaDestinoId);Add(header,"@F",SqlDbType.DateTime2,r.FechaSalida);Add(header,"@U",SqlDbType.BigInt,r.UsuarioId);var id=Convert.ToInt64(await header.ExecuteScalarAsync(ct));
+        await using var header = connection.CreateCommand();
+        header.Transaction = tx;
+        header.CommandText = """
+            INSERT inv.Traslado(EmpresaId,TrasladoGuid,Numero,BodegaOrigenId,BodegaTransitoId,BodegaDestinoId,FechaSalida,CreadoPorUsuarioId,Observacion)
+            OUTPUT inserted.TrasladoId
+            VALUES(@E,@G,@N,@O,@T,@D,@F,@U,@Observation);
+            """;
+        Add(header,"@E",SqlDbType.BigInt,e);
+        Add(header,"@G",SqlDbType.UniqueIdentifier,r.TrasladoGuid??Guid.NewGuid());
+        Add(header,"@N",SqlDbType.NVarChar,r.Numero.Trim(),50);
+        Add(header,"@O",SqlDbType.BigInt,r.BodegaOrigenId);
+        Add(header,"@T",SqlDbType.BigInt,r.BodegaTransitoId);
+        Add(header,"@D",SqlDbType.BigInt,r.BodegaDestinoId);
+        Add(header,"@F",SqlDbType.DateTime2,r.FechaSalida);
+        Add(header,"@U",SqlDbType.BigInt,r.UsuarioId);
+        Add(header,"@Observation",SqlDbType.NVarChar,observation,500);
+        var id = Convert.ToInt64(await header.ExecuteScalarAsync(ct));
         for(var i=0;i<r.Lineas.Count;i++){var line=r.Lineas[i];await using var command=connection.CreateCommand();command.Transaction=tx;command.CommandText="INSERT inv.TrasladoLinea(EmpresaId,TrasladoId,NumeroLinea,ArticuloId,CantidadDespachada,LoteId) OUTPUT inserted.TrasladoLineaId VALUES(@E,@H,@L,@A,@Q,@Lot);";Add(command,"@E",SqlDbType.BigInt,e);Add(command,"@H",SqlDbType.BigInt,id);Add(command,"@L",SqlDbType.Int,i+1);Add(command,"@A",SqlDbType.BigInt,line.ArticuloId);AddDecimal(command,"@Q",line.Cantidad,20,6);Add(command,"@Lot",SqlDbType.BigInt,line.LoteId);var lineId=Convert.ToInt64(await command.ExecuteScalarAsync(ct));await LinkUnitsAsync(connection,tx,"inv.TrasladoLineaUnidad","TrasladoLineaId",e,lineId,line.UnidadSerializadaIds,ct);}
-        await transaction.CommitAsync(ct);return new(id,r.Numero,"BORRADOR",false);
+        await transaction.CommitAsync(ct);return new(id,r.Numero,"BORRADOR",false,observation);
     }
 
     public async Task<CreatedInventoryDocumentResponse> CreateSupplierReturnAsync(long e,CreateSupplierReturnRequest r,CancellationToken ct)

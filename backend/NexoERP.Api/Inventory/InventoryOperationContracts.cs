@@ -17,11 +17,12 @@ public sealed record RegularizeNegativeInventoryRequest(long RecepcionMercanciaL
 public sealed record ReverseInventoryMovementRequest(long PeriodoInventarioId,DateOnly FechaContable,string Motivo,Guid IdempotencyKey,long? AprobacionOperacionId,long? UsuarioId,Guid? CorrelationId);
 public sealed record ReverseInventoryMovementResponse(long ReversionMovimientoInventarioId,long MovimientoReversionId,bool YaExistia);
 public sealed record CreateTransferLineRequest(long ArticuloId,long? LoteId,decimal Cantidad,IReadOnlyList<long>? UnidadSerializadaIds);
-public sealed record CreateTransferRequest(string Numero,long BodegaOrigenId,long? BodegaTransitoId,long BodegaDestinoId,DateTime FechaSalida,Guid? TrasladoGuid,long? UsuarioId,IReadOnlyList<CreateTransferLineRequest> Lineas);
+public sealed record CreateTransferRequest(string Numero,long BodegaOrigenId,long? BodegaTransitoId,long BodegaDestinoId,DateTime FechaSalida,Guid? TrasladoGuid,long? UsuarioId,IReadOnlyList<CreateTransferLineRequest> Lineas,string? Observacion=null);
 public sealed record CreateSupplierReturnLineRequest(long RecepcionMercanciaLineaId,long ArticuloId,decimal CantidadBase,long? UbicacionId,long? LoteId,IReadOnlyList<long>? UnidadSerializadaIds);
 public sealed record CreateSupplierReturnRequest(string Numero,long TerceroId,long BodegaId,long PeriodoInventarioId,DateTime FechaMovimiento,DateOnly FechaContable,string Motivo,Guid? DevolucionGuid,long? UsuarioId,IReadOnlyList<CreateSupplierReturnLineRequest> Lineas);
 public sealed record CreateSalesReturnLineRequest(long MovimientoSalidaOriginalId,long ArticuloId,decimal CantidadBase,long? UbicacionId,long? LoteId,IReadOnlyList<long>? UnidadSerializadaIds);
 public sealed record CreateSalesReturnRequest(string Numero,long? TerceroId,long BodegaId,long PeriodoInventarioId,DateTime FechaMovimiento,DateOnly FechaContable,string Motivo,Guid? DevolucionGuid,long? UsuarioId,IReadOnlyList<CreateSalesReturnLineRequest> Lineas);
-public sealed record CreatedInventoryDocumentResponse(long DocumentoId,string Numero,string Estado,bool YaExistia);
+public sealed record CreatedInventoryDocumentResponse(long DocumentoId,string Numero,string Estado,bool YaExistia,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? Observacion=null);
 public sealed record SupplierReturnSourceResponse(long RecepcionMercanciaLineaId,string Recepcion,string Proveedor,long TerceroId,long BodegaId,string Bodega,long ArticuloId,string Codigo,string Descripcion,long? LoteId,decimal CantidadRecibida,decimal CantidadDisponible,decimal CostoUnitario);
 public sealed record SalesReturnSourceResponse(long MovimientoSalidaOriginalId,string Documento,long? TerceroId,long BodegaId,string Bodega,long ArticuloId,string Codigo,string Descripcion,long? LoteId,decimal CantidadVendida,decimal CantidadDisponible,decimal CostoUnitario);
