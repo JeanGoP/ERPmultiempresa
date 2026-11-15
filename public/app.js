@@ -532,16 +532,20 @@ function renderArticleMasterTable(data,query) {
     const unit=findById(data.units,article.unitId)?.code||'';
     return !query||[article.code,article.description,article.brand,article.type,unit,activeLabel(article.active)].join(' ').toLocaleLowerCase('es-CO').includes(query);
   });
-  const table=document.createElement('table'); const head=document.createElement('thead');
-  head.innerHTML='<tr><th>Código</th><th>Descripción</th><th>Marca reconocida</th><th>Tipo</th><th>Unidad base</th><th>Controles</th><th>Estado</th><th>Acciones</th></tr>';
+  const table=document.createElement('table'); table.className='article-master-grid'; const head=document.createElement('thead');
+  head.innerHTML='<tr><th>Código</th><th>Artículo / marca</th><th>Tipo / unidad</th><th>Controles</th><th>Estado</th><th>Acciones</th></tr>';
   const body=document.createElement('tbody');
   articles.forEach((article)=>{
     const row=document.createElement('tr');
-    const values=[article.code,article.description,article.brand||'Sin coincidencia confirmada',article.type,findById(data.units,article.unitId)?.code||'—',[article.inventory?'Inventario':'Sin inventario',article.serial?'Serial / motor / chasis':'',article.lot?'Lote':'',article.expiry?'Vencimiento':''].filter(Boolean).join(' · '),activeLabel(article.active)];
-    values.forEach((value)=>{const cell=document.createElement('td');cell.textContent=value;row.append(cell);});
-    const actions=document.createElement('td'); actions.className='master-row-actions'; actions.append(masterActionButton('Editar','edit',article.id),masterActionButton('Eliminar','delete',article.id,true)); row.append(actions); body.append(row);
+    const code=document.createElement('td');code.textContent=article.code;
+    const description=document.createElement('td');const name=document.createElement('strong');name.textContent=article.description;description.append(name);if(article.brand){const brand=document.createElement('small');brand.textContent=`Marca: ${article.brand}`;description.append(brand);}
+    const type=document.createElement('td');const typeName=document.createElement('span');typeName.textContent=article.type==='INVENTARIO'?'Inventario':article.type==='SERVICIO'?'Servicio':article.type;const unit=document.createElement('small');unit.textContent=findById(data.units,article.unitId)?.code||'—';type.append(typeName,unit);
+    const controls=document.createElement('td');controls.textContent=[article.inventory?'Inventario':'Sin inventario',article.serial?'Serial / motor / chasis':'',article.lot?'Lote':'',article.expiry?'Vencimiento':''].filter(Boolean).join(' · ');
+    const status=document.createElement('td');status.textContent=activeLabel(article.active);
+    const actions=document.createElement('td');const actionGroup=document.createElement('div');actionGroup.className='article-row-actions';actionGroup.append(masterActionButton('Editar','edit',article.id),masterActionButton('Eliminar','delete',article.id,true));actions.append(actionGroup);
+    row.append(code,description,type,controls,status,actions);body.append(row);
   });
-  if(!articles.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=8;cell.className='empty';cell.textContent='No hay artículos que coincidan con la búsqueda.';row.append(cell);body.append(row);}
+  if(!articles.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=6;cell.className='empty';cell.textContent='No hay artículos que coincidan con la búsqueda.';row.append(cell);body.append(row);}
   table.append(head,body); elements.masterTable.replaceChildren(table); return articles.length;
 }
 
@@ -637,6 +641,7 @@ function showMasterNotice(message,isError=false) {
 }
 
 function renderMasterView() {
+  elements.masterTable.closest('.master-catalog').classList.toggle('article-master',state.masterView==='articles');
   const context=getCompanyMasterData(); const data=context.data; const config=masterViewConfig[state.masterView];
   elements.masterClientPager.hidden=state.masterView!=='clients';
   elements.masterViewTitle.textContent=config[0]; elements.masterViewSubtitle.textContent=config[1]; elements.addMasterRecord.textContent=state.masterView==='mappings'?'＋ Nueva homologación':'＋ Nuevo registro';
