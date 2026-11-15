@@ -705,7 +705,12 @@ footer p { margin: 0; }
 .operation-heading p { margin: 0; color: var(--muted); font-size: 10px; }
 .inventory-operation-form { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; padding: 20px; border: 1px solid #d5e3dc; border-radius: 12px; background: #f7fbf9; }
 .inventory-operation-form .wide { grid-column: 1/-1; }
-.transfer-observation textarea { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:#fff; font:inherit; resize:vertical; }
+.transfer-observation { min-width:0; }
+.transfer-observation textarea { width:100%; min-height:88px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:#fff; font:inherit; resize:vertical; }
+@media (width > 1050px) {
+  .inventory-operation-form > .transfer-units:not([hidden]) { grid-column:span 3; }
+  .inventory-operation-form > .transfer-units:not([hidden]) + .transfer-observation { grid-column:span 1; }
+}
 .transfer-saved-observation { margin:8px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .inventory-workspace:has(.transfer-article-results:not([hidden])) { overflow:visible; }
 .transfer-article-picker { position:relative; min-width:0; }
