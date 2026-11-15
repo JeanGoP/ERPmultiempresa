@@ -381,6 +381,7 @@ const pendingApiMasterData = {};
 let clientPageRequestVersion=0;
 let clientSearchTimer;
 const clientPageState={page:1,total:0,size:25};
+const articlePageState={page:1,size:20};
 function pendingApiMasterDataFor(companyId) {
   const key=String(companyId||'sin-empresa');
   if(!pendingApiMasterData[key])pendingApiMasterData[key]={clients:[],suppliers:[],units:[],articles:[],brands:[],warehouses:[],mappings:[]};
@@ -532,10 +533,12 @@ function renderArticleMasterTable(data,query) {
     const unit=findById(data.units,article.unitId)?.code||'';
     return !query||[article.code,article.description,article.brand,article.type,unit,activeLabel(article.active)].join(' ').toLocaleLowerCase('es-CO').includes(query);
   });
+  const pagination=paginateArticles(articles,articlePageState.page,articlePageState.size);
+  articlePageState.page=pagination.page;
   const table=document.createElement('table'); table.className='article-master-grid'; const head=document.createElement('thead');
   head.innerHTML='<tr><th>Código</th><th>Descripción</th><th>Marca reconocida</th><th>Tipo</th><th>Unidad base</th><th>Controles</th><th>Estado</th><th>Acciones</th></tr>';
   const body=document.createElement('tbody');
-  articles.forEach((article)=>{
+  pagination.items.forEach((article)=>{
     const row=document.createElement('tr');
     const values=[article.code,article.description,article.brand||'Sin coincidencia confirmada',article.type,findById(data.units,article.unitId)?.code||'—',[article.inventory?'Inventario':'Sin inventario',article.serial?'Serial / motor / chasis':'',article.lot?'Lote':'',article.expiry?'Vencimiento':''].filter(Boolean).join(' · '),activeLabel(article.active)];
     values.forEach((value)=>{const cell=document.createElement('td');cell.textContent=value;cell.title=value;row.append(cell);});
@@ -543,7 +546,32 @@ function renderArticleMasterTable(data,query) {
     row.append(actions);body.append(row);
   });
   if(!articles.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=8;cell.className='empty';cell.textContent='No hay artículos que coincidan con la búsqueda.';row.append(cell);body.append(row);}
-  table.append(head,body); elements.masterTable.replaceChildren(table); return articles.length;
+  table.append(head,body); elements.masterTable.replaceChildren(table); return pagination;
+}
+
+function paginateArticles(items,page,size){
+  const pages=Math.max(1,Math.ceil(items.length/size));
+  const current=Math.min(Math.max(1,page),pages);
+  const start=(current-1)*size;
+  return {items:items.slice(start,start+size),page:current,pages,total:items.length,start:items.length?start+1:0,end:Math.min(start+size,items.length)};
+}
+
+function renderArticleMasterPage(data=getCompanyMasterData().data,query=elements.masterSearch.value.trim().toLocaleLowerCase('es-CO')){
+  const result=renderArticleMasterTable(data,query);
+  elements.masterCount.textContent=`${result.start}–${result.end} de ${result.total} artículos y servicios`;
+  const pager=elements.masterClientPager;
+  pager.hidden=result.total<=20;
+  pager.replaceChildren();
+  if(pager.hidden)return;
+  const previous=document.createElement('button');previous.type='button';previous.className='button secondary';previous.textContent='Anterior';previous.disabled=result.page===1;
+  previous.addEventListener('click',()=>{articlePageState.page--;renderArticleMasterPage();elements.masterTable.scrollIntoView({block:'start',behavior:'smooth'});});
+  const label=document.createElement('span');label.textContent=`Página ${result.page} de ${result.pages}`;
+  const next=document.createElement('button');next.type='button';next.className='button secondary';next.textContent='Siguiente';next.disabled=result.page===result.pages;
+  next.addEventListener('click',()=>{articlePageState.page++;renderArticleMasterPage();elements.masterTable.scrollIntoView({block:'start',behavior:'smooth'});});
+  const size=document.createElement('select');size.setAttribute('aria-label','Artículos por página');
+  [20,50].forEach(value=>size.add(new Option(`${value} por página`,String(value))));size.value=String(articlePageState.size);
+  size.addEventListener('change',()=>{articlePageState.size=Number(size.value);articlePageState.page=1;renderArticleMasterPage();});
+  pager.replaceChildren(previous,label,next,size);
 }
 
 function renderSupplierMasterTable(data,query) {
@@ -640,7 +668,8 @@ function showMasterNotice(message,isError=false) {
 function renderMasterView() {
   elements.masterTable.closest('.master-catalog').classList.toggle('article-master',state.masterView==='articles');
   const context=getCompanyMasterData(); const data=context.data; const config=masterViewConfig[state.masterView];
-  elements.masterClientPager.hidden=state.masterView!=='clients';
+  elements.masterClientPager.hidden=!['clients','articles'].includes(state.masterView);
+  elements.masterClientPager.setAttribute('aria-label',state.masterView==='articles'?'Páginas de artículos':'Páginas de clientes');
   elements.masterViewTitle.textContent=config[0]; elements.masterViewSubtitle.textContent=config[1]; elements.addMasterRecord.textContent=state.masterView==='mappings'?'＋ Nueva homologación':'＋ Nuevo registro';
   elements.addMasterRecord.disabled=(state.masterView==='brands'&&Boolean(data.brandsError))||(state.masterView==='branches'&&Boolean(data.branchesError));
   renderMasterStats(data);
@@ -660,7 +689,7 @@ function renderMasterView() {
     table.querySelectorAll('tbody tr').forEach((row,index)=>{if(!rows[index])return;const button=document.createElement('button');button.type='button';button.className='button secondary';button.textContent='Editar';button.addEventListener('click',()=>openMasterForm(rows[index]));row.lastElementChild.append(button);});
     elements.masterTable.replaceChildren(table);elements.masterCount.textContent=`${rows.length} sucursales`;return;
   }
-  if(state.masterView==='articles'){const count=renderArticleMasterTable(data,query);elements.masterCount.textContent=`${count} ${config[2]}`;return;}
+  if(state.masterView==='articles'){renderArticleMasterPage(data,query);return;}
   if(state.masterView==='warehouses'){
     const warehouses=data.warehouses.filter(x=>!query||`${x.code} ${x.name}`.toLocaleLowerCase('es-CO').includes(query));
     const table=buildDataTable(['Código','Nombre','Sucursal','Ubicaciones','Tránsito','Estado','Acciones'],warehouses.map(x=>[x.code,x.name,(data.branches||[]).find(b=>b.id===x.sucursalId)?.nombre||'Pendiente de asignar',x.locations?'Sí':'No',x.transit?'Sí':'No',activeLabel(x.active),'']));
@@ -2819,6 +2848,7 @@ elements.addMasterRecord.addEventListener('click',()=>openMasterForm());
 elements.masterTable.addEventListener('click',(event)=>{const supplierButton=event.target.closest('[data-master-supplier-action]');if(supplierButton){const supplier=findById(getCompanyMasterData().data.suppliers,supplierButton.dataset.id);if(supplierButton.dataset.masterSupplierAction==='edit')openMasterForm(supplier);else if(supplierButton.dataset.masterSupplierAction==='delete')void deleteMasterSupplier(supplier);return;}const button=event.target.closest('[data-master-article-action]');if(!button)return;const article=findById(getCompanyMasterData().data.articles,button.dataset.id);if(button.dataset.masterArticleAction==='edit')openMasterForm(article);else if(button.dataset.masterArticleAction==='delete')void deleteMasterArticle(article);});
 elements.masterRecordForm.addEventListener('submit', saveMasterRecord);
 elements.masterSearch.addEventListener('input',()=>{
+  if(state.masterView==='articles'){articlePageState.page=1;renderArticleMasterPage();return;}
   if(state.masterView!=='clients'){renderMasterView();return;}
   clearTimeout(clientSearchTimer);
   clientPageRequestVersion++;
