@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
+using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.Inventory;
 
@@ -200,12 +201,20 @@ public sealed class InventoryOperationsRepository(TenantConnectionFactory connec
     private async Task<InventoryDocumentOperationResponse> ExecuteOperationAsync(long e,string procedure,string idName,long id,long period,DateOnly date,long? user,Guid? correlation,DateTime? reception,CancellationToken ct)
     {
         await using var connection=await connections.OpenAsync(e,false,ct);
+        var receivingTransfer = procedure=="inv.usp_RecibirTraslado";
+        await using var transaction = receivingTransfer ? (SqlTransaction)await connection.BeginTransactionAsync(ct) : null;
         await using var command=connection.CreateCommand(); command.CommandType=CommandType.StoredProcedure; command.CommandText=procedure;
+        command.Transaction=transaction;
         Add(command,"@EmpresaId",SqlDbType.BigInt,e); Add(command,idName,SqlDbType.BigInt,id); Add(command,"@PeriodoInventarioId",SqlDbType.BigInt,period);
         Add(command,"@FechaContable",SqlDbType.Date,date.ToDateTime(TimeOnly.MinValue));
-        if(procedure=="inv.usp_RecibirTraslado") Add(command,"@FechaRecepcion",SqlDbType.DateTime2,reception);
+        if(receivingTransfer) Add(command,"@FechaRecepcion",SqlDbType.DateTime2,reception);
         Add(command,"@UsuarioId",SqlDbType.BigInt,user); Add(command,"@CorrelationId",SqlDbType.UniqueIdentifier,correlation);
-        return await ReadOperationAsync(command,ct);
+        var result = await ReadOperationAsync(command,ct);
+        if (transaction is null) return result;
+        if (!result.YaExistia && result.Estado=="RECIBIDO")
+            result = result with { Zeus=await ZeusRepository.EnqueueTransferAsync(connection,transaction,e,id,user,ct) };
+        await transaction.CommitAsync(ct);
+        return result;
     }
 
     private static async Task<InventoryDocumentOperationResponse> ReadOperationAsync(SqlCommand command,CancellationToken ct)

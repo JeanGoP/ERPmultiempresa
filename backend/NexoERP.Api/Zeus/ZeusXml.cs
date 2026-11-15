@@ -22,8 +22,9 @@ public static class ZeusXml
         if(name.Length>available)name=name[..available];
         return prefix+name+suffix;
     }
-    public static string Build(ZeusSnapshot s,Guid key,string? invoiceDocument=null)
+    public static string Build(ZeusSnapshot s,Guid key,string? invoiceDocument=null,IReadOnlyDictionary<string,string>? transferIndicators=null)
     {
+        ZeusJournal.ValidateTransfer(s);
         var config=s.Configuracion;var origin=s.Origen;
         var date=origin.FechaContable.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture);
         var period=origin.FechaContable.ToString("yyyyMM",CultureInfo.InvariantCulture);
@@ -46,6 +47,15 @@ public static class ZeusXml
             Set(header,"DESCDCTO",description[..Math.Min(120,description.Length)]);
             Set(header,"XmlAdicionales",Marker(key));
         }
+        if (s.Traslado is { } transfer)
+        {
+            var description = $"TRASLADO {origin.Factura} - {transfer.BodegaOrigen} A {transfer.BodegaDestino}";
+            if (!string.IsNullOrWhiteSpace(transfer.Observacion)) description += " - " + transfer.Observacion;
+            Set(header,"DESCDCTO",CompactDescription(description,120));
+            Set(header,"XmlAdicionales",Marker(key));
+            Set(header,"IDTERCERO","");
+            Set(header,"IDCLIPRV","");
+        }
         var document=new XElement("Documento",header,new XElement("General",new XElement("AgruparNIT","N")));
         foreach(var movement in s.Movimientos)
         {
@@ -63,6 +73,17 @@ public static class ZeusXml
             Set(line,"BASERETETRA",movement.Base);Set(line,"PORRETETRA",movement.Tarifa);Set(line,"TasaCambio",1);
             Set(line,"IDCENCO",a.CentroCosto);Set(line,"AUXIAUX",a.Auxiliar);Set(line,"IDITEM",a.Item);
             Set(line,"CODPRESU",a.Presupuesto);Set(line,"NRESERVA",a.Reserva);Set(line,"Aplicacion","CONTABILIDAD");
+            if (s.Traslado is { } warehouseTransfer)
+            {
+                var description = movement.Valor < 0
+                    ? $"SALIDA BODEGA {warehouseTransfer.BodegaOrigen}"
+                    : $"ENTRADA BODEGA {warehouseTransfer.BodegaDestino}";
+                Set(line,"DESCRITRA",CompactDescription(description,40));
+                Set(line,"OrigenError",$"Traslado {origin.RecepcionId}");
+                Set(line,"INDCPITRA",transferIndicators?.GetValueOrDefault(a.Cuenta) ?? "1");
+                foreach (var field in new[] {"NITTRA","CLIPRV","TIPOFAC","NUMEFAC","VENCEFAC","Fechafact"})
+                    Set(line,field,"");
+            }
             document.Add(line);
         }
         if(s.Egreso is { } payment)
@@ -165,5 +186,12 @@ public static class ZeusXml
         foreach(var rune in xml.EnumerateRunes())
             if(rune.Value>127) ascii.Append("&#").Append(rune.Value).Append(';'); else ascii.Append(rune.ToString());
         return ascii.ToString();
+    }
+
+    private static string CompactDescription(string value,int maxLength)
+    {
+        var compact = string.Join(' ',value.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries));
+        if (compact.Length <= maxLength) return compact;
+        return compact[..(char.IsHighSurrogate(compact[maxLength-1]) ? maxLength-1 : maxLength)];
     }
 }

@@ -166,6 +166,11 @@ function hasPermission(code) {
   return permissionCodes().has(String(code).toUpperCase());
 }
 function hasAnyPermission(codes) { return codes.some(hasPermission); }
+function canUseZeusWorkspace() {
+  return hasAnyPermission(['SEGURIDAD.PERMISOS.ADMINISTRAR','COMPRAS.RECEPCION.CONTABILIZAR',
+    'TESORERIA.EGRESO.CONTABILIZAR','VENTAS.FACTURA.CONTABILIZAR','TESORERIA.RECIBO.CONTABILIZAR',
+    'INVENTARIO.TRASLADO.DESPACHAR','INVENTARIO.TRASLADO.RECIBIR']);
+}
 function canPurchaseMode(mode) {
   if (mode === 'services') return hasPermission('COMPRAS.DOCUMENTO.CREAR') && hasPermission('COMPRAS.SERVICIO.CAUSAR');
   return hasPermission('COMPRAS.DOCUMENTO.CREAR');
@@ -216,7 +221,7 @@ function showNoAccess() {
 }
 function isCurrentWorkspaceAllowed() {
   if (!document.querySelector('#homeDashboardModule').hidden) return true;
-  if(document.querySelector('#zeusModule')?.hidden===false) return hasAnyPermission(['SEGURIDAD.PERMISOS.ADMINISTRAR','COMPRAS.RECEPCION.CONTABILIZAR']);
+  if(document.querySelector('#zeusModule')?.hidden===false) return canUseZeusWorkspace();
   if (!elements.purchaseModule.hidden) return canPurchaseMode(state.registrationMode);
   if (!elements.savedPurchasesModule.hidden) return canUseSavedPurchases();
   if (!elements.accountsPayableModule.hidden) return canUseAccountsPayable();
@@ -265,7 +270,7 @@ function applyAccessControls() {
   setVisible('[data-nav-group="administration"]', canSecurity || Boolean(state.erpSession?.superAdmin));
   setVisible(elements.companiesAdminNav, Boolean(state.erpSession?.superAdmin));
   setVisible(elements.securityAdminNav, canSecurity);
-  setVisible('#zeusNavGroup',canSecurity||hasPermission('COMPRAS.RECEPCION.CONTABILIZAR')||hasPermission('TESORERIA.EGRESO.CONTABILIZAR')||hasPermission('VENTAS.FACTURA.CONTABILIZAR')||hasPermission('TESORERIA.RECIBO.CONTABILIZAR'));
+  setVisible('#zeusNavGroup',canUseZeusWorkspace());
   setVisible('#salesInvoicesNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
   setVisible('#salesApprovalsNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR')||canSecurity);
   setVisible('#salesReceivablesNav',hasPermission('VENTAS.FACTURA.CONTABILIZAR'));
@@ -1437,6 +1442,11 @@ function renderInventoryOperationPanel() {
         });
         output.firstChild.textContent = `Traslado ${created.numero} recibido · ${result.movimientos} movimientos · estado ${result.estado}.`;
         receive.remove();
+        if (result.zeus) {
+          const posting = document.createElement('p');
+          posting.textContent = result.zeus.mensaje;
+          output.append(posting);
+        }
       } catch (error) {
         output.firstChild.textContent = `No se pudo recibir el traslado ${created.numero}. ${error.message} `;
         receive.disabled = false;

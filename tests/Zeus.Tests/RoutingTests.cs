@@ -11,6 +11,11 @@ static class RoutingTests
         check(ZeusRouting.Resolve(configured,8,"ENTRADA_MERCANCIA").Fuente=="12","Otra sucursal usa su propia fuente");
         check(ZeusRouting.Resolve(configured,7,"RECIBO_CAJA").Fuente=="20","Movimientos independientes para la misma sucursal");
         reject(()=>ZeusRouting.Resolve(configured,8,"RECIBO_CAJA"),"Sin fuente para sucursal y movimiento no se escoge la de otra sucursal");
+        reject(()=>ZeusRouting.Resolve(configured,7,ZeusRouting.TransferMovement),"El traslado requiere fuente propia aunque existan fuentes de compras y recaudo");
+        var withTransfer=settings with { FuentesAutomaticas=[new("Norte",ZeusRouting.TransferMovement,"31","02",[],7,"NORTE","NC")] };
+        var transfer=ZeusRouting.Resolve(withTransfer,7,ZeusRouting.TransferMovement);
+        check(transfer.Fuente=="31"&&transfer.Serie=="02"&&transfer.UnidadNegocio=="NORTE"&&transfer.TipoFactura=="NC","El traslado resuelve la fuente y las dimensiones de su sucursal");
+        reject(()=>ZeusRouting.Resolve(withTransfer,8,ZeusRouting.TransferMovement),"El traslado no toma la fuente de otra sucursal");
         ZeusRouting.Validate([new("A","ENTRADA_MERCANCIA","12","00",[],1),new("B","ENTRADA_MERCANCIA","13","00",[],2)]);
         check(true,"Sucursales distintas admiten fuentes distintas sin usuarios");
         reject(()=>ZeusRouting.Validate([new("A","EGRESO","12","00",[],1),new("B","EGRESO","13","00",[],1)]),"Mismo ID de sucursal no admite fuentes contradictorias");

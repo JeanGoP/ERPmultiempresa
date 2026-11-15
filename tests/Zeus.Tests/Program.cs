@@ -111,7 +111,10 @@ Check(ZeusRepository.Fingerprint(journal)==ZeusRepository.Fingerprint(journal),"
 Check(ZeusRepository.Fingerprint(journal)!=ZeusRepository.Fingerprint(resolved),"Huella detecta cambio de cuentas");
 Check(ZeusRepository.Fingerprint(journal)==ZeusRepository.Fingerprint(journal with{Origen=source with{Total=116.5000m}}),"Huella ignora ceros decimales sin cambio de valor");
 AutomaticPostingTests.Unit(Check);
-if(args.Contains("--sql"))
+TransferPostingTests.Unit(Check,Reject,journal);
+if(args.Contains("--transfer-queue-sql")) await TransferQueueTests.SqlAsync(settings,Check);
+var validateTransferSql=args.Contains("--transfer-sql");
+if(args.Contains("--sql")||validateTransferSql)
 {
     // Únicamente una base desechable propia en LocalDB; jamás usa .env ni Zeus remoto.
     var db="NexoZeusTests_"+Guid.NewGuid().ToString("N");
@@ -124,12 +127,19 @@ if(args.Contains("--sql"))
         await using var c=new SqlConnection(cs);await c.OpenAsync();await using var q=c.CreateCommand();
         q.CommandText="""
             CREATE TABLE dbo.DOCUMENT(FNTEDCTO varchar(2),NUMEDCTO varchar(10),FECHDCTO varchar(10),DESCDCTO varchar(120),SUDBDCTO money,SUCRDCTO money,XmlAdicionales varchar(50));
-            CREATE TABLE dbo.TRANSAC(IDFUENTE varchar(2),NUMDOCTRA varchar(10),CODICTA varchar(20),VALORTRA money,STATUSTRA varchar(2),BU varchar(20));
+            CREATE TABLE dbo.TRANSAC(IDFUENTE varchar(2),NUMDOCTRA varchar(10),CODICTA varchar(20),VALORTRA money,STATUSTRA varchar(2),BU varchar(20),
+                ANOTRA varchar(7),IDCENCO varchar(16),NITTRA varchar(25),CLIPRV varchar(10),TIPOFAC varchar(3),NUMEFAC varchar(15),REFEFAC varchar(25),INDCPITRA char(1));
             CREATE TABLE dbo.TestMode(Mode varchar(20));INSERT dbo.TestMode VALUES('OK');
             CREATE TABLE dbo.MAECONT(CODICTA varchar(20),HABILITARCTA bit,TIPOCTA char(1),INDCPICTA int);
             INSERT dbo.MAECONT VALUES('1435',1,'D',1),('2408',1,'D',1),('2365',1,'D',1),('2205',1,'D',3);
             ALTER TABLE dbo.MAECONT ADD PORCEIMPUESTO decimal(18,6),IndValorRetenido bit;
             EXEC('UPDATE dbo.MAECONT SET PORCEIMPUESTO=2.5,IndValorRetenido=0 WHERE CODICTA=''2365''');
+            ALTER TABLE dbo.MAECONT ADD INDCCOCTA int,ExigeItem int;
+            EXEC('INSERT dbo.MAECONT(CODICTA,HABILITARCTA,TIPOCTA,INDCPICTA,INDCCOCTA,ExigeItem) VALUES(''143599'',1,''D'',4,1,0)');
+            CREATE TABLE dbo.FUENTES(IDFUENTE char(2),Deshabilitado int);
+            INSERT dbo.FUENTES VALUES('01',0);
+            CREATE TABLE dbo.MAECCO(IDCENCO varchar(16),TIPOCENCO char(1),Deshabilitado int);
+            INSERT dbo.MAECCO VALUES('CC01','D',0),('CC03','D',0);
             """;await q.ExecuteNonQueryAsync();
         q.CommandText="""
             CREATE PROCEDURE dbo.TestAccountingValidation AS BEGIN RAISERROR('Validación contable de prueba: centro de costo obligatorio.',16,1); END
@@ -145,10 +155,13 @@ if(args.Contains("--sql"))
               INSERT dbo.DOCUMENT
               SELECT x.value('(FNTEDCTO/text())[1]','varchar(2)'),'0100000001',x.value('(FECHDCTO/text())[1]','varchar(10)'),x.value('(DESCDCTO/text())[1]','varchar(120)'),119,119,x.value('(XmlAdicionales/text())[1]','varchar(50)')
               FROM @X.nodes('/ZEUS_SQL/Documento/Document') d(x);
-              INSERT dbo.TRANSAC SELECT x.value('(IDFUENTE/text())[1]','varchar(2)'),'0100000001',x.value('(CODICTA/text())[1]','varchar(20)'),x.value('(VALORTRA/text())[1]','money'),'XA',x.value('(BU/text())[1]','varchar(20)')
+              INSERT dbo.TRANSAC SELECT x.value('(IDFUENTE/text())[1]','varchar(2)'),'0100000001',x.value('(CODICTA/text())[1]','varchar(20)'),x.value('(VALORTRA/text())[1]','money'),'XA',x.value('(BU/text())[1]','varchar(20)'),
+                  x.value('(ANOTRA/text())[1]','varchar(7)'),x.value('(IDCENCO/text())[1]','varchar(16)'),x.value('(NITTRA/text())[1]','varchar(25)'),x.value('(CLIPRV/text())[1]','varchar(10)'),
+                  x.value('(TIPOFAC/text())[1]','varchar(3)'),x.value('(NUMEFAC/text())[1]','varchar(15)'),x.value('(REFEFAC/text())[1]','varchar(25)'),x.value('(INDCPITRA/text())[1]','char(1)')
               FROM @X.nodes('/ZEUS_SQL/Documento/Transac') d(x);
               IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='WRONGTOTAL') UPDATE dbo.DOCUMENT SET SUDBDCTO=120;
               IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='WRONGACCOUNT') UPDATE dbo.TRANSAC SET CODICTA='999';
+              IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='WRONGCENTER') UPDATE dbo.TRANSAC SET IDCENCO='CC01';
               SELECT '01' Fuente,'0100000001' Documento;
               IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='LATEERROR') THROW 51991,'Fallo despues del SELECT',1;
               IF EXISTS(SELECT 1 FROM dbo.TestMode WHERE Mode='RULE50000') EXEC dbo.TestAccountingValidation;
@@ -199,6 +212,12 @@ if(args.Contains("--sql"))
             Check(rejected.Estado=="RECHAZADO"&&rejected.Error!.Contains("51711"),"Compatibilidad 100: rechaza cuenta inexistente, incompatible o especial sin perder validación: "+account);
         }
         q.CommandText="SELECT COUNT(*) FROM dbo.DOCUMENT";Check(Convert.ToInt32(await q.ExecuteScalarAsync())==0,"Cuentas rechazadas no dejan comprobantes en compatibilidad 100");
+        await TransferPostingTests.SqlAsync(Check,transport,q,testJournal);
+        if(validateTransferSql)
+        {
+            Console.WriteLine($"{count} comprobaciones Zeus, incluido el traslado en LocalDB.");
+            return;
+        }
         setup.CommandText=$"ALTER DATABASE [{db}] SET COMPATIBILITY_LEVEL=150";await setup.ExecuteNonQueryAsync();
         q.CommandText="""
             EXEC('CREATE SCHEMA core');EXEC('CREATE SCHEMA inv');EXEC('CREATE SCHEMA seg');EXEC('CREATE SCHEMA comp');EXEC('CREATE SCHEMA audit');

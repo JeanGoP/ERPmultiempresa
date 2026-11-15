@@ -173,6 +173,7 @@ public sealed record ReceiptWarehouseAssignment(long RecepcionMercanciaLineaId,l
 public sealed record ReceiptDistributionLine(long RecepcionMercanciaLineaId,int NumeroLinea,string Codigo,string Descripcion,decimal Cantidad,long BodegaId);
 public sealed record PostReceiptRequest(long? UsuarioId, Guid? CorrelationId,IReadOnlyList<ReceiptWarehouseAssignment>? Bodegas=null,DateOnly? FechaContable=null,long? SucursalId=null);
 public sealed record TransferInvoiceRequest(long BodegaDestinoId,long PeriodoInventarioId,DateOnly FechaContable,Guid OperacionGuid);
+public sealed record TransferInvoiceResponse(int Traslados,IReadOnlyList<NexoERP.Api.Zeus.ZeusPostingStatus> Zeus);
 public sealed record PostedReceiptResponse(long RecepcionMercanciaId, string Estado, int Movimientos, bool YaExistia,NexoERP.Api.Zeus.ZeusPostingStatus? Zeus=null);
 public sealed record ReceiptMovementResponse(
     long MovimientoInventarioId,int NumeroLinea,string CodigoArticulo,string Descripcion,

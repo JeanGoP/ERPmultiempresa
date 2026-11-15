@@ -15,11 +15,18 @@ public static class ZeusModule
         services.AddScoped<ZeusWarehouseRepository>();
         services.AddScoped<ZeusSupplierSync>();services.AddHostedService<ZeusSupplierWorker>();
         services.AddHostedService<ZeusWorker>();
+        services.AddHostedService<ZeusTransferWorker>();
     }
     public static void MapZeus(this WebApplication app)
     {
         const string admin="SEGURIDAD.PERMISOS.ADMINISTRAR";
         const string posting="COMPRAS.RECEPCION.CONTABILIZAR";
+        const string dispatchTransfer="INVENTARIO.TRASLADO.DESPACHAR";
+        const string receiveTransfer="INVENTARIO.TRASLADO.RECIBIR";
+        static async Task<bool> CanTrackTransfers(AuthRepository auth,long user,long company,CancellationToken ct) =>
+            await auth.HasPermissionAsync(user,company,dispatchTransfer,ct) ||
+            await auth.HasPermissionAsync(user,company,receiveTransfer,ct) ||
+            await auth.HasPermissionAsync(user,company,admin,ct);
         var group=app.MapGroup("/api/v1/companies/{empresaId:long}/zeus");
         group.AddEndpointFilter(async(context,next)=>
         {
@@ -205,7 +212,7 @@ public static class ZeusModule
         group.MapGet("/status",async(long empresaId,HttpContext http,AuthRepository auth,ZeusRepository repo,IConfiguration config,CancellationToken ct)=>
         {
             var user=Convert.ToInt64(http.Items["UsuarioId"]);
-            if(!await auth.HasPermissionAsync(user,empresaId,admin,ct)&&!await auth.HasPermissionAsync(user,empresaId,posting,ct)&&!await auth.HasPermissionAsync(user,empresaId,"TESORERIA.EGRESO.CONTABILIZAR",ct)&&!await auth.HasPermissionAsync(user,empresaId,"VENTAS.FACTURA.CONTABILIZAR",ct)&&!await auth.HasPermissionAsync(user,empresaId,"TESORERIA.RECIBO.CONTABILIZAR",ct))return Results.StatusCode(403);
+            if(!await CanTrackTransfers(auth,user,empresaId,ct)&&!await auth.HasPermissionAsync(user,empresaId,posting,ct)&&!await auth.HasPermissionAsync(user,empresaId,"TESORERIA.EGRESO.CONTABILIZAR",ct)&&!await auth.HasPermissionAsync(user,empresaId,"VENTAS.FACTURA.CONTABILIZAR",ct)&&!await auth.HasPermissionAsync(user,empresaId,"TESORERIA.RECIBO.CONTABILIZAR",ct))return Results.StatusCode(403);
             var settings=await repo.SettingsAsync(empresaId,ct);
             return Results.Ok(new {configurado=settings is not null,habilitado=settings?.Configuracion.Habilitado??false,despachadorActivo=config.GetValue<bool>("Zeus:Enabled")});
         });
@@ -229,9 +236,32 @@ public static class ZeusModule
             var payments=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,"TESORERIA.EGRESO.CONTABILIZAR",ct);
             var sales=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,"VENTAS.FACTURA.CONTABILIZAR",ct);
             var cash=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,"TESORERIA.RECIBO.CONTABILIZAR",ct);
-            if(!receipts&&!payments&&!sales&&!cash)return Results.StatusCode(403);
-            return Results.Ok(await repo.ListAsync(empresaId,estado,offset??0,ct,pendientes??false,receipts,payments,sales,cash));
+            var transfers=await CanTrackTransfers(auth,Convert.ToInt64(user),empresaId,ct);
+            if(!receipts&&!payments&&!sales&&!cash&&!transfers)return Results.StatusCode(403);
+            return Results.Ok(await repo.ListAsync(empresaId,estado,offset??0,ct,pendientes??false,receipts,payments,sales,cash,transfers));
         });
+        group.MapGet("/transfers/{id:long}/status",async(long empresaId,long id,ZeusRepository repo,CancellationToken ct) =>
+            Results.Ok(await repo.TransferStatusAsync(empresaId,id,ct))).RequireErpPermission(dispatchTransfer,receiveTransfer,admin);
+        group.MapPost("/transfers/{id:long}/retry",async(long empresaId,long id,HttpContext http,ZeusRepository repo,CancellationToken ct) =>
+        {
+            try { return Results.Ok(await repo.RetryTransferAsync(empresaId,id,Convert.ToInt64(http.Items["UsuarioId"]),ct)); }
+            catch(ArgumentException error) { return Results.BadRequest(new {error=error.Message}); }
+        }).RequireErpPermission(dispatchTransfer,receiveTransfer,admin);
+        group.MapPost("/transfers/{id:long}/reconcile",async(long empresaId,long id,ZeusRepository repo,ZeusTransport transport,CancellationToken ct) =>
+        {
+            try
+            {
+                var job=await repo.UncertainTransferAsync(empresaId,id,ct);
+                var result=await transport.ReconcileAsync(empresaId,job.Snapshot,job.Key,ct);
+                if(result.Estado=="CONTABILIZADO") await repo.FinishTransferAsync(job,result,ct);
+                return Results.Ok(result);
+            }
+            catch(ArgumentException error) { return Results.BadRequest(new {error=error.Message}); }
+            catch(Exception error) when(error is SqlException or InvalidOperationException)
+            {
+                return Results.Json(new {error="No se pudo confirmar el comprobante. El envío conserva su estado incierto."},statusCode:502);
+            }
+        }).RequireErpPermission(admin);
         group.MapPost("/receipts/{receiptId:long}/send-automatic",async(long empresaId,long receiptId,HttpContext http,ZeusRepository repo,CancellationToken ct)=>
             Results.Ok(await repo.RetryAutomaticAsync(empresaId,receiptId,Convert.ToInt64(http.Items["UsuarioId"]),ct))).RequireErpPermission(posting);
         group.MapGet("/receipts/{receiptId:long}/status",async(long empresaId,long receiptId,ZeusRepository repo,CancellationToken ct)=>

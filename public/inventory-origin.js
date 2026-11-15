@@ -72,7 +72,16 @@ async function openInvoiceTransfer(entry){
     form.onsubmit=async event=>{event.preventDefault();if(company!==state.erpSession?.company?.id){dialog.close();return;}pending=true;submit.disabled=true;cancel.disabled=true;destination.disabled=period.disabled=date.disabled=true;error.textContent='';
       try{
         const result=await apiRequest(base+'/receipts/'+entry.recepcionMercanciaId+'/transfer',{method:'POST',body:JSON.stringify({bodegaDestinoId:Number(destination.value),periodoInventarioId:Number(period.value),fechaContable:date.value,operacionGuid:operation})});
-        if(company===state.erpSession?.company?.id){await loadApiCompanyContext();showSuccess(result.traslados?'Factura trasladada. Se conservaron su origen, edad y cuenta por pagar.':'Toda la mercancía ya se encuentra en la bodega destino.');}
+        if (company===state.erpSession?.company?.id) {
+          await loadApiCompanyContext();
+          const posting = result.zeus || [];
+          const pending = posting.filter(item => item.estado==='PENDIENTE').length;
+          const review = posting.filter(item => item.estado==='REQUIERE_REVISION').length;
+          const messages = [result.traslados ? 'Factura trasladada. Se conservaron su origen, edad y cuenta por pagar.' : 'Toda la mercancía ya se encuentra en la bodega destino.'];
+          if (pending) messages.push(`Envíos a Zeus registrados: ${pending}.`);
+          if (review) messages.push(`Traslados por revisar en Seguimiento Zeus: ${review}.`);
+          showSuccess(messages.join(' '));
+        }
         dialog.close();
       }catch(e){error.textContent=e.message;}finally{pending=false;submit.disabled=false;cancel.disabled=false;destination.disabled=period.disabled=date.disabled=false;}
     };

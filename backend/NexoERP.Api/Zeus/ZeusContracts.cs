@@ -27,7 +27,9 @@ public sealed record ZeusSnapshot(ZeusSettings Configuracion, ZeusSource Origen,
     ZeusMovement[] Movimientos,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ZeusDisbursement? Egreso=null,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ZeusCustomerDocument? ClienteDocumento=null,
-    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ZeusPortfolioNote? NotaCartera=null);
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ZeusPortfolioNote? NotaCartera=null,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ZeusTransfer? Traslado=null);
+public sealed record ZeusTransfer(string BodegaOrigen,string BodegaDestino,string? Observacion=null);
 public sealed record ZeusPaymentInvoice(long DocumentoPorPagarId,string Cuenta,string Tipo,string Numero,string Referencia,string UnidadNegocio,DateTime Vencimiento,decimal Valor);
 public sealed record ZeusDisbursement(string Concepto,string Banco,string CuentaSalida,string Referencia,ZeusPaymentInvoice[] Facturas,string MonedaZeus="",int IndicadorSalida=1,string CuentaBancaria="");
 public sealed record ZeusCustomerInvoice(long FacturaVentaId,string Cuenta,string Tipo,string Numero,string UnidadNegocio,DateTime Vencimiento,decimal Valor,string Referencia="");
@@ -38,6 +40,30 @@ public sealed record ZeusPortfolioNote(string TipoFactura,string NumeroFactura,s
 
 public static class ZeusJournal
 {
+    internal static void ValidateTransfer(ZeusSnapshot snapshot)
+    {
+        if (snapshot.Traslado is not { } transfer) return;
+        if (snapshot.Egreso is not null || snapshot.ClienteDocumento is not null || snapshot.NotaCartera is not null)
+            throw new ArgumentException("El traslado debe ser un comprobante interno independiente.");
+        if (string.IsNullOrWhiteSpace(transfer.BodegaOrigen) || string.IsNullOrWhiteSpace(transfer.BodegaDestino)
+            || string.IsNullOrWhiteSpace(snapshot.Origen.Factura))
+            throw new ArgumentException("El traslado necesita número, bodega de origen y bodega de destino.");
+        var lines = snapshot.Movimientos;
+        if (snapshot.Origen.Total <= 0 || lines.Sum(line => line.Valor) != 0
+            || lines.Where(line => line.Valor > 0).Sum(line => line.Valor) != snapshot.Origen.Total)
+            throw new ArgumentException("El comprobante del traslado debe balancear al costo contabilizado en Nexo.");
+        foreach (var line in lines)
+        {
+            var account = line.Regla;
+            if (line.Valor == 0 || decimal.Round(line.Valor,4) != line.Valor
+                || account.Concepto != (line.Valor < 0 ? "INVENTARIO_ORIGEN" : "INVENTARIO_DESTINO")
+                || line.Base != 0 || line.Tarifa != 0 || line.VencimientoCartera is not null || line.NumeroCuota is not null)
+                throw new ArgumentException("El traslado admite únicamente débitos y créditos de inventario, sin impuestos ni cartera.");
+            Text(account.Cuenta,16);
+            Text(account.CentroCosto,16,true);
+        }
+    }
+
     public static bool IsRetention(string concept)=>concept is "RETEFUENTE" or "RETEIVA" or "RETEICA";
     public static void ValidateRetentionAccounts(ZeusSettings settings,IEnumerable<ZeusChartAccount> chart)
     {

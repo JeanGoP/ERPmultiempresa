@@ -610,7 +610,7 @@ app.MapGet("/api/v1/companies/{empresaId:long}/receipts/{recepcionId:long}/distr
 app.MapPost("/api/v1/companies/{empresaId:long}/receipts/{recepcionId:long}/transfer",async(long empresaId,long recepcionId,TransferInvoiceRequest input,HttpContext context,PurchasingRepository purchasing,CancellationToken ct)=>
 {
     if(input.OperacionGuid==Guid.Empty)return Results.BadRequest(new {error="Falta el identificador de operación."});
-    try{return Results.Ok(new {traslados=await purchasing.TransferInvoiceAsync(empresaId,recepcionId,input,Convert.ToInt64(context.Items["UsuarioId"]),ct)});}
+    try{return Results.Ok(await purchasing.TransferInvoiceAsync(empresaId,recepcionId,input,Convert.ToInt64(context.Items["UsuarioId"]),ct));}
     catch(SqlException error) when(error.Number>=51000&&error.Number<52000){return Results.Conflict(new {error=error.Message});}
 }).RequireErpPermission("INVENTARIO.TRASLADO.DESPACHAR").RequireErpPermission("INVENTARIO.TRASLADO.RECIBIR");
 

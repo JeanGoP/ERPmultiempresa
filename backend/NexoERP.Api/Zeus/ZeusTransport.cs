@@ -49,6 +49,11 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                 throw new InvalidOperationException("El comprobante encontrado no coincide con las fechas o totales esperados.");
             if(await r.ReadAsync(ct)) throw new InvalidOperationException("Hay más de un comprobante con la misma clave de integración.");
         }
+        if (s.Traslado is not null)
+        {
+            await VerifyTransferLinesAsync(c,tx,s,number,ct);
+            return number;
+        }
         q.CommandText="""
             SELECT RTRIM(CODICTA),CASE WHEN VALORTRA>0 THEN 1 ELSE -1 END,SUM(VALORTRA)
             FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND STATUSTRA IN('AC','XA') AND (@Payment=1 OR BU=@B)
@@ -119,6 +124,83 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             }
         return number;
     }
+
+    private static async Task VerifyTransferLinesAsync(SqlConnection connection,SqlTransaction? transaction,ZeusSnapshot snapshot,string number,CancellationToken ct)
+    {
+        await using var query = connection.CreateCommand();
+        query.Transaction = transaction;
+        query.CommandText = """
+            SELECT RTRIM(CODICTA),ISNULL(RTRIM(IDCENCO),''),ISNULL(RTRIM(BU),''),
+                   CASE WHEN VALORTRA>0 THEN 1 ELSE -1 END,SUM(VALORTRA),
+                   SUM(CASE WHEN ISNULL(RTRIM(INDCPITRA),'') NOT IN ('1','4')
+                         OR ISNULL(RTRIM(NITTRA),'')<>'' OR ISNULL(RTRIM(CLIPRV),'')<>''
+                         OR ISNULL(RTRIM(TIPOFAC),'')<>'' OR ISNULL(RTRIM(NUMEFAC),'')<>''
+                         OR ISNULL(RTRIM(REFEFAC),'')<>'' THEN 1 ELSE 0 END)
+            FROM dbo.TRANSAC
+            WHERE IDFUENTE=@Source AND NUMDOCTRA=@Number AND ANOTRA=@Period AND STATUSTRA IN ('AC','XA')
+            GROUP BY RTRIM(CODICTA),ISNULL(RTRIM(IDCENCO),''),ISNULL(RTRIM(BU),''),CASE WHEN VALORTRA>0 THEN 1 ELSE -1 END;
+            """;
+        query.Parameters.Add("@Source",SqlDbType.VarChar,2).Value=snapshot.Configuracion.Fuente;
+        query.Parameters.Add("@Number",SqlDbType.VarChar,10).Value=number;
+        query.Parameters.Add("@Period",SqlDbType.VarChar,6).Value=snapshot.Origen.FechaContable.ToString("yyyyMM",System.Globalization.CultureInfo.InvariantCulture);
+        var expected = snapshot.Movimientos
+            .GroupBy(line => (line.Regla.Cuenta.Trim(),line.Regla.CentroCosto.Trim(),snapshot.Configuracion.UnidadNegocio.Trim(),Math.Sign(line.Valor)))
+            .ToDictionary(group => group.Key,group => group.Sum(line => line.Valor));
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var key = (reader.GetString(0),reader.GetString(1),reader.GetString(2),reader.GetInt32(3));
+            if (!expected.Remove(key,out var amount) || amount != Convert.ToDecimal(reader.GetValue(4)) || reader.GetInt32(5) != 0)
+                throw new InvalidOperationException("Zeus no confirmó las cuentas, centros de costo y valores del traslado sin cartera ni terceros.");
+        }
+        if (expected.Count != 0) throw new InvalidOperationException("Faltan movimientos del traslado en Zeus.");
+    }
+
+    private static async Task<IReadOnlyDictionary<string,string>> TransferAccountIndicatorsAsync(SqlConnection connection,SqlTransaction transaction,ZeusSnapshot snapshot,CancellationToken ct)
+    {
+        await using var query = connection.CreateCommand();
+        query.Transaction = transaction;
+        query.CommandText = """
+            SELECT COUNT(*) FROM dbo.FUENTES WHERE IDFUENTE=@Source AND Deshabilitado=0;
+            SELECT desired.Cuenta,desired.CentroCosto,ISNULL(account.INDCPICTA,0),
+                CASE WHEN account.CODICTA IS NULL OR ISNULL(account.HABILITARCTA,0)<>1 OR ISNULL(account.TIPOCTA,'')<>'D'
+                       OR ISNULL(account.INDCPICTA,0) NOT IN (0,1,4) OR ISNULL(account.ExigeItem,0)<>0
+                     THEN 0 ELSE 1 END,
+                CASE WHEN desired.CentroCosto='' AND ISNULL(account.INDCCOCTA,0)<>1 THEN 1
+                     WHEN desired.CentroCosto<>'' AND EXISTS(SELECT 1 FROM dbo.MAECCO cc
+                         WHERE cc.IDCENCO=desired.CentroCosto AND cc.TIPOCENCO='D' AND cc.Deshabilitado=0) THEN 1
+                     ELSE 0 END
+            FROM @Rules.nodes('/Cuentas/Cuenta') nodes(n)
+            CROSS APPLY (SELECT n.value('@Codigo','varchar(16)') Cuenta,n.value('@Centro','varchar(16)') CentroCosto) desired
+            LEFT JOIN dbo.MAECONT account ON account.CODICTA=desired.Cuenta;
+            """;
+        query.Parameters.Add("@Source",SqlDbType.VarChar,2).Value=snapshot.Configuracion.Fuente;
+        query.Parameters.Add("@Rules",SqlDbType.Xml).Value=new XElement("Cuentas",snapshot.Movimientos
+            .Select(line => (line.Regla.Cuenta,line.Regla.CentroCosto)).Distinct()
+            .Select(rule => new XElement("Cuenta",new XAttribute("Codigo",rule.Cuenta),new XAttribute("Centro",rule.CentroCosto))))
+            .ToString(SaveOptions.DisableFormatting);
+        var indicators = new Dictionary<string,string>(StringComparer.Ordinal);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct) || reader.GetInt32(0) != 1)
+            throw new ArgumentException("La fuente del traslado no está habilitada en Zeus.");
+        await reader.NextResultAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var account = reader.GetString(0);
+            if (reader.GetInt32(3) != 1)
+                throw new ArgumentException($"La cuenta de inventario {account} no está habilitada para el comprobante de traslado en Zeus.");
+            if (reader.GetInt32(4) != 1)
+            {
+                var center = reader.GetString(1);
+                throw new ArgumentException(center.Length == 0
+                    ? $"Configura el centro de costo de la bodega que usa la cuenta {account}."
+                    : $"El centro de costo {center} de la cuenta {account} no está habilitado en Zeus.");
+            }
+            indicators[account] = Convert.ToInt32(reader.GetValue(2)) == 4 ? "4" : "1";
+        }
+        return indicators;
+    }
+
     public async Task<ZeusResult> ReconcileAsync(long company,ZeusSnapshot s,Guid key,CancellationToken ct)
     {
         await using var c=await OpenAsync(company,s.Configuracion,ct);
@@ -132,6 +214,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
         var stage="conexión con Zeus";
         try
         {
+            ZeusJournal.ValidateTransfer(s);
             diagnosticConnection=await ConnectionAsync(company,ct);
             c=await OpenAsync(company,s.Configuracion,ct,diagnosticConnection);
             stage="inicio de transacción y bloqueo del envío";
@@ -152,7 +235,13 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                 stage="validación del egreso";
                 s=await CheckPayment(c,tx,s,ct);
             }
-            if(s.NotaCartera is { } portfolioNote)
+            IReadOnlyDictionary<string,string>? transferIndicators = null;
+            if (s.Traslado is not null)
+            {
+                stage="validación de fuente, cuentas y centros de costo del traslado";
+                transferIndicators = await TransferAccountIndicatorsAsync(c,tx,s,ct);
+            }
+            else if(s.NotaCartera is { } portfolioNote)
             {
                 stage="validación de nota de cartera";
                 if(s.Movimientos.Sum(m=>m.Valor)!=0||s.Movimientos.Count(m=>m.Regla.Concepto=="CLIENTE")<2
@@ -266,7 +355,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             }
             q.CommandText="dbo.spWSG_Contabilidad";q.CommandType=CommandType.StoredProcedure;
             q.Parameters.Add("@Iden",SqlDbType.Int).Value=16;
-            q.Parameters.Add("@XML",SqlDbType.VarChar,-1).Value=ZeusXml.Build(s,key,invoiceDocument);
+            q.Parameters.Add("@XML",SqlDbType.VarChar,-1).Value=ZeusXml.Build(s,key,invoiceDocument,transferIndicators);
             var returned=q.Parameters.Add("@RETURN_VALUE",SqlDbType.Int);returned.Direction=ParameterDirection.ReturnValue;
             // Consumir todos los resultados: el adaptador original devuelve un SELECT antes de terminar.
             await using(var r=await q.ExecuteReaderAsync(ct))

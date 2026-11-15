@@ -234,10 +234,25 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
         Add(q,"@R",receipt);Add(q,"@J",SerializeSnapshot(snapshot));Add(q,"@U",user);
         var id=Convert.ToInt64(await q.ExecuteScalarAsync(ct));await tx.CommitAsync(ct);return id;
     }
-    public async Task<object> ListAsync(long company,string? state,int offset,CancellationToken ct,bool pendingOnly=false,bool receipts=true,bool payments=true,bool sales=false,bool cash=false)
+    public async Task<object> ListAsync(long company,string? state,int offset,CancellationToken ct,bool pendingOnly=false,bool receipts=true,bool payments=true,bool sales=false,bool cash=false,bool transfers=false)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
-        await using var q=Command(c,"""
+        var transferJobs = transfers ? """
+            UNION ALL
+            SELECT 'TRASLADO',t.TrasladoId,NULL,NULL,j.Clave,j.Estado,j.Intentos,j.Fuente,j.Documento,j.Error,j.CreadoEnUtc,j.ActualizadoEnUtc,
+                   t.Numero,CONCAT(o.Nombre,N' → ',d.Nombre),t.FechaContableRecepcion,COALESCE(costo.Total,0)
+            FROM core.ZeusTrasladoEnvio j
+            JOIN inv.Traslado t ON t.EmpresaId=j.EmpresaId AND t.TrasladoId=j.TrasladoId
+            JOIN inv.Bodega o ON o.EmpresaId=t.EmpresaId AND o.BodegaId=t.BodegaOrigenId
+            JOIN inv.Bodega d ON d.EmpresaId=t.EmpresaId AND d.BodegaId=t.BodegaDestinoId
+            OUTER APPLY (
+                SELECT SUM(m.ValorMovimiento) AS Total FROM inv.MovimientoInventario m
+                WHERE m.EmpresaId=t.EmpresaId AND m.TipoDocumentoOrigen='TRASLADO' AND m.DocumentoOrigenId=t.TrasladoId
+                  AND m.TipoMovimiento='TRASLADO_ENTRADA'
+            ) costo
+            WHERE j.EmpresaId=@E
+            """ : "";
+        await using var q=Command(c,$"""
             WITH Envio AS (
             SELECT 'ENTRADA_MERCANCIA' TipoDocumento,r.RecepcionMercanciaId OrigenId,e.ZeusEnvioId,r.RecepcionMercanciaId,e.Clave,COALESCE(e.Estado,'SIN_PREPARAR') Estado,COALESCE(e.Intentos,0) Intentos,e.Fuente,e.Documento,e.Error,e.CreadoEnUtc,e.ActualizadoEnUtc,
                    d.NumeroDocumento Factura,t.RazonSocial Proveedor,r.FechaContable,d.TotalPagar Total
@@ -272,7 +287,8 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             FROM ven.RefinanciacionCartera n
             JOIN ven.FacturaVenta f ON f.EmpresaId=n.EmpresaId AND f.FacturaVentaId=n.FacturaVentaId
             JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
-            WHERE n.EmpresaId=@E AND @Sales=1)
+            WHERE n.EmpresaId=@E AND @Sales=1
+            {transferJobs})
             SELECT * FROM Envio WHERE (@S IS NULL OR Estado=@S) AND (@Pending=0 OR Estado NOT IN('CONTABILIZADO','CANCELADO','REVERTIDO'))
             ORDER BY FechaContable DESC,TipoDocumento,OrigenId DESC OFFSET @O ROWS FETCH NEXT 100 ROWS ONLY;
             """,company);

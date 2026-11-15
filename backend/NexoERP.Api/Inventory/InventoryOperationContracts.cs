@@ -1,7 +1,9 @@
 namespace NexoERP.Api.Inventory;
 
 public sealed record PostTransferRequest(long PeriodoInventarioId,DateOnly FechaContable,DateTime? FechaRecepcion,long? UsuarioId,Guid? CorrelationId);
-public sealed record InventoryDocumentOperationResponse(long DocumentoId,string Estado,int Movimientos,bool YaExistia);
+public sealed record InventoryDocumentOperationResponse(long DocumentoId,string Estado,int Movimientos,bool YaExistia,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    NexoERP.Api.Zeus.ZeusPostingStatus? Zeus=null);
 public sealed record ApplyInventoryDocumentRequest(long PeriodoInventarioId,DateOnly FechaContable,long? UsuarioId,Guid? CorrelationId);
 public sealed record PostDocumentRequest(long? UsuarioId,Guid? CorrelationId);
 public sealed record CloseInventoryPeriodRequest(long? UsuarioId);

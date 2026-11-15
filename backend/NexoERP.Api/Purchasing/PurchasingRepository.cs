@@ -27,17 +27,45 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
         return rows;
     }
 
-    public async Task<int> TransferInvoiceAsync(long empresaId,long recepcionId,TransferInvoiceRequest input,long userId,CancellationToken ct)
+    public async Task<TransferInvoiceResponse> TransferInvoiceAsync(long empresaId,long recepcionId,TransferInvoiceRequest input,long userId,CancellationToken ct)
     {
         await using var connection=await connections.OpenAsync(empresaId,false,ct);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(ct);
+        // Acquiring the same receipt lock as the procedure separates a retry from a new operation.
+        await using var existing = ZeusRepository.Command(connection,"""
+            SELECT RecepcionMercanciaId FROM inv.RecepcionMercancia WITH(UPDLOCK,HOLDLOCK)
+            WHERE EmpresaId=@E AND RecepcionMercanciaId=@Receipt;
+            SELECT TrasladoId FROM inv.Traslado WHERE EmpresaId=@E AND OperacionFacturaGuid=@Operation;
+            """,empresaId,transaction);
+        ZeusRepository.Add(existing,"@Receipt",recepcionId);
+        ZeusRepository.Add(existing,"@Operation",input.OperacionGuid);
+        bool alreadyCreated;
+        await using (var reader = await existing.ExecuteReaderAsync(ct))
+        {
+            await reader.NextResultAsync(ct);
+            alreadyCreated = await reader.ReadAsync(ct);
+        }
         await using var command=connection.CreateCommand();command.CommandTimeout=120;
+        command.Transaction=transaction;
         command.CommandType=CommandType.StoredProcedure;command.CommandText="inv.usp_TrasladarFactura";
         Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
         Add(command,"@BodegaDestinoId",SqlDbType.BigInt,input.BodegaDestinoId);Add(command,"@PeriodoInventarioId",SqlDbType.BigInt,input.PeriodoInventarioId);
         Add(command,"@FechaContable",SqlDbType.Date,input.FechaContable.ToDateTime(TimeOnly.MinValue));
         Add(command,"@OperacionGuid",SqlDbType.UniqueIdentifier,input.OperacionGuid);Add(command,"@UsuarioId",SqlDbType.BigInt,userId);
         var count=command.Parameters.Add("@Traslados",SqlDbType.Int);count.Direction=ParameterDirection.Output;
-        await command.ExecuteNonQueryAsync(ct);return Convert.ToInt32(count.Value);
+        await command.ExecuteNonQueryAsync(ct);
+        var statuses = new List<ZeusPostingStatus>();
+        if (!alreadyCreated && Convert.ToInt32(count.Value)>0)
+        {
+            existing.CommandText = "SELECT TrasladoId FROM inv.Traslado WHERE EmpresaId=@E AND RecepcionMercanciaId=@Receipt AND OperacionFacturaGuid=@Operation ORDER BY TrasladoId;";
+            var transfers = new List<long>();
+            await using (var reader = await existing.ExecuteReaderAsync(ct))
+                while (await reader.ReadAsync(ct)) transfers.Add(reader.GetInt64(0));
+            foreach (var transfer in transfers)
+                statuses.Add(await ZeusRepository.EnqueueTransferAsync(connection,transaction,empresaId,transfer,userId,ct));
+        }
+        await transaction.CommitAsync(ct);
+        return new(Convert.ToInt32(count.Value),statuses);
     }
 
     private static readonly IReadOnlyDictionary<string, string> Classifications = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)

@@ -6,7 +6,8 @@ public sealed record ZeusSourceRoute(string Sucursal,string Movimiento,string Fu
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? TipoFactura=null);
 public static class ZeusRouting
 {
-    public static readonly string[] Movements=["ENTRADA_MERCANCIA","FACTURACION","RECIBO_CAJA","EGRESO","NOTA_CARTERA"];
+    public const string TransferMovement = "TRASLADO";
+    public static readonly string[] Movements=["ENTRADA_MERCANCIA","FACTURACION","RECIBO_CAJA","EGRESO","NOTA_CARTERA",TransferMovement];
     public static void Validate(ZeusSourceRoute[]? routes)
     {
         if(routes is null)return;
@@ -31,9 +32,12 @@ public static class ZeusRouting
     {
         Validate(settings.FuentesAutomaticas);
         var rules=(settings.FuentesAutomaticas??[]).Where(r=>r.Movimiento==movement).ToArray();
-        if(rules.Length==0)return settings;
-        var route=rules.FirstOrDefault(r=>r.SucursalId==branch||r.SucursalId is null&&string.Equals(r.Sucursal.Trim(),branchName?.Trim(),StringComparison.OrdinalIgnoreCase))
-            ??throw new ArgumentException("La sucursal no tiene fuente para este movimiento. Configúrala en Integración Zeus → Fuentes automáticas.");
+        if(rules.Length==0&&movement!=TransferMovement)return settings;
+        var route=rules.FirstOrDefault(r=>r.SucursalId==branch||r.SucursalId is null&&string.Equals(r.Sucursal.Trim(),branchName?.Trim(),StringComparison.OrdinalIgnoreCase));
+        if(route is null)
+            throw new ArgumentException(movement==TransferMovement
+                ? "Configura una fuente de Traslado entre bodegas para la sucursal de origen en Integración Zeus → Fuentes por sucursal."
+                : "La sucursal no tiene fuente para este movimiento. Configúrala en Integración Zeus → Fuentes automáticas.");
         return settings with{Fuente=route.Fuente,Serie=route.Serie,SucursalOperacion=route.Sucursal,UnidadNegocio=route.UnidadNegocio??settings.UnidadNegocio,TipoFactura=route.TipoFactura??settings.TipoFactura};
     }
 }
