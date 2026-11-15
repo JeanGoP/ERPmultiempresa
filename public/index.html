@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="purchase-entry-print.css">
   <link rel="stylesheet" href="accounting-reports.css">
   <link rel="stylesheet" href="navigation.css">
+  <link rel="stylesheet" href="home-dashboard.css">
 </head>
 <body>
   <section id="loginView" class="login-view" aria-labelledby="loginTitle">
@@ -194,6 +195,13 @@
       </header>
 
       <main id="moduleStart" class="module-main">
+        <section id="homeDashboardModule" class="home-dashboard" hidden>
+          <header class="home-heading"><div><p class="eyebrow">VISTA GENERAL · <span id="homeCompanyName"></span></p><h1>Buen día, <span id="homeUserName"></span></h1><p>Lo importante de tu empresa, en un solo lugar.</p></div><button id="homeRefresh" class="button secondary" type="button">↻ Actualizar datos</button></header>
+          <p id="homeStatus" class="home-status" role="status" aria-live="polite"></p>
+          <div id="homeKpis" class="home-kpis"></div>
+          <div class="home-main-grid"><section class="home-panel home-chart-panel"><header><div><span id="homeChartScope" class="home-overline">CARTERA DE CLIENTES</span><h2>Vencimientos por antigüedad</h2><p id="homeChartNote">Saldo pendiente de las cuotas abiertas en Nexo.</p></div><button id="homeOpenReceivables" class="home-text-action" type="button">Ver cartera →</button></header><div id="homeChart" class="home-chart"></div></section><section class="home-panel home-focus-panel"><span class="home-overline">EN QUÉ ENFOCARSE</span><h2>Atención de hoy</h2><div id="homeFocus"></div></section></div>
+          <section class="home-panel home-shortcuts"><header><div><span class="home-overline">ACCESOS FRECUENTES</span><h2>Ir a trabajar</h2></div></header><div id="homeShortcuts" class="home-shortcut-grid"></div></section>
+        </section>
         <section id="masterDataModule" class="master-data-module" hidden>
           <section class="module-heading master-heading">
             <div>
@@ -570,5 +578,6 @@
   <script src="zeus.js"></script>
   <script src="warehouse-accounts.js"></script>
   <script src="navigation.js"></script>
+  <script src="home-dashboard.js"></script>
 </body>
 </html>

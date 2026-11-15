@@ -180,6 +180,8 @@ function firstAllowedInventoryView() {
 function hideWorkspaces() {
   window.closeZeus?.();
   document.querySelector('#accountingReportsNav')?.classList.remove('active');
+  document.querySelector('#homeDashboardModule').hidden = true;
+  document.querySelector('#homeNav')?.classList.remove('active');
   elements.purchaseModule.hidden = true;
   elements.masterDataModule.hidden = true;
   elements.savedPurchasesModule.hidden = true;
@@ -201,6 +203,7 @@ function showNoAccess() {
   elements.manualResult.hidden = true;
 }
 function isCurrentWorkspaceAllowed() {
+  if (!document.querySelector('#homeDashboardModule').hidden) return true;
   if(document.querySelector('#zeusModule')?.hidden===false) return hasAnyPermission(['SEGURIDAD.PERMISOS.ADMINISTRAR','COMPRAS.RECEPCION.CONTABILIZAR']);
   if (!elements.purchaseModule.hidden) return canPurchaseMode(state.registrationMode);
   if (!elements.savedPurchasesModule.hidden) return canUseSavedPurchases();
@@ -214,20 +217,20 @@ function isCurrentWorkspaceAllowed() {
 }
 function routeToDefaultWorkspace(force = false) {
   if (!force && state.accessInitialized && isCurrentWorkspaceAllowed()) return;
-  if (canPurchaseMode('xml')) setRegistrationMode('xml');
-  else if (canUseReceiving()) showInventoryView('receiving');
-  else {
-    const inventoryView = firstAllowedInventoryView();
-    const masterView = Object.keys(masterViewConfig).find(isMasterViewAllowed);
-    if (inventoryView) showInventoryView(inventoryView);
-    else if (hasAnyPermission(ACCESS.costs) && typeof showAdvancedView === 'function') showAdvancedView(state.advancedView);
-    else if (masterView) showMasterView(masterView);
-    else if (hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR')) showSecurityView('users');
-    else if (hasPermission('CONTABILIDAD.INFORMES.CONSULTAR')) window.showAccountingReports?.();
-    else showNoAccess();
-  }
+  showHomeDashboard();
   state.accessInitialized = true;
 }
+function showHomeDashboard() {
+  hideWorkspaces();
+  document.querySelector('#homeDashboardModule').hidden = false;
+  document.querySelector('#homeNav')?.classList.add('active');
+  document.querySelectorAll('.erp-nav .nav-subitem.active').forEach(x=>x.classList.remove('active'));
+  document.querySelector('.breadcrumb span').textContent = 'Inicio';
+  elements.breadcrumbCurrent.textContent = 'Tablero';
+  window.loadHomeDashboard?.(true);
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+window.showHomeDashboard = showHomeDashboard;
 function applyAccessControls() {
   const canPurchases = hasPermission('COMPRAS.DOCUMENTO.CREAR');
   const canServices = hasPermission('COMPRAS.SERVICIO.CAUSAR');
@@ -279,6 +282,8 @@ function applyAccessControls() {
 }
 
 function enterErp(session) {
+  window.resetTaskNavigation?.();
+  window.resetHomeDashboard?.();
   window.resetEgresos?.();
   window.resetCustomerDocuments?.();
   window.resetSalesReceivables?.();
@@ -441,7 +446,9 @@ async function loadApiCompanyContext() {
       mappings:mappings.map(x=>({id:x.homologacionArticuloProveedorId,supplierId:x.terceroId,externalCode:x.codigoExterno,externalDescription:x.descripcionExterna||'',articleId:x.articuloId,unitId:null,factor:x.factorAUnidadBase,active:x.activa})),
     }};
     applyAccessControls();
+    const homeWasVisible = !document.querySelector('#homeDashboardModule').hidden;
     routeToDefaultWorkspace(false);
+    if (homeWasVisible) window.loadHomeDashboard?.(true);
     renderManualReferenceOptions();
     elements.manualLines.querySelectorAll('[data-manual-line]').forEach(row=>{const classification=row.querySelector('[data-field="classification"]')?.value;const select=row.querySelector('[data-field="articleId"]');if(select)populateManualArticleOptions(select,classification,select.value);});
     if(!elements.masterDataModule.hidden) renderMasterView();

@@ -38,7 +38,7 @@
   const taskNavigation = document.createElement('nav');
   taskNavigation.className = 'task-navigation';
   taskNavigation.setAttribute('aria-label', 'Navegación por módulos');
-  taskNavigation.innerHTML = '<p class="task-nav-label">MÓDULOS</p><div class="task-modules"></div>';
+  taskNavigation.innerHTML = '<p class="task-nav-label">ESPACIO DE TRABAJO</p><button id="homeNav" class="task-module task-home" type="button"><span class="task-module-icon" aria-hidden="true">⌂</span><span>Inicio</span></button><p class="task-nav-label">MÓDULOS</p><div class="task-modules"></div>';
   nav.before(taskNavigation);
   nav.hidden = true;
   const moduleList = taskNavigation.querySelector('.task-modules');
@@ -48,6 +48,11 @@
   contextLinks.setAttribute('role', 'group');
   const moduleButtons = new Map();
   let selectedModule = null;
+  taskNavigation.querySelector('#homeNav').addEventListener('click', () => {
+    selectModule(null);
+    window.showHomeDashboard?.();
+    if (document.body.classList.contains('mobile-nav-open')) document.querySelector('#mobileNavClose')?.click();
+  });
 
   function groupFor(name) { return nav.querySelector(`[data-nav-group="${name}"]`); }
   function visibleTasks(group) {
@@ -113,6 +118,7 @@
     contextLinks.setAttribute('aria-label', `Opciones de ${moduleButtons.get(name)?.textContent.trim() || name}`);
     renderContext();
   }
+  window.resetTaskNavigation = () => selectModule(null);
   function syncModules() {
     moduleButtons.forEach((button, name) => {
       const group = groupFor(name);
