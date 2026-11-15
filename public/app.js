@@ -91,7 +91,7 @@ async function apiRequest(path, options = {}) {
     const saleCatalogWrites = [
       /^master-data\/(?:articles|clients)(?:\/\d+)?$/,
       /^(?:sales-invoices|sales-price-approvals\/\d+\/issue|inventory\/entries)$/,
-      /^(?:receipts\/\d+\/(?:post|transfer)|transfers\/\d+\/(?:dispatch|receive))$/,
+      /^(?:receipts\/\d+\/(?:post|transfer)|transfers\/\d+\/(?:dispatch|receive|complete))$/,
       /^(?:(?:supplier|sales)-returns\/\d+\/post|(?:physical-counts|landed-cost-distributions)\/\d+\/apply|inventory\/movements\/\d+\/reverse)$/
     ];
     if (companyPath && saleCatalogWrites.some(pattern => pattern.test(companyPath[2]))) {
@@ -1113,7 +1113,8 @@ function renderInventoryOperationPanel() {
     <label class="wide transfer-observation" data-op-field="observation"><span>Observaciones (opcional)</span><textarea name="observation" rows="2" maxlength="500"></textarea></label>
     <label data-op-field="serials" hidden><span>Seriales (IDs separados por coma)</span><input name="serials" placeholder="Opcional"></label>
     <label class="wide" data-op-field="reason" hidden><span>Motivo</span><input name="reason" value="Movimiento operativo de inventario"></label>
-    <button class="button primary wide" type="submit">Despachar traslado</button>
+    <p class="wide" data-transfer-permission hidden>Para completar traslados necesitas los permisos de despacho y recepción.</p>
+    <button class="button primary wide" type="submit">Confirmar traslado</button>
     <div class="operation-result wide" role="status" hidden></div>`;
   panel.replaceChildren(heading, form);
   const fields = form.elements;
@@ -1126,11 +1127,13 @@ function renderInventoryOperationPanel() {
   const unitSearch = form.querySelector('[data-unit-search]');
   const unitList = form.querySelector('[data-unit-list]');
   const selectionCount = form.querySelector('[data-selection-count]');
+  const permissionMessage = form.querySelector('[data-transfer-permission]');
   const submit = form.querySelector('[type="submit"]');
   const output = form.querySelector('.operation-result');
 
   const company = state.erpSession?.company?.id;
   const apiActive = state.runtimeMode === 'api' && state.erpSession?.api && company;
+  const canCompleteTransfer = hasPermission('INVENTARIO.TRASLADO.DESPACHAR') && hasPermission('INVENTARIO.TRASLADO.RECIBIR');
   const base = `/api/v1/companies/${company}`;
   const warehouses = state.apiContext?.warehouses || [];
   const articles = (state.apiContext?.masterData?.articles || []).filter(article => article.inventory && article.active !== false);
@@ -1142,7 +1145,7 @@ function renderInventoryOperationPanel() {
   let availability = null;
   let unitsError = '';
   let busy = false;
-  let pendingDispatch = null;
+  let pendingTransfer = null;
   let articleSelection = null;
   let articleMatches = [];
   let activeArticleMatch = -1;
@@ -1254,14 +1257,15 @@ function renderInventoryOperationPanel() {
     if (transferring && availability?.available > 0) fields.quantity.max = availability.available;
     else fields.quantity.removeAttribute('max');
     if (serial) fields.quantity.value = chosenUnits.size;
-    submit.textContent = transferring ? (pendingDispatch ? 'Reintentar despacho' : 'Despachar traslado') : 'Crear y contabilizar';
+    permissionMessage.hidden = !transferring || !apiActive || canCompleteTransfer;
+    submit.textContent = transferring ? (pendingTransfer ? 'Reintentar traslado' : 'Confirmar traslado') : 'Crear y contabilizar';
     submit.disabled = Boolean(busy || !apiActive || (transferring
-      ? !pendingDispatch && (!availability?.available || (serial && !chosenUnits.size))
+      ? !canCompleteTransfer || (!pendingTransfer && (!availability?.available || (serial && !chosenUnits.size)))
       : !fields.source.value));
-    refreshButton.disabled = busy;
-    unitPanel.disabled = busy || Boolean(pendingDispatch);
+    refreshButton.disabled = busy || Boolean(pendingTransfer);
+    unitPanel.disabled = busy || Boolean(pendingTransfer);
     for (const field of [fields.type,fields.origin,fields.destination,articleSearch,fields.number,fields.date,fields.period,fields.quantity,fields.source,fields.serials,fields.reason,fields.observation]) {
-      field.disabled = busy || Boolean(pendingDispatch);
+      field.disabled = busy || Boolean(pendingTransfer);
     }
   }
 
@@ -1389,8 +1393,8 @@ function renderInventoryOperationPanel() {
     }
   }
 
-  async function dispatchTransfer(date, period) {
-    if (!pendingDispatch) {
+  async function completeTransfer(date, period) {
+    if (!pendingTransfer) {
       const requestedUnits = [...chosenUnits];
       const quantity = Number(fields.quantity.value);
       const article = articleSelection;
@@ -1417,42 +1421,26 @@ function renderInventoryOperationPanel() {
       });
       if (created.yaExistia) throw new Error('Ya existe un traslado con ese número. Usa otro número para crear este traslado.');
       if (observation && created.observacion !== observation) {
-        throw new Error(`El traslado ${created.numero} quedó en borrador. El servidor no confirmó la observación. Actualiza el backend antes de despachar con observaciones.`);
+        throw new Error(`El traslado ${created.numero} quedó en borrador. El servidor no confirmó la observación.`);
       }
-      pendingDispatch = {document:created, date, period};
+      pendingTransfer = {document:created, date, period, destination};
     }
-    const draft = pendingDispatch;
+    const draft = pendingTransfer;
     const created = draft.document;
-    const posted = await apiRequest(`${base}/transfers/${created.documentoId}/dispatch`, {
+    const posted = await apiRequest(`${base}/transfers/${created.documentoId}/complete`, {
       method:'POST',
       body:JSON.stringify({periodoInventarioId:draft.period, fechaContable:draft.date, fechaRecepcion:null})
     });
-    pendingDispatch = null;
-    output.replaceChildren(document.createTextNode(`Traslado ${created.numero} despachado · ${posted.movimientos} movimientos. `));
-    const receive = document.createElement('button');
-    receive.type = 'button';
-    receive.className = 'button secondary';
-    receive.textContent = 'Recibir en destino';
-    receive.addEventListener('click', async () => {
-      receive.disabled = true;
-      try {
-        const result = await apiRequest(`${base}/transfers/${created.documentoId}/receive`, {
-          method:'POST',
-          body:JSON.stringify({periodoInventarioId:draft.period, fechaContable:draft.date, fechaRecepcion:`${draft.date}T12:00:00`})
-        });
-        output.firstChild.textContent = `Traslado ${created.numero} recibido · ${result.movimientos} movimientos · estado ${result.estado}.`;
-        receive.remove();
-        if (result.zeus) {
-          const posting = document.createElement('p');
-          posting.textContent = result.zeus.mensaje;
-          output.append(posting);
-        }
-      } catch (error) {
-        output.firstChild.textContent = `No se pudo recibir el traslado ${created.numero}. ${error.message} `;
-        receive.disabled = false;
-      }
-    });
-    output.append(receive);
+    if (posted?.estado !== 'RECIBIDO') throw new Error('El servidor no confirmó la llegada a la bodega destino.');
+    pendingTransfer = null;
+    const destinationName = warehouses.find(row => Number(row.bodegaId) === draft.destination)?.nombre;
+    const destinationLabel = destinationName ? `la bodega ${destinationName}` : 'la bodega destino';
+    output.textContent = `Traslado ${created.numero} completado. Mercancía disponible en ${destinationLabel}.`;
+    if (posted.zeus?.mensaje) {
+      const posting = document.createElement('p');
+      posting.textContent = posted.zeus.mensaje;
+      output.append(posting);
+    }
     if (created.observacion) {
       const note = document.createElement('p');
       note.className = 'transfer-saved-observation';
@@ -1505,7 +1493,7 @@ function renderInventoryOperationPanel() {
   });
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    if (busy || !apiActive) return;
+    if (busy || !apiActive || (isTransfer() && !canCompleteTransfer)) return;
     const date = fields.date.value;
     const period = Number(fields.period.value);
     busy = true;
@@ -1513,10 +1501,13 @@ function renderInventoryOperationPanel() {
     output.hidden = false;
     output.textContent = 'Procesando operación…';
     try {
-      if (isTransfer()) await dispatchTransfer(date, period);
+      if (isTransfer()) await completeTransfer(date, period);
       else await postReturn(date, period);
     } catch (error) {
-      output.textContent = pendingDispatch ? `El traslado ${pendingDispatch.document.numero} quedó en borrador. ${error.message}` : error.message;
+      const message = pendingTransfer && error.status === 404
+        ? 'Actualiza el backend para confirmar traslados en un solo paso.'
+        : error.message;
+      output.textContent = pendingTransfer ? `No se pudo confirmar el traslado ${pendingTransfer.document.numero}. ${message}` : message;
     } finally {
       busy = false;
       if (isCurrent()) updateActions();

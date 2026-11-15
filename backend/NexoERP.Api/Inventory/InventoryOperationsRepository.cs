@@ -11,7 +11,9 @@ public sealed class InventoryOperationsRepository(TenantConnectionFactory connec
     public Task<InventoryDocumentOperationResponse> DispatchTransferAsync(long e,long id,PostTransferRequest r,CancellationToken ct)
         => ExecuteOperationAsync(e,"inv.usp_DespacharTraslado","@TrasladoId",id,r.PeriodoInventarioId,r.FechaContable,r.UsuarioId,r.CorrelationId,null,ct);
     public Task<InventoryDocumentOperationResponse> ReceiveTransferAsync(long e,long id,PostTransferRequest r,CancellationToken ct)
-        => ExecuteOperationAsync(e,"inv.usp_RecibirTraslado","@TrasladoId",id,r.PeriodoInventarioId,r.FechaContable,r.UsuarioId,r.CorrelationId,r.FechaRecepcion,ct);
+        => FinishTransferAsync(e,id,r,dispatchFirst:false,ct);
+    public Task<InventoryDocumentOperationResponse> CompleteTransferAsync(long e,long id,PostTransferRequest r,CancellationToken ct)
+        => FinishTransferAsync(e,id,r,dispatchFirst:true,ct);
     public Task<InventoryDocumentOperationResponse> PostReturnAsync(long e,long id,PostDocumentRequest r,CancellationToken ct)
         => ExecuteSimpleAsync(e,"inv.usp_ContabilizarDevolucionProveedor","@DevolucionProveedorId",id,r.UsuarioId,r.CorrelationId,ct);
     public Task<InventoryDocumentOperationResponse> PostSalesReturnAsync(long e,long id,PostDocumentRequest r,CancellationToken ct)
@@ -201,20 +203,42 @@ public sealed class InventoryOperationsRepository(TenantConnectionFactory connec
     private async Task<InventoryDocumentOperationResponse> ExecuteOperationAsync(long e,string procedure,string idName,long id,long period,DateOnly date,long? user,Guid? correlation,DateTime? reception,CancellationToken ct)
     {
         await using var connection=await connections.OpenAsync(e,false,ct);
-        var receivingTransfer = procedure=="inv.usp_RecibirTraslado";
-        await using var transaction = receivingTransfer ? (SqlTransaction)await connection.BeginTransactionAsync(ct) : null;
+        return await ExecuteOperationCommandAsync(connection,null,e,procedure,idName,id,period,date,user,correlation,reception,ct);
+    }
+
+    private async Task<InventoryDocumentOperationResponse> FinishTransferAsync(long company,long transfer,PostTransferRequest request,bool dispatchFirst,CancellationToken ct)
+    {
+        await using var connection = await connections.OpenAsync(company,false,ct);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(ct);
+        var correlation = request.CorrelationId ?? Guid.NewGuid();
+        if (dispatchFirst)
+            await ExecuteOperationCommandAsync(connection,transaction,company,"inv.usp_DespacharTraslado","@TrasladoId",transfer,
+                request.PeriodoInventarioId,request.FechaContable,request.UsuarioId,correlation,null,ct);
+
+        var reception = dispatchFirst
+            ? request.FechaRecepcion ?? request.FechaContable.ToDateTime(new TimeOnly(12,0))
+            : request.FechaRecepcion;
+        var result = await ExecuteOperationCommandAsync(connection,transaction,company,"inv.usp_RecibirTraslado","@TrasladoId",transfer,
+            request.PeriodoInventarioId,request.FechaContable,request.UsuarioId,correlation,reception,ct);
+        if (result.Estado!="RECIBIDO") throw new InvalidOperationException("El traslado no llegó al estado recibido.");
+
+        var posting = result.YaExistia
+            ? await ZeusRepository.ReadTransferStatusAsync(connection,transaction,company,transfer,ct)
+            : await ZeusRepository.EnqueueTransferAsync(connection,transaction,company,transfer,request.UsuarioId,ct);
+        await transaction.CommitAsync(ct);
+        return result with { Zeus=posting };
+    }
+
+    private static async Task<InventoryDocumentOperationResponse> ExecuteOperationCommandAsync(SqlConnection connection,SqlTransaction? transaction,
+        long e,string procedure,string idName,long id,long period,DateOnly date,long? user,Guid? correlation,DateTime? reception,CancellationToken ct)
+    {
         await using var command=connection.CreateCommand(); command.CommandType=CommandType.StoredProcedure; command.CommandText=procedure;
         command.Transaction=transaction;
         Add(command,"@EmpresaId",SqlDbType.BigInt,e); Add(command,idName,SqlDbType.BigInt,id); Add(command,"@PeriodoInventarioId",SqlDbType.BigInt,period);
         Add(command,"@FechaContable",SqlDbType.Date,date.ToDateTime(TimeOnly.MinValue));
-        if(receivingTransfer) Add(command,"@FechaRecepcion",SqlDbType.DateTime2,reception);
+        if(procedure=="inv.usp_RecibirTraslado") Add(command,"@FechaRecepcion",SqlDbType.DateTime2,reception);
         Add(command,"@UsuarioId",SqlDbType.BigInt,user); Add(command,"@CorrelationId",SqlDbType.UniqueIdentifier,correlation);
-        var result = await ReadOperationAsync(command,ct);
-        if (transaction is null) return result;
-        if (!result.YaExistia && result.Estado=="RECIBIDO")
-            result = result with { Zeus=await ZeusRepository.EnqueueTransferAsync(connection,transaction,e,id,user,ct) };
-        await transaction.CommitAsync(ct);
-        return result;
+        return await ReadOperationAsync(command,ct);
     }
 
     private static async Task<InventoryDocumentOperationResponse> ReadOperationAsync(SqlCommand command,CancellationToken ct)

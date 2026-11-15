@@ -11,14 +11,20 @@ public sealed partial class ZeusRepository
     public async Task<ZeusPostingStatus> TransferStatusAsync(long company, long transfer, CancellationToken ct)
     {
         await using var connection = await connections.OpenAsync(company, false, ct);
+        return await ReadTransferStatusAsync(connection,null,company,transfer,ct)
+            ?? new("SIN_ENVIO", "No hay envío a Zeus registrado para este traslado.");
+    }
+
+    internal static async Task<ZeusPostingStatus?> ReadTransferStatusAsync(SqlConnection connection,SqlTransaction? transaction,
+        long company,long transfer,CancellationToken ct)
+    {
         await using var query = Command(connection, """
             SELECT Estado,Error,Fuente,Documento
             FROM core.ZeusTrasladoEnvio WHERE EmpresaId=@E AND TrasladoId=@Transfer;
-            """, company);
+            """, company,transaction);
         Add(query, "@Transfer", transfer);
         await using var row = await query.ExecuteReaderAsync(ct);
-        if (!await row.ReadAsync(ct))
-            return new("SIN_ENVIO", "No hay envío a Zeus registrado para este traslado.");
+        if (!await row.ReadAsync(ct)) return null;
 
         var state = row.GetString(0);
         var message = state switch

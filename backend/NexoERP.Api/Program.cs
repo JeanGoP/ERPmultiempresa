@@ -689,6 +689,11 @@ app.MapPost("/api/v1/companies/{empresaId:long}/transfers/{id:long}/dispatch", a
     Results.Ok(await operations.DispatchTransferAsync(empresaId,id,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct))).RequireErpPermission("INVENTARIO.TRASLADO.DESPACHAR");
 app.MapPost("/api/v1/companies/{empresaId:long}/transfers/{id:long}/receive", async (long empresaId,long id,PostTransferRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>
     Results.Ok(await operations.ReceiveTransferAsync(empresaId,id,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct))).RequireErpPermission("INVENTARIO.TRASLADO.RECIBIR");
+app.MapPost("/api/v1/companies/{empresaId:long}/transfers/{id:long}/complete", async (long empresaId,long id,PostTransferRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>
+{
+    try { return Results.Ok(await operations.CompleteTransferAsync(empresaId,id,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct)); }
+    catch(SqlException error) when(error.Number is >= 51000 and < 52000) { return Results.Conflict(new { error=error.Message }); }
+}).RequireErpPermission("INVENTARIO.TRASLADO.DESPACHAR").RequireErpPermission("INVENTARIO.TRASLADO.RECIBIR");
 app.MapPost("/api/v1/companies/{empresaId:long}/supplier-returns/{id:long}/post", async (long empresaId,long id,PostDocumentRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>
     Results.Ok(await operations.PostReturnAsync(empresaId,id,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct))).RequireErpPermission("COMPRAS.DEVOLUCION.CONTABILIZAR");
 app.MapPost("/api/v1/companies/{empresaId:long}/sales-returns/{id:long}/post", async (long empresaId,long id,PostDocumentRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>
