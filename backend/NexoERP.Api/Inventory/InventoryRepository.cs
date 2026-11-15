@@ -92,42 +92,56 @@ public sealed class InventoryRepository(TenantConnectionFactory connections)
         return result;
     }
 
-    public async Task<IReadOnlyList<InventoryBalanceResponse>> GetBalancesAsync(long empresaId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<InventoryBalanceResponse>> GetBalancesAsync(long empresaId,long? bodegaId,long? articuloId,CancellationToken cancellationToken)
     {
         await using var connection = await connections.OpenAsync(empresaId, false, cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT s.BodegaId, b.Nombre, s.ArticuloId, a.Codigo, a.Descripcion,
-                   s.Existencia, s.ValorTotal, s.CostoPromedio
+                   s.Existencia, s.ValorTotal, s.CostoPromedio, availability.Disponible
             FROM inv.SaldoArticuloBodega s
             JOIN inv.Bodega b ON b.EmpresaId=s.EmpresaId AND b.BodegaId=s.BodegaId
             JOIN inv.Articulo a ON a.EmpresaId=s.EmpresaId AND a.ArticuloId=s.ArticuloId
-            WHERE s.EmpresaId=@EmpresaId
+            {InventoryAvailability.JoinSql}
+            WHERE s.EmpresaId=@EmpresaId AND (@BodegaId IS NULL OR s.BodegaId=@BodegaId)
+              AND (@ArticuloId IS NULL OR s.ArticuloId=@ArticuloId)
             ORDER BY b.Nombre, a.Codigo;
             """;
         command.Parameters.Add(new SqlParameter("@EmpresaId", SqlDbType.BigInt) { Value = empresaId });
+        Add(command,"@BodegaId",SqlDbType.BigInt,bodegaId);
+        Add(command,"@ArticuloId",SqlDbType.BigInt,articuloId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var result = new List<InventoryBalanceResponse>();
         while (await reader.ReadAsync(cancellationToken))
-            result.Add(new(reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2), reader.GetString(3), reader.GetString(4), reader.GetDecimal(5), reader.GetDecimal(6), reader.GetDecimal(7)));
+            result.Add(new(reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2), reader.GetString(3), reader.GetString(4), reader.GetDecimal(5), reader.GetDecimal(6), reader.GetDecimal(7),reader.GetDecimal(8)));
         return result;
     }
 
     public async Task<IReadOnlyList<DetailedInventoryBalanceResponse>> GetDetailedBalancesAsync(long empresaId,long? bodegaId,string? q,CancellationToken cancellationToken)
     {
         await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken); await using var command=connection.CreateCommand();
-        command.CommandText="""
+        command.CommandText=$"""
+            WITH detalle AS (
+                SELECT m.EmpresaId,m.BodegaId,m.UbicacionId,m.ArticuloId,m.LoteId,
+                       SUM(m.CantidadEntrada-m.CantidadSalida) AS Existencia,
+                       SUM(CASE WHEN m.CantidadEntrada>0 THEN m.ValorMovimiento ELSE -m.ValorMovimiento END) AS Valor
+                FROM inv.MovimientoInventario m
+                WHERE m.EmpresaId=@EmpresaId AND (@BodegaId IS NULL OR m.BodegaId=@BodegaId)
+                GROUP BY m.EmpresaId,m.BodegaId,m.UbicacionId,m.ArticuloId,m.LoteId
+                HAVING SUM(m.CantidadEntrada-m.CantidadSalida)<>0
+            )
             SELECT m.BodegaId,b.Nombre,m.UbicacionId,u.Codigo,m.ArticuloId,a.Codigo,a.Descripcion,m.LoteId,l.NumeroLote,l.FechaVencimiento,
-                   SUM(m.CantidadEntrada-m.CantidadSalida),SUM(CASE WHEN m.CantidadEntrada>0 THEN m.ValorMovimiento ELSE -m.ValorMovimiento END)
-            FROM inv.MovimientoInventario m JOIN inv.Bodega b ON b.EmpresaId=m.EmpresaId AND b.BodegaId=m.BodegaId JOIN inv.Articulo a ON a.EmpresaId=m.EmpresaId AND a.ArticuloId=m.ArticuloId
+                   m.Existencia,m.Valor,b.Codigo,availability.Disponible
+            FROM detalle m JOIN inv.Bodega b ON b.EmpresaId=m.EmpresaId AND b.BodegaId=m.BodegaId JOIN inv.Articulo a ON a.EmpresaId=m.EmpresaId AND a.ArticuloId=m.ArticuloId
+            LEFT JOIN inv.SaldoArticuloBodega s ON s.EmpresaId=m.EmpresaId AND s.BodegaId=m.BodegaId AND s.ArticuloId=m.ArticuloId
             LEFT JOIN inv.Ubicacion u ON u.EmpresaId=m.EmpresaId AND u.UbicacionId=m.UbicacionId LEFT JOIN inv.Lote l ON l.EmpresaId=m.EmpresaId AND l.LoteId=m.LoteId
-            WHERE m.EmpresaId=@EmpresaId AND (@BodegaId IS NULL OR m.BodegaId=@BodegaId) AND (@Q IS NULL OR a.Codigo LIKE '%'+@Q+'%' OR a.Descripcion LIKE '%'+@Q+'%' OR l.NumeroLote LIKE '%'+@Q+'%')
-            GROUP BY m.BodegaId,b.Nombre,m.UbicacionId,u.Codigo,m.ArticuloId,a.Codigo,a.Descripcion,m.LoteId,l.NumeroLote,l.FechaVencimiento HAVING SUM(m.CantidadEntrada-m.CantidadSalida)<>0
+            {InventoryAvailability.JoinSql}
+            WHERE @Q IS NULL OR a.Codigo LIKE '%'+@Q+'%' OR a.Descripcion LIKE '%'+@Q+'%' OR l.NumeroLote LIKE '%'+@Q+'%'
             ORDER BY b.Nombre,a.Codigo,l.FechaVencimiento,l.NumeroLote,u.Codigo;
             """;
         Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@BodegaId",SqlDbType.BigInt,bodegaId);Add(command,"@Q",SqlDbType.NVarChar,string.IsNullOrWhiteSpace(q)?null:q.Trim(),120);
         await using var reader=await command.ExecuteReaderAsync(cancellationToken);var result=new List<DetailedInventoryBalanceResponse>();
-        while(await reader.ReadAsync(cancellationToken)){var quantity=reader.GetDecimal(10);var value=reader.GetDecimal(11);result.Add(new(reader.GetInt64(0),reader.GetString(1),reader.IsDBNull(2)?null:reader.GetInt64(2),reader.IsDBNull(3)?null:reader.GetString(3),reader.GetInt64(4),reader.GetString(5),reader.GetString(6),reader.IsDBNull(7)?null:reader.GetInt64(7),reader.IsDBNull(8)?null:reader.GetString(8),reader.IsDBNull(9)?null:DateOnly.FromDateTime(reader.GetDateTime(9)),quantity,value,quantity==0?0:value/quantity));}return result;
+        while(await reader.ReadAsync(cancellationToken)){var quantity=reader.GetDecimal(10);var value=reader.GetDecimal(11);result.Add(new(reader.GetInt64(0),reader.GetString(1),reader.IsDBNull(2)?null:reader.GetInt64(2),reader.IsDBNull(3)?null:reader.GetString(3),reader.GetInt64(4),reader.GetString(5),reader.GetString(6),reader.IsDBNull(7)?null:reader.GetInt64(7),reader.IsDBNull(8)?null:reader.GetString(8),reader.IsDBNull(9)?null:DateOnly.FromDateTime(reader.GetDateTime(9)),quantity,value,value/quantity,reader.GetString(12),reader.GetDecimal(13)));}return result;
     }
 
     public async Task<IReadOnlyList<KardexMovementResponse>> GetKardexAsync(long empresaId,DateOnly? desde,DateOnly? hasta,long? bodegaId,long? articuloId,string? q,CancellationToken cancellationToken)
@@ -197,7 +211,7 @@ public sealed class InventoryRepository(TenantConnectionFactory connections)
         return result;
     }
 
-    public async Task<IReadOnlyList<SerializedUnitResponse>> GetSerializedUnitsAsync(long empresaId,long? bodegaId,string? estado,string? q,CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<SerializedUnitResponse>> GetSerializedUnitsAsync(long empresaId,long? bodegaId,long? articuloId,string? estado,string? q,CancellationToken cancellationToken)
     {
         await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);
         await using var command=connection.CreateCommand();
@@ -209,11 +223,13 @@ public sealed class InventoryRepository(TenantConnectionFactory connections)
             LEFT JOIN inv.Bodega b ON b.EmpresaId=s.EmpresaId AND b.BodegaId=s.BodegaActualId
             LEFT JOIN inv.UnidadIdentificador i ON i.EmpresaId=s.EmpresaId AND i.UnidadSerializadaId=s.UnidadSerializadaId
             WHERE s.EmpresaId=@EmpresaId AND (@BodegaId IS NULL OR s.BodegaActualId=@BodegaId) AND (@Estado IS NULL OR s.Estado=@Estado)
+              AND (@ArticuloId IS NULL OR s.ArticuloId=@ArticuloId)
               AND (@Q IS NULL OR a.Codigo LIKE '%'+@Q+'%' OR a.Descripcion LIKE '%'+@Q+'%' OR EXISTS(SELECT 1 FROM inv.UnidadIdentificador f WHERE f.EmpresaId=s.EmpresaId AND f.UnidadSerializadaId=s.UnidadSerializadaId AND f.Valor LIKE '%'+@Q+'%'))
             GROUP BY s.UnidadSerializadaId,s.UnidadGuid,s.ArticuloId,a.Codigo,a.Descripcion,s.Estado,s.BodegaActualId,b.Nombre
             ORDER BY a.Codigo,s.UnidadSerializadaId;
             """;
         Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId); Add(command,"@BodegaId",SqlDbType.BigInt,bodegaId); Add(command,"@Estado",SqlDbType.VarChar,string.IsNullOrWhiteSpace(estado)?null:estado,20);Add(command,"@Q",SqlDbType.NVarChar,string.IsNullOrWhiteSpace(q)?null:q.Trim(),120);
+        Add(command,"@ArticuloId",SqlDbType.BigInt,articuloId);
         await using var reader=await command.ExecuteReaderAsync(cancellationToken);
         var result=new List<SerializedUnitResponse>();
         while(await reader.ReadAsync(cancellationToken)) result.Add(new(reader.GetInt64(0),reader.GetGuid(1),reader.GetInt64(2),reader.GetString(3),reader.GetString(4),reader.GetString(5),reader.IsDBNull(6)?null:reader.GetInt64(6),reader.IsDBNull(7)?null:reader.GetString(7),reader.IsDBNull(8)?null:reader.GetString(8),reader.IsDBNull(9)?null:reader.GetString(9),reader.IsDBNull(10)?null:reader.GetString(10),reader.IsDBNull(11)?null:reader.GetString(11),reader.IsDBNull(12)?null:reader.GetString(12)));

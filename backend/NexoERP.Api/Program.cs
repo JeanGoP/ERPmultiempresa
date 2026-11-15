@@ -393,8 +393,8 @@ app.MapPost("/api/v1/companies/{empresaId:long}/master-data/item-mappings", asyn
     return Results.Ok(await masters.SaveMappingAsync(empresaId,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct));
 }).RequireErpPermission("COMPRAS.HOMOLOGACION.ADMINISTRAR");
 
-app.MapGet("/api/v1/companies/{empresaId:long}/inventory/balances", async (long empresaId, InventoryRepository inventory, CancellationToken cancellationToken) =>
-    Results.Ok(await inventory.GetBalancesAsync(empresaId, cancellationToken)));
+app.MapGet("/api/v1/companies/{empresaId:long}/inventory/balances", async (long empresaId,long? bodegaId,long? articuloId,InventoryRepository inventory,CancellationToken cancellationToken) =>
+    Results.Ok(await inventory.GetBalancesAsync(empresaId,bodegaId,articuloId,cancellationToken)));
 app.MapGet("/api/v1/companies/{empresaId:long}/inventory/stock", async (long empresaId,long? bodegaId,string? q,InventoryRepository inventory,CancellationToken ct) => Results.Ok(await inventory.GetDetailedBalancesAsync(empresaId,bodegaId,q,ct)));
 app.MapGet("/api/v1/companies/{empresaId:long}/inventory/kardex", async (long empresaId,DateOnly? desde,DateOnly? hasta,long? bodegaId,long? articuloId,string? q,InventoryRepository inventory,CancellationToken ct) => Results.Ok(await inventory.GetKardexAsync(empresaId,desde,hasta,bodegaId,articuloId,q,ct)));
 app.MapGet("/api/v1/companies/{empresaId:long}/inventory/expiry-alerts", async (long empresaId,int? dias,long? bodegaId,InventoryRepository inventory,CancellationToken ct) => Results.Ok(await inventory.GetExpiryAlertsAsync(empresaId,dias??90,bodegaId,ct)));
@@ -405,7 +405,7 @@ app.MapGet("/api/v1/companies/{empresaId:long}/permissions", async (long empresa
 app.MapGet("/api/v1/companies/{empresaId:long}/inventory/history", async (long empresaId,DateOnly fecha,long? bodegaId,long? articuloId,InventoryRepository inventory,CancellationToken cancellationToken) =>
     Results.Ok(await inventory.GetInventoryAtAsync(empresaId,fecha,bodegaId,articuloId,cancellationToken)));
 
-app.MapGet("/api/v1/companies/{empresaId:long}/inventory/serialized-units", async (long empresaId,long? bodegaId,string? estado,string? q,InventoryRepository inventory,CancellationToken cancellationToken) => Results.Ok(await inventory.GetSerializedUnitsAsync(empresaId,bodegaId,estado,q,cancellationToken)));
+app.MapGet("/api/v1/companies/{empresaId:long}/inventory/serialized-units", async (long empresaId,long? bodegaId,long? articuloId,string? estado,string? q,InventoryRepository inventory,CancellationToken cancellationToken) => Results.Ok(await inventory.GetSerializedUnitsAsync(empresaId,bodegaId,articuloId,estado,q,cancellationToken)));
 
 app.MapGet("/api/v1/companies/{empresaId:long}/costs/concepts",async(long empresaId,AdvancedControlsRepository controls,CancellationToken ct)=>Results.Ok(await controls.GetCostConceptsAsync(empresaId,ct)));
 app.MapGet("/api/v1/companies/{empresaId:long}/costs/landed/sources",async(long empresaId,string? q,AdvancedControlsRepository controls,CancellationToken ct)=>Results.Ok(await controls.GetLandedCostSourcesAsync(empresaId,q,ct)));
@@ -696,7 +696,12 @@ app.MapPost("/api/v1/companies/{empresaId:long}/sales-returns/{id:long}/post", a
 app.MapPost("/api/v1/companies/{empresaId:long}/transfers", async (long empresaId,CreateTransferRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>
 {
     if(string.IsNullOrWhiteSpace(input.Numero)||input.BodegaOrigenId<=0||input.BodegaDestinoId<=0||input.BodegaOrigenId==input.BodegaDestinoId||input.Lineas.Count==0||input.Lineas.Any(x=>x.ArticuloId<=0||x.Cantidad<=0)) return Results.ValidationProblem(new Dictionary<string,string[]> { ["traslado"]=["Número, bodegas diferentes y líneas con cantidades positivas son obligatorios."] });
-    var result=await operations.CreateTransferAsync(empresaId,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct);return result.YaExistia?Results.Ok(result):Results.Created($"/api/v1/companies/{empresaId}/transfers/{result.DocumentoId}",result);
+    try
+    {
+        var result=await operations.CreateTransferAsync(empresaId,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct);
+        return result.YaExistia?Results.Ok(result):Results.Created($"/api/v1/companies/{empresaId}/transfers/{result.DocumentoId}",result);
+    }
+    catch(ArgumentException error){return Results.BadRequest(new{error=error.Message});}
 }).RequireErpPermission("INVENTARIO.TRASLADO.DESPACHAR");
 app.MapGet("/api/v1/companies/{empresaId:long}/supplier-returns/sources", async (long empresaId,string? q,InventoryOperationsRepository operations,CancellationToken ct) => Results.Ok(await operations.GetSupplierReturnSourcesAsync(empresaId,q,ct)));
 app.MapPost("/api/v1/companies/{empresaId:long}/supplier-returns", async (long empresaId,CreateSupplierReturnRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>

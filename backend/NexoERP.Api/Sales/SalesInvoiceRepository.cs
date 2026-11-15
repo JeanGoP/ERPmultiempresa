@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
+using NexoERP.Api.Inventory;
 using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.Sales;
@@ -246,15 +247,16 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
     public async Task<object> OptionsAsync(long company,long? client,CancellationToken ct)
     {
         await using var c=await connections.OpenAsync(company,false,ct);
-        await using var q=ZeusRepository.Command(c,"""
+        await using var q=ZeusRepository.Command(c,$"""
             SELECT SucursalId,Codigo,Nombre FROM core.Sucursal WHERE EmpresaId=@E AND Activa=1 ORDER BY Codigo;
             SELECT t.TerceroId,t.NumeroIdentificacion,t.RazonSocial,p.ZeusEstado FROM ter.Tercero t
             JOIN ven.ClientePerfil p ON p.EmpresaId=t.EmpresaId AND p.TerceroId=t.TerceroId
             WHERE t.EmpresaId=@E AND t.Activo=1 ORDER BY t.RazonSocial;
             SELECT a.ArticuloId,a.Codigo,a.Descripcion,a.Tipo,a.ManejaInventario,a.ManejaSerial,a.PorcentajeIvaVenta,
-                b.BodegaId,b.Codigo,b.Nombre,b.SucursalId,ISNULL(s.Existencia,0),s.CostoPromedio,a.PrecioListaConIva
+                b.BodegaId,b.Codigo,b.Nombre,b.SucursalId,availability.Disponible,s.CostoPromedio,a.PrecioListaConIva
             FROM inv.Articulo a CROSS JOIN inv.Bodega b
             LEFT JOIN inv.SaldoArticuloBodega s ON s.EmpresaId=a.EmpresaId AND s.ArticuloId=a.ArticuloId AND s.BodegaId=b.BodegaId
+            {InventoryAvailability.JoinSql}
             WHERE a.EmpresaId=@E AND b.EmpresaId=@E AND a.Activo=1 AND b.Activa=1 AND b.SucursalId IS NOT NULL
             ORDER BY b.Codigo,a.Codigo;
             SELECT u.UnidadSerializadaId,u.ArticuloId,u.BodegaActualId,u.Estado,ui.Tipo,ui.Valor
@@ -424,11 +426,12 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         {
             q.Parameters.Add("@Article",SqlDbType.BigInt).Value=line.ArticuloId;
             q.Parameters.Add("@Warehouse",SqlDbType.BigInt).Value=line.BodegaId;
-            q.CommandText="""
-                SELECT a.PorcentajeIvaVenta,a.ManejaInventario,a.ManejaSerial,ISNULL(s.Existencia,0),z.Configuracion,z.Servidor,z.BaseDatos,a.PrecioListaConIva,ISNULL(s.CostoPromedio,0),a.Codigo,a.Descripcion
+            q.CommandText=$"""
+                SELECT a.PorcentajeIvaVenta,a.ManejaInventario,a.ManejaSerial,availability.Disponible,z.Configuracion,z.Servidor,z.BaseDatos,a.PrecioListaConIva,ISNULL(s.CostoPromedio,0),a.Codigo,a.Descripcion
                 FROM inv.Articulo a JOIN inv.Bodega b ON b.EmpresaId=a.EmpresaId AND b.BodegaId=@Warehouse AND b.SucursalId=@B AND b.Activa=1
                 LEFT JOIN inv.SaldoArticuloBodega s WITH(UPDLOCK,HOLDLOCK) ON s.EmpresaId=a.EmpresaId AND s.BodegaId=@Warehouse AND s.ArticuloId=a.ArticuloId
                 LEFT JOIN core.ZeusBodegaCuenta z ON z.EmpresaId=a.EmpresaId AND z.BodegaId=@Warehouse
+                {InventoryAvailability.JoinSql}
                 WHERE a.EmpresaId=@E AND a.ArticuloId=@Article AND a.Activo=1;
                 """;
             decimal rate,stock,cost;decimal? listPrice;bool inventory,serial;string? accountsJson,server,db;string articleLabel;
@@ -440,7 +443,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
                 listPrice=r.IsDBNull(7)?null:r.GetDecimal(7);cost=r.GetDecimal(8);articleLabel=r.GetString(9)+" · "+r.GetString(10);
             }
             q.Parameters.RemoveAt("@Article");q.Parameters.RemoveAt("@Warehouse");
-            if(inventory&&stock<line.Cantidad)throw new ArgumentException("No hay existencias suficientes en la bodega seleccionada.");
+            if(inventory&&stock<line.Cantidad)throw new ArgumentException($"{articleLabel}: hay {stock:0.######} unidades disponibles en la bodega seleccionada.");
             priceExceptions.AddRange(SalesPricing.Assess(line.PrecioUnitarioConIva,listPrice,maxDiscount,cost,rate,inventory,line.ArticuloId,line.BodegaId,articleLabel,
                 line.PrecioBaseConIva,line.DescuentoPorcentaje));
             if(serial&&(line.UnidadesSerializadas?.Length!=line.Cantidad||line.UnidadesSerializadas.Distinct().Count()!=line.UnidadesSerializadas.Length))

@@ -1047,12 +1047,457 @@ async function refreshInventory(){
 }
 function showInventoryView(view='stock'){if(!isInventoryViewAllowed(view)){const fallback=firstAllowedInventoryView();if(fallback&&fallback!==view){showInventoryView(fallback);return;}routeToDefaultWorkspace(true);return;}state.inventoryView=view;elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.savedPurchasesModule.hidden=true;elements.accountsPayableModule.hidden=true;elements.inventoryModule.hidden=false;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.savedPurchasesNav.classList.remove('active');elements.accountsPayableNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');document.querySelector('.breadcrumb span').textContent=view==='receiving'?'Bodega':view==='receipt-history'||view==='receipt-issues'?'Administración':'Inventario';elements.breadcrumbCurrent.textContent={stock:'Existencias',receiving:'Recepción física','receipt-issues':'Novedades pendientes','receipt-history':'Historial recepciones',kardex:'Kardex',serials:'Seriales',expiry:'Vencimientos',operations:'Movimientos'}[view];document.querySelectorAll('[data-registration-mode],[data-master-view]').forEach(x=>x.classList.remove('active'));document.querySelectorAll('[data-inventory-view]').forEach(x=>x.classList.toggle('active',x.dataset.inventoryView===view));const isKardex=view==='kardex';const isOperations=view==='operations';const isReceiving=view==='receiving';const isReceiptHistory=view==='receipt-history';const isReceiptIssues=view==='receipt-issues';elements.inventoryDateFromField.hidden=!(isKardex||isReceiptHistory||isReceiptIssues);elements.inventoryDateToField.hidden=!(isKardex||isReceiptHistory||isReceiptIssues);elements.inventoryIssueTypeField.hidden=!isReceiptIssues;elements.inventoryTable.hidden=isOperations||isReceiptIssues;elements.inventoryOperationPanel.hidden=!(isOperations||isReceiving||isReceiptHistory||isReceiptIssues);elements.inventorySearch.closest('label').hidden=isOperations;elements.inventoryWarehouse.closest('label').hidden=isOperations;$('#refreshInventory').hidden=isOperations;populateInventoryWarehouses();if(isReceiving||isReceiptHistory)state.warehouseReceiptDetail=null;void refreshInventory();window.scrollTo({top:0,behavior:'smooth'});}
 function fillOperationSelect(select,rows,valueKey,label){select.replaceChildren(new Option('Seleccionar…',''));rows.forEach(x=>select.add(new Option(label(x),x[valueKey])));}
-function renderInventoryOperationPanel(){
-  const panel=elements.inventoryOperationPanel;panel.replaceChildren();const heading=document.createElement('div');heading.className='operation-heading';heading.innerHTML='<span>OPERACIÓN DE INVENTARIO</span><h2>Traslados y devoluciones</h2><p>Cada documento conserva el costo y el origen; las unidades serializadas mantienen bodega, estado e historial.</p>';
-  const form=document.createElement('form');form.className='inventory-operation-form';form.innerHTML='<label><span>Tipo de operación</span><select name="type"><option value="transfer">Traslado entre bodegas</option><option value="supplier">Devolución a proveedor</option><option value="sales">Devolución de cliente</option></select></label><label><span>Número</span><input name="number" required></label><label><span>Fecha contable</span><input name="date" type="date" required></label><label><span>Periodo</span><select name="period" required></select></label><label data-op-field="origin"><span>Bodega origen</span><select name="origin"></select></label><label data-op-field="destination"><span>Bodega destino</span><select name="destination"></select></label><label data-op-field="article"><span>Artículo</span><select name="article"></select></label><label data-op-field="source" hidden><span>Documento / línea original</span><select name="source"></select></label><label><span>Cantidad</span><input name="quantity" type="number" min="0.000001" step="0.000001" value="1" required></label><label><span>Seriales (IDs separados por coma)</span><input name="serials" placeholder="Opcional"></label><label class="wide"><span>Motivo</span><input name="reason" value="Movimiento operativo de inventario"></label><button class="button primary wide" type="submit">Crear y contabilizar</button><div class="operation-result wide" hidden></div>';
-  panel.append(heading,form);const warehouses=state.apiContext?.warehouses||[];const articles=state.apiContext?.masterData?.articles?.filter(x=>x.inventory)||[];fillOperationSelect(form.elements.period,state.apiContext?.periods||[],'periodoInventarioId',x=>`${x.codigo} · ${x.estado}`);fillOperationSelect(form.elements.origin,warehouses,'bodegaId',x=>`${x.codigo} · ${x.nombre}`);fillOperationSelect(form.elements.destination,warehouses,'bodegaId',x=>`${x.codigo} · ${x.nombre}`);fillOperationSelect(form.elements.article,articles,'id',x=>`${x.code} · ${x.description}`);form.elements.date.value=new Date().toISOString().slice(0,10);form.elements.number.value=`MOV-${Date.now().toString().slice(-6)}`;
-  async function configure(){const type=form.elements.type.value;form.querySelector('[data-op-field="origin"]').hidden=type!=='transfer';form.querySelector('[data-op-field="destination"]').hidden=type!=='transfer';form.querySelector('[data-op-field="article"]').hidden=type!=='transfer';form.querySelector('[data-op-field="source"]').hidden=type==='transfer';if(type!=='transfer'&&state.runtimeMode==='api'&&state.erpSession?.api){const base=`/api/v1/companies/${state.erpSession.company.id}`;const rows=await apiRequest(`${base}/${type==='supplier'?'supplier-returns':'sales-returns'}/sources`);form.elements.source.replaceChildren(new Option('Seleccionar documento original…',''));rows.forEach(x=>{const option=new Option(`${x.documento||x.recepcion} · ${x.codigo} · disponible ${x.cantidadDisponible}`,x.movimientoSalidaOriginalId||x.recepcionMercanciaLineaId);option.dataset.row=JSON.stringify(x);form.elements.source.add(option);});}}
-  form.elements.type.addEventListener('change',()=>void configure());form.addEventListener('submit',async event=>{event.preventDefault();const output=form.querySelector('.operation-result');output.hidden=false;output.textContent='Procesando operación…';try{if(state.runtimeMode!=='api'||!state.erpSession?.api)throw new Error('Activa API ERP para registrar movimientos reales.');const base=`/api/v1/companies/${state.erpSession.company.id}`;const serials=form.elements.serials.value.split(',').map(x=>Number(x.trim())).filter(Boolean);const number=form.elements.number.value;const date=form.elements.date.value;const period=Number(form.elements.period.value);let created,posted;if(form.elements.type.value==='transfer'){created=await apiRequest(`${base}/transfers`,{method:'POST',body:JSON.stringify({numero:number,bodegaOrigenId:Number(form.elements.origin.value),bodegaTransitoId:null,bodegaDestinoId:Number(form.elements.destination.value),fechaSalida:`${date}T12:00:00`,lineas:[{articuloId:Number(form.elements.article.value),loteId:null,cantidad:Number(form.elements.quantity.value),unidadSerializadaIds:serials}]})});posted=await apiRequest(`${base}/transfers/${created.documentoId}/dispatch`,{method:'POST',body:JSON.stringify({periodoInventarioId:period,fechaContable:date,fechaRecepcion:null})});output.replaceChildren(document.createTextNode(`Traslado ${created.numero} despachado · ${posted.movimientos} movimientos. `));const receive=document.createElement('button');receive.type='button';receive.className='button secondary';receive.textContent='Recibir en destino';receive.addEventListener('click',async()=>{const result=await apiRequest(`${base}/transfers/${created.documentoId}/receive`,{method:'POST',body:JSON.stringify({periodoInventarioId:period,fechaContable:date,fechaRecepcion:`${date}T12:00:00`})});output.textContent=`Traslado recibido · ${result.movimientos} movimientos · estado ${result.estado}.`;});output.append(receive);}else{const source=JSON.parse(form.elements.source.selectedOptions[0].dataset.row);const supplier=form.elements.type.value==='supplier';const path=supplier?'supplier-returns':'sales-returns';const line=supplier?{recepcionMercanciaLineaId:source.recepcionMercanciaLineaId,articuloId:source.articuloId,cantidadBase:Number(form.elements.quantity.value),ubicacionId:null,loteId:source.loteId,unidadSerializadaIds:serials}:{movimientoSalidaOriginalId:source.movimientoSalidaOriginalId,articuloId:source.articuloId,cantidadBase:Number(form.elements.quantity.value),ubicacionId:null,loteId:source.loteId,unidadSerializadaIds:serials};created=await apiRequest(`${base}/${path}`,{method:'POST',body:JSON.stringify({numero:number,terceroId:source.terceroId,bodegaId:source.bodegaId,periodoInventarioId:period,fechaMovimiento:`${date}T12:00:00`,fechaContable:date,motivo:form.elements.reason.value,lineas:[line]})});posted=await apiRequest(`${base}/${path}/${created.documentoId}/post`,{method:'POST',body:'{}'});output.textContent=`${supplier?'Devolución a proveedor':'Devolución de cliente'} contabilizada · ${posted.movimientos} movimiento(s) · estado ${posted.estado}.`;}}catch(error){output.textContent=error.message;}});void configure();
+async function fetchTransferAvailability(base, origin, article, signal) {
+  const filters = new URLSearchParams({bodegaId:origin, articuloId:article.id});
+  const request = {cache:'no-store', signal};
+  const [balances, units] = await Promise.all([
+    apiRequest(`${base}/inventory/balances?${filters}`, request),
+    article.serial ? apiRequest(`${base}/inventory/serialized-units?${filters}&estado=DISPONIBLE`, request) : []
+  ]);
+  const balance = balances.find(row => Number(row.bodegaId) === origin && Number(row.articuloId) === article.id);
+  const registered = Number(balance?.existencia ?? 0);
+  const stock = Math.max(0, Number(balance?.disponible ?? registered));
+  const selectableUnits = units
+    .filter(unit => Number(unit.bodegaActualId) === origin && Number(unit.articuloId) === article.id && unit.estado === 'DISPONIBLE')
+    .map(unit => ({
+      id: Number(unit.unidadSerializadaId),
+      label: [['Chasis',unit.chasis],['VIN',unit.vin],['Serial',unit.serial],['Motor',unit.motor],['Placa',unit.placa]]
+        .filter(([,value]) => value).map(([name,value]) => `${name} ${value}`).join(' · ')
+    }))
+    .filter(unit => unit.label);
+  return {
+    registered,
+    available: article.serial ? Math.min(Math.floor(stock), selectableUnits.length) : stock,
+    units: selectableUnits
+  };
+}
+
+function renderInventoryOperationPanel() {
+  const panel = elements.inventoryOperationPanel;
+  const heading = document.createElement('div');
+  heading.className = 'operation-heading';
+  heading.innerHTML = '<h2>Traslados y devoluciones</h2>';
+  const form = document.createElement('form');
+  form.className = 'inventory-operation-form';
+  form.innerHTML = `
+    <label><span>Tipo de operación</span><select name="type"><option value="transfer">Traslado entre bodegas</option><option value="supplier">Devolución a proveedor</option><option value="sales">Devolución de cliente</option></select></label>
+    <label><span>Número</span><input name="number" required></label>
+    <label><span>Fecha contable</span><input name="date" type="date" required></label>
+    <label><span>Periodo</span><select name="period" required></select></label>
+    <label data-op-field="origin"><span>Bodega origen</span><select name="origin"></select></label>
+    <label data-op-field="destination"><span>Bodega destino</span><select name="destination"></select></label>
+    <div class="transfer-article-picker" data-op-field="article">
+      <label for="transferArticleSearch"><span>Artículo</span></label>
+      <input id="transferArticleSearch" name="articleSearch" type="search" placeholder="Busca por código o nombre…" autocomplete="off" role="combobox" aria-controls="transferArticleResults" aria-autocomplete="list" aria-expanded="false">
+      <div id="transferArticleResults" class="transfer-article-results" data-article-results role="listbox" aria-label="Artículos encontrados" hidden></div>
+    </div>
+    <label data-op-field="source" hidden><span>Documento / línea original</span><select name="source"></select></label>
+    <label><span>Cantidad</span><input name="quantity" type="number" min="0.000001" step="0.000001" value="1" required></label>
+    <div class="wide transfer-stock" data-transfer-stock>
+      <p role="status" data-stock-message></p>
+      <button class="button secondary" type="button" data-refresh-stock hidden>Actualizar disponibilidad</button>
+    </div>
+    <fieldset class="wide transfer-units" data-transfer-units hidden>
+      <legend>Chasis y seriales disponibles</legend>
+      <div class="transfer-units-toolbar">
+        <label><span>Filtrar unidades</span><input type="search" data-unit-search placeholder="Chasis, VIN, serial o motor" autocomplete="off"></label>
+        <small data-selection-count aria-live="polite"></small>
+      </div>
+      <div class="transfer-units-list" data-unit-list></div>
+    </fieldset>
+    <label data-op-field="serials" hidden><span>Seriales (IDs separados por coma)</span><input name="serials" placeholder="Opcional"></label>
+    <label class="wide" data-op-field="reason" hidden><span>Motivo</span><input name="reason" value="Movimiento operativo de inventario"></label>
+    <button class="button primary wide" type="submit">Despachar traslado</button>
+    <div class="operation-result wide" role="status" hidden></div>`;
+  panel.replaceChildren(heading, form);
+  const fields = form.elements;
+  const articleSearch = fields.articleSearch;
+  const articleResults = form.querySelector('[data-article-results]');
+  const stockPanel = form.querySelector('[data-transfer-stock]');
+  const stockMessage = form.querySelector('[data-stock-message]');
+  const refreshButton = form.querySelector('[data-refresh-stock]');
+  const unitPanel = form.querySelector('[data-transfer-units]');
+  const unitSearch = form.querySelector('[data-unit-search]');
+  const unitList = form.querySelector('[data-unit-list]');
+  const selectionCount = form.querySelector('[data-selection-count]');
+  const submit = form.querySelector('[type="submit"]');
+  const output = form.querySelector('.operation-result');
+
+  const company = state.erpSession?.company?.id;
+  const apiActive = state.runtimeMode === 'api' && state.erpSession?.api && company;
+  const base = `/api/v1/companies/${company}`;
+  const warehouses = state.apiContext?.warehouses || [];
+  const articles = (state.apiContext?.masterData?.articles || []).filter(article => article.inventory && article.active !== false);
+  const foldSearch = window.customerCatalogSearch.fold;
+  const articleIndex = articles.map(article => ({article, code:foldSearch(article.code), description:foldSearch(article.description)}));
+  const quantityFormat = new Intl.NumberFormat('es-CO',{maximumFractionDigits:6});
+  const chosenUnits = new Set();
+  let sourceRequest;
+  let availability = null;
+  let unitsError = '';
+  let busy = false;
+  let pendingDispatch = null;
+  let articleSelection = null;
+  let articleMatches = [];
+  let activeArticleMatch = -1;
+
+  fillOperationSelect(fields.period, state.apiContext?.periods || [], 'periodoInventarioId', row => `${row.codigo} · ${row.estado}`);
+  for (const field of [fields.origin, fields.destination]) {
+    fillOperationSelect(field, warehouses, 'bodegaId', row => `${row.codigo} · ${row.nombre}`);
+  }
+  fields.date.value = accountingToday();
+  const initialPeriod = receiptPeriodForDate(fields.date.value);
+  if (initialPeriod) fields.period.value = String(initialPeriod.periodoInventarioId);
+  fields.number.value = `MOV-${Date.now().toString().slice(-6)}`;
+
+  const isTransfer = () => fields.type.value === 'transfer';
+  const isCurrent = () => form.isConnected && company === state.erpSession?.company?.id;
+  function closeArticleResults() {
+    articleResults.hidden = true;
+    articleSearch.setAttribute('aria-expanded', 'false');
+    articleSearch.removeAttribute('aria-activedescendant');
+    activeArticleMatch = -1;
+  }
+
+  function chooseArticle(article) {
+    articleSelection = article;
+    articleSearch.value = `${article.code} · ${article.description}`;
+    articleSearch.setCustomValidity('');
+    closeArticleResults();
+    void loadTransferAvailability({clear:true});
+  }
+
+  function renderArticleResults() {
+    const query = foldSearch(articleSearch.value);
+    if (!query || articleSelection) {
+      closeArticleResults();
+      return;
+    }
+    const terms = query.split(/\s+/);
+    const rank = entry => entry.code === query ? 0 : entry.code.startsWith(query) ? 1 : entry.description.startsWith(query) ? 2 : 3;
+    const matches = articleIndex.filter(entry => terms.every(term => `${entry.code} ${entry.description}`.includes(term)));
+    matches.sort((a,b) => rank(a)-rank(b) || a.description.localeCompare(b.description, 'es-CO') || a.code.localeCompare(b.code, 'es-CO'));
+    articleMatches = matches.slice(0, 12).map(entry => entry.article);
+    activeArticleMatch = -1;
+    const results = articleMatches.map((article,index) => {
+      const option = document.createElement('button');
+      option.type = 'button';
+      option.tabIndex = -1;
+      option.id = `transferArticleMatch${index}`;
+      option.setAttribute('role', 'option');
+      option.setAttribute('aria-selected', 'false');
+      const name = document.createElement('strong');
+      name.textContent = article.description;
+      const detail = document.createElement('small');
+      detail.textContent = `${article.code}${article.serial ? ' · Seriado' : ''}`;
+      option.append(name, detail);
+      option.addEventListener('click', () => chooseArticle(article));
+      return option;
+    });
+    if (!results.length) results.push(emptyMessage('No se encontraron artículos.'));
+    else if (matches.length > results.length) results.push(emptyMessage('Escribe más detalles para acotar los resultados.'));
+    articleResults.replaceChildren(...results);
+    articleResults.hidden = false;
+    articleSearch.setAttribute('aria-expanded', 'true');
+    articleSearch.removeAttribute('aria-activedescendant');
+  }
+
+  articleSearch.addEventListener('input', () => {
+    const wasSelected = Boolean(articleSelection);
+    articleSelection = null;
+    articleSearch.setCustomValidity('Selecciona un artículo de los resultados.');
+    if (wasSelected) void loadTransferAvailability({clear:true});
+    renderArticleResults();
+  });
+  articleSearch.addEventListener('focus', renderArticleResults);
+  articleSearch.addEventListener('blur', closeArticleResults);
+  articleResults.addEventListener('pointerdown', event => { if (event.target.closest('button')) event.preventDefault(); });
+  articleSearch.addEventListener('keydown', event => {
+    if (articleResults.hidden) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeArticleResults();
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const article = articleMatches[Math.max(0,activeArticleMatch)];
+      if (article) chooseArticle(article);
+      return;
+    }
+    if (!articleMatches.length || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return;
+    event.preventDefault();
+    const last = articleMatches.length - 1;
+    activeArticleMatch = event.key === 'ArrowDown'
+      ? (activeArticleMatch + 1) % articleMatches.length
+      : activeArticleMatch <= 0 ? last : activeArticleMatch - 1;
+    for (let index = 0; index <= last; index++) articleResults.children[index].setAttribute('aria-selected', String(index === activeArticleMatch));
+    const option = articleResults.children[activeArticleMatch];
+    articleSearch.setAttribute('aria-activedescendant', option.id);
+    option.scrollIntoView({block:'nearest'});
+  });
+
+  function updateActions() {
+    const transferring = isTransfer();
+    const serial = transferring && Boolean(articleSelection?.serial);
+    const origin = Number(fields.origin.value);
+    const sameWarehouse = origin && origin === Number(fields.destination.value);
+    fields.destination.setCustomValidity(transferring && sameWarehouse ? 'Elige una bodega distinta de la bodega de origen.' : '');
+    fields.quantity.readOnly = serial;
+    if (transferring && availability?.available > 0) fields.quantity.max = availability.available;
+    else fields.quantity.removeAttribute('max');
+    if (serial) fields.quantity.value = chosenUnits.size;
+    submit.textContent = transferring ? (pendingDispatch ? 'Reintentar despacho' : 'Despachar traslado') : 'Crear y contabilizar';
+    submit.disabled = Boolean(busy || !apiActive || (transferring
+      ? !pendingDispatch && (!availability?.available || (serial && !chosenUnits.size))
+      : !fields.source.value));
+    refreshButton.disabled = busy;
+    unitPanel.disabled = busy || Boolean(pendingDispatch);
+    for (const field of [fields.type,fields.origin,fields.destination,articleSearch,fields.number,fields.date,fields.period,fields.quantity,fields.source,fields.serials,fields.reason]) {
+      field.disabled = busy || Boolean(pendingDispatch);
+    }
+  }
+
+  function syncUnitSelection() {
+    selectionCount.textContent = `${chosenUnits.size} ${chosenUnits.size === 1 ? 'seleccionada' : 'seleccionadas'}`;
+    const filled = chosenUnits.size >= (availability?.available ?? 0);
+    unitList.querySelectorAll('input[type="checkbox"]').forEach(check => { check.disabled = filled && !check.checked; });
+    updateActions();
+  }
+
+  function renderUnitList() {
+    const search = unitSearch.value.trim().toLocaleLowerCase('es-CO');
+    const fragment = document.createDocumentFragment();
+    for (const unit of availability?.units || []) {
+      if (search && !unit.label.toLocaleLowerCase('es-CO').includes(search)) continue;
+      const label = document.createElement('label');
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.value = unit.id;
+      check.checked = chosenUnits.has(unit.id);
+      const title = document.createElement('strong');
+      title.textContent = unit.label;
+      label.append(check, title);
+      fragment.append(label);
+    }
+    unitList.replaceChildren(fragment);
+    if (!unitList.children.length) unitList.append(emptyMessage('No hay unidades con ese identificador.'));
+    syncUnitSelection();
+  }
+
+  function renderTransferAvailability() {
+    const article = articleSelection;
+    const origin = Number(fields.origin.value);
+    refreshButton.hidden = !(apiActive && origin && article);
+    unitPanel.hidden = !(article?.serial && availability?.available > 0);
+    stockPanel.dataset.stockState = 'pending';
+    if (!apiActive) stockMessage.textContent = 'Activa la API del ERP para consultar existencias.';
+    else if (!origin || !article) stockMessage.textContent = 'Selecciona la bodega de origen y el artículo para ver la disponibilidad.';
+    else if (unitsError) {
+      stockPanel.dataset.stockState = 'empty';
+      stockMessage.textContent = `No se pudo consultar la disponibilidad. ${unitsError}`;
+    } else if (!availability) stockMessage.textContent = 'Consultando disponibilidad en la bodega de origen…';
+    else if (availability.available <= 0) {
+      stockPanel.dataset.stockState = 'empty';
+      stockMessage.textContent = article.serial
+        ? 'Sin existencias disponibles para trasladar en esta bodega. No hay chasis habilitados para seleccionar.'
+        : 'Sin existencias disponibles para trasladar en esta bodega.';
+    } else {
+      stockPanel.dataset.stockState = 'available';
+      stockMessage.textContent = `Disponible en origen: ${quantityFormat.format(availability.available)}`;
+    }
+    if (availability && availability.registered > availability.available) {
+      stockMessage.textContent += ` · Saldo registrado: ${quantityFormat.format(availability.registered)}`;
+    }
+    if (!unitPanel.hidden) renderUnitList();
+    else updateActions();
+  }
+
+  async function loadTransferAvailability({clear = false} = {}) {
+    sourceRequest?.abort();
+    const request = new AbortController();
+    sourceRequest = request;
+    const origin = Number(fields.origin.value);
+    const article = articleSelection;
+    availability = null;
+    unitsError = '';
+    if (clear) {
+      chosenUnits.clear();
+      unitSearch.value = '';
+      fields.quantity.value = '1';
+    }
+    renderTransferAvailability();
+    if (!apiActive || !origin || !article) return null;
+    try {
+      const result = await fetchTransferAvailability(base, origin, article, request.signal);
+      if (!isCurrent() || request.signal.aborted || !isTransfer()) return null;
+      availability = result;
+      const latestIds = new Set(result.units.map(unit => unit.id));
+      [...chosenUnits].forEach(id => { if (!latestIds.has(id)) chosenUnits.delete(id); });
+      return result;
+    } catch (error) {
+      if (isCurrent() && !request.signal.aborted) unitsError = error.message;
+      return null;
+    } finally {
+      if (isCurrent() && !request.signal.aborted) renderTransferAvailability();
+    }
+  }
+
+  async function configure() {
+    sourceRequest?.abort();
+    const transferring = isTransfer();
+    for (const key of ['origin','destination','article']) form.querySelector(`[data-op-field="${key}"]`).hidden = !transferring;
+    for (const key of ['source','serials','reason']) form.querySelector(`[data-op-field="${key}"]`).hidden = transferring;
+    fields.origin.required = fields.destination.required = articleSearch.required = transferring;
+    articleSearch.setCustomValidity(transferring && articleSearch.value && !articleSelection ? 'Selecciona un artículo de los resultados.' : '');
+    closeArticleResults();
+    fields.source.required = !transferring;
+    stockPanel.hidden = !transferring;
+    unitPanel.hidden = true;
+    if (transferring) {
+      await loadTransferAvailability({clear:true});
+      return;
+    }
+    fields.quantity.value = '1';
+    fields.source.replaceChildren(new Option('Seleccionar documento original…',''));
+    updateActions();
+    if (!apiActive) return;
+    const request = new AbortController();
+    sourceRequest = request;
+    const path = fields.type.value === 'supplier' ? 'supplier-returns' : 'sales-returns';
+    try {
+      const rows = await apiRequest(`${base}/${path}/sources`, {cache:'no-store', signal:request.signal});
+      if (!isCurrent() || request.signal.aborted) return;
+      for (const row of rows) {
+        const option = new Option(`${row.documento || row.recepcion} · ${row.codigo} · disponible ${row.cantidadDisponible}`, row.movimientoSalidaOriginalId || row.recepcionMercanciaLineaId);
+        option.dataset.row = JSON.stringify(row);
+        fields.source.add(option);
+      }
+    } catch (error) {
+      if (isCurrent() && !request.signal.aborted) {
+        output.hidden = false;
+        output.textContent = error.message;
+      }
+    }
+  }
+
+  async function dispatchTransfer(date, period) {
+    if (!pendingDispatch) {
+      const requestedUnits = [...chosenUnits];
+      const quantity = Number(fields.quantity.value);
+      const article = articleSelection;
+      const origin = Number(fields.origin.value);
+      const destination = Number(fields.destination.value);
+      const number = fields.number.value.trim();
+      const latest = await loadTransferAvailability();
+      if (!latest) throw new Error(unitsError || 'No se pudo comprobar la disponibilidad del artículo.');
+      if (!Number.isFinite(quantity) || quantity <= 0 || quantity > latest.available) {
+        throw new Error('Ingresa una cantidad positiva dentro de la disponibilidad de la bodega de origen.');
+      }
+      if (article.serial && (requestedUnits.length !== quantity || requestedUnits.some(id => !chosenUnits.has(id)))) {
+        throw new Error('Cambió la disponibilidad. Revisa los chasis o seriales seleccionados.');
+      }
+      const created = await apiRequest(`${base}/transfers`, {
+        method:'POST',
+        body:JSON.stringify({
+          numero:number, bodegaOrigenId:origin, bodegaTransitoId:null, bodegaDestinoId:destination,
+          fechaSalida:`${date}T12:00:00`,
+          lineas:[{articuloId:article.id, loteId:null, cantidad:quantity, unidadSerializadaIds:requestedUnits}]
+        })
+      });
+      if (created.yaExistia) throw new Error('Ya existe un traslado con ese número. Usa otro número para crear este traslado.');
+      pendingDispatch = {document:created, date, period};
+    }
+    const draft = pendingDispatch;
+    const created = draft.document;
+    const posted = await apiRequest(`${base}/transfers/${created.documentoId}/dispatch`, {
+      method:'POST',
+      body:JSON.stringify({periodoInventarioId:draft.period, fechaContable:draft.date, fechaRecepcion:null})
+    });
+    pendingDispatch = null;
+    output.replaceChildren(document.createTextNode(`Traslado ${created.numero} despachado · ${posted.movimientos} movimientos. `));
+    const receive = document.createElement('button');
+    receive.type = 'button';
+    receive.className = 'button secondary';
+    receive.textContent = 'Recibir en destino';
+    receive.addEventListener('click', async () => {
+      receive.disabled = true;
+      try {
+        const result = await apiRequest(`${base}/transfers/${created.documentoId}/receive`, {
+          method:'POST',
+          body:JSON.stringify({periodoInventarioId:draft.period, fechaContable:draft.date, fechaRecepcion:`${draft.date}T12:00:00`})
+        });
+        output.textContent = `Traslado recibido · ${result.movimientos} movimientos · estado ${result.estado}.`;
+      } catch (error) {
+        output.firstChild.textContent = `No se pudo recibir el traslado ${created.numero}. ${error.message} `;
+        receive.disabled = false;
+      }
+    });
+    output.append(receive);
+    fields.number.value = `MOV-${Date.now().toString().slice(-6)}`;
+    await loadTransferAvailability({clear:true});
+  }
+
+  async function postReturn(date, period) {
+    const source = JSON.parse(fields.source.selectedOptions[0].dataset.row);
+    const supplier = fields.type.value === 'supplier';
+    const path = supplier ? 'supplier-returns' : 'sales-returns';
+    const line = {
+      articuloId:source.articuloId, cantidadBase:Number(fields.quantity.value), ubicacionId:null, loteId:source.loteId,
+      unidadSerializadaIds:fields.serials.value.split(',').map(value => Number(value.trim())).filter(Boolean)
+    };
+    if (supplier) line.recepcionMercanciaLineaId = source.recepcionMercanciaLineaId;
+    else line.movimientoSalidaOriginalId = source.movimientoSalidaOriginalId;
+    const created = await apiRequest(`${base}/${path}`, {
+      method:'POST',
+      body:JSON.stringify({
+        numero:fields.number.value, terceroId:source.terceroId, bodegaId:source.bodegaId, periodoInventarioId:period,
+        fechaMovimiento:`${date}T12:00:00`, fechaContable:date, motivo:fields.reason.value, lineas:[line]
+      })
+    });
+    const posted = await apiRequest(`${base}/${path}/${created.documentoId}/post`, {method:'POST',body:'{}'});
+    output.textContent = `${supplier ? 'Devolución a proveedor' : 'Devolución de cliente'} contabilizada · ${posted.movimientos} movimiento(s) · estado ${posted.estado}.`;
+  }
+
+  fields.type.addEventListener('change', () => void configure());
+  fields.origin.addEventListener('change', () => void loadTransferAvailability({clear:true}));
+  fields.destination.addEventListener('change', updateActions);
+  fields.source.addEventListener('change', updateActions);
+  refreshButton.addEventListener('click', () => void loadTransferAvailability());
+  unitSearch.addEventListener('input', renderUnitList);
+  unitList.addEventListener('change', event => {
+    const check = event.target;
+    if (!check.matches('input[type="checkbox"]')) return;
+    const id = Number(check.value);
+    if (check.checked && chosenUnits.size >= availability.available) {
+      check.checked = false;
+      return;
+    }
+    if (check.checked) chosenUnits.add(id);
+    else chosenUnits.delete(id);
+    syncUnitSelection();
+  });
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (busy || !apiActive) return;
+    const date = fields.date.value;
+    const period = Number(fields.period.value);
+    busy = true;
+    updateActions();
+    output.hidden = false;
+    output.textContent = 'Procesando operación…';
+    try {
+      if (isTransfer()) await dispatchTransfer(date, period);
+      else await postReturn(date, period);
+    } catch (error) {
+      output.textContent = pendingDispatch ? `El traslado ${pendingDispatch.document.numero} quedó en borrador. ${error.message}` : error.message;
+    } finally {
+      busy = false;
+      if (isCurrent()) updateActions();
+    }
+  });
+  void configure();
 }
 
 function calculateNitVerificationDigit(nit) {

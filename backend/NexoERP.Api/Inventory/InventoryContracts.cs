@@ -7,11 +7,12 @@ public sealed record InventoryPeriodListResponse(long PeriodoInventarioId,string
 
 public sealed record InventoryBalanceResponse(
     long BodegaId, string Bodega, long ArticuloId, string Codigo, string Descripcion,
-    decimal Existencia, decimal ValorTotal, decimal CostoPromedio);
+    decimal Existencia, decimal ValorTotal, decimal CostoPromedio,decimal Disponible);
 
 public sealed record DetailedInventoryBalanceResponse(
     long BodegaId,string Bodega,long? UbicacionId,string? Ubicacion,long ArticuloId,string Codigo,string Descripcion,
-    long? LoteId,string? NumeroLote,DateOnly? FechaVencimiento,decimal Existencia,decimal ValorTotal,decimal CostoPromedio);
+    long? LoteId,string? NumeroLote,DateOnly? FechaVencimiento,decimal Existencia,decimal ValorTotal,decimal CostoPromedio,
+    string BodegaCodigo,decimal DisponibleBodega);
 
 public sealed record KardexMovementResponse(
     long MovimientoInventarioId,DateTime FechaMovimiento,DateOnly FechaContable,string TipoMovimiento,string NumeroDocumento,

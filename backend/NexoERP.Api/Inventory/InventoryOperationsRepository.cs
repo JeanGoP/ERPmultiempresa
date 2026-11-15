@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
 
@@ -23,6 +24,36 @@ public sealed class InventoryOperationsRepository(TenantConnectionFactory connec
     {
         await using var connection=await connections.OpenAsync(e,false,ct);await using var transaction=await connection.BeginTransactionAsync(ct);var tx=(SqlTransaction)transaction;
         var existing=await FindDocumentAsync(connection,tx,"inv.Traslado","TrasladoId",e,r.Numero,ct);if(existing is not null){await transaction.RollbackAsync(ct);return new(existing.Value,r.Numero,"BORRADOR",true);}
+        var assignedUnits = new HashSet<long>();
+        foreach (var line in r.Lineas)
+        {
+            var units = line.UnidadSerializadaIds ?? [];
+            if (units.Any(unit => !assignedUnits.Add(unit)))
+                throw new ArgumentException("Un chasis o serial solo se puede seleccionar una vez en el traslado.");
+
+            await using var check = connection.CreateCommand();
+            check.Transaction = tx;
+            check.CommandText = """
+                SELECT a.ManejaSerial, (SELECT COUNT(*) FROM inv.UnidadSerializada u
+                    JOIN OPENJSON(@Units) WITH (Id bigint '$') chosen ON chosen.Id=u.UnidadSerializadaId
+                    WHERE u.EmpresaId=a.EmpresaId AND u.ArticuloId=a.ArticuloId
+                        AND u.BodegaActualId=@Origin AND u.Estado='DISPONIBLE')
+                FROM inv.Articulo a WHERE a.EmpresaId=@Company AND a.ArticuloId=@Article AND a.Activo=1;
+                """;
+            Add(check,"@Company",SqlDbType.BigInt,e);
+            Add(check,"@Article",SqlDbType.BigInt,line.ArticuloId);
+            Add(check,"@Origin",SqlDbType.BigInt,r.BodegaOrigenId);
+            Add(check,"@Units",SqlDbType.NVarChar,JsonSerializer.Serialize(units),-1);
+            await using var reader = await check.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct)) throw new ArgumentException("El artículo seleccionado ya no está activo.");
+            if (reader.GetBoolean(0))
+            {
+                if (line.Cantidad != units.Count || reader.GetInt32(1) != units.Count)
+                    throw new ArgumentException("Selecciona un chasis o serial disponible en la bodega de origen por cada unidad del traslado.");
+            }
+            else if (units.Count != 0)
+                throw new ArgumentException("El artículo seleccionado no maneja chasis ni seriales.");
+        }
         await using var header=connection.CreateCommand();header.Transaction=tx;header.CommandText="INSERT inv.Traslado(EmpresaId,TrasladoGuid,Numero,BodegaOrigenId,BodegaTransitoId,BodegaDestinoId,FechaSalida,CreadoPorUsuarioId) OUTPUT inserted.TrasladoId VALUES(@E,@G,@N,@O,@T,@D,@F,@U);";Add(header,"@E",SqlDbType.BigInt,e);Add(header,"@G",SqlDbType.UniqueIdentifier,r.TrasladoGuid??Guid.NewGuid());Add(header,"@N",SqlDbType.NVarChar,r.Numero.Trim(),50);Add(header,"@O",SqlDbType.BigInt,r.BodegaOrigenId);Add(header,"@T",SqlDbType.BigInt,r.BodegaTransitoId);Add(header,"@D",SqlDbType.BigInt,r.BodegaDestinoId);Add(header,"@F",SqlDbType.DateTime2,r.FechaSalida);Add(header,"@U",SqlDbType.BigInt,r.UsuarioId);var id=Convert.ToInt64(await header.ExecuteScalarAsync(ct));
         for(var i=0;i<r.Lineas.Count;i++){var line=r.Lineas[i];await using var command=connection.CreateCommand();command.Transaction=tx;command.CommandText="INSERT inv.TrasladoLinea(EmpresaId,TrasladoId,NumeroLinea,ArticuloId,CantidadDespachada,LoteId) OUTPUT inserted.TrasladoLineaId VALUES(@E,@H,@L,@A,@Q,@Lot);";Add(command,"@E",SqlDbType.BigInt,e);Add(command,"@H",SqlDbType.BigInt,id);Add(command,"@L",SqlDbType.Int,i+1);Add(command,"@A",SqlDbType.BigInt,line.ArticuloId);AddDecimal(command,"@Q",line.Cantidad,20,6);Add(command,"@Lot",SqlDbType.BigInt,line.LoteId);var lineId=Convert.ToInt64(await command.ExecuteScalarAsync(ct));await LinkUnitsAsync(connection,tx,"inv.TrasladoLineaUnidad","TrasladoLineaId",e,lineId,line.UnidadSerializadaIds,ct);}
         await transaction.CommitAsync(ct);return new(id,r.Numero,"BORRADOR",false);

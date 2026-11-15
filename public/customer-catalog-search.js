@@ -32,8 +32,11 @@
       const rank = exactSerial ? 0 : code === text ? 1 : code.startsWith(text) ? 2 : fold(entry.article.descripcion).startsWith(text) ? 3 : matches.length ? 4 : 5;
       found.push({ ...entry, matches, exactSerialId: exactSerial?.id || null, rank });
     }
-    found.sort((a, b) => a.rank - b.rank || String(a.article.descripcion).localeCompare(String(b.article.descripcion), 'es-CO') || String(a.article.bodegaCodigo).localeCompare(String(b.article.bodegaCodigo), 'es-CO'));
-    return { items: found.slice(0, limit), total: found.length };
+    const saleable = entry => !entry.article.inventario || Number(entry.article.existencia) > 0;
+    const availableArticles = new Set(found.filter(saleable).map(entry => entry.article.id));
+    const visible = found.filter(entry => saleable(entry) || !availableArticles.has(entry.article.id));
+    visible.sort((a, b) => a.rank - b.rank || Number(saleable(b)) - Number(saleable(a)) || String(a.article.descripcion).localeCompare(String(b.article.descripcion), 'es-CO') || String(a.article.bodegaCodigo).localeCompare(String(b.article.bodegaCodigo), 'es-CO'));
+    return { items: visible.slice(0, limit), total: visible.length };
   }
 
   function findConcepts(concepts = [], query, limit = 20) {
