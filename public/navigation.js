@@ -47,8 +47,7 @@
   contextLinks.className = 'task-submenu';
   contextLinks.setAttribute('role', 'group');
   const moduleButtons = new Map();
-  let selectedModule = 'purchases';
-  let collapsedByUser = false;
+  let selectedModule = null;
 
   function groupFor(name) { return nav.querySelector(`[data-nav-group="${name}"]`); }
   function visibleTasks(group) {
@@ -69,8 +68,7 @@
     label.textContent = group.querySelector('summary span:nth-child(2)')?.textContent || name;
     button.append(icon, label);
     button.addEventListener('click', () => {
-      collapsedByUser = selectedModule === name;
-      selectModule(collapsedByUser ? null : name);
+      selectModule(selectedModule === name ? null : name);
     });
     moduleList.append(button);
     moduleButtons.set(name, button);
@@ -121,10 +119,6 @@
       button.hidden = !group || group.hidden || visibleTasks(group).length === 0;
     });
     if (selectedModule && moduleButtons.get(selectedModule)?.hidden) selectedModule = null;
-    if (!selectedModule && !collapsedByUser) {
-      const first = moduleNames.find(name => !moduleButtons.get(name)?.hidden);
-      selectedModule = first || null;
-    }
     selectModule(selectedModule);
   }
   new MutationObserver(syncModules).observe(nav, { subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] });
@@ -196,7 +190,6 @@
     dialog.close();
     const group = button.closest('details[data-nav-group]');
     if (group) {
-      collapsedByUser = false;
       selectModule(group.dataset.navGroup);
     }
     if (document.body.classList.contains('mobile-nav-open')) document.querySelector('#mobileNavClose')?.click();
