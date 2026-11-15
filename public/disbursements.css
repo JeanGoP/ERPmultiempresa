@@ -91,15 +91,15 @@
 .customer-documents-dialog .customer-receipt-card{margin:0 0 12px;padding:16px 18px;border:1px solid #dce7e1;border-radius:10px;background:#fff}
 .customer-documents-dialog .customer-receipt-card[hidden]{display:none}
 .customer-documents-dialog .customer-receipt-card h3{margin:0 0 12px;color:#173e33;font-size:15px}
-.customer-documents-dialog [data-advance-concepts]{max-width:940px;margin-inline:auto}
+.customer-documents-dialog [data-advance-concepts]{width:100%;box-sizing:border-box}
 .customer-documents-dialog .customer-advance-fixed{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .customer-documents-dialog .customer-advance-fixed label{display:grid;gap:5px;min-width:0;font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-advance-fixed input{width:100%;height:36px;min-height:36px;padding:6px 9px;box-sizing:border-box}
-.customer-documents-dialog .customer-extra-destinations{max-width:790px;margin-top:18px;padding-top:14px;border-top:1px solid #e3ece6}
+.customer-documents-dialog .customer-extra-destinations{margin-top:16px;padding-top:12px;border-top:1px solid #e3ece6}
 .customer-documents-dialog .customer-extra-destinations-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
 .customer-documents-dialog .customer-extra-destinations-heading h3{margin:0}
 .customer-documents-dialog .customer-extra-destinations-heading .button{min-height:32px;padding:5px 11px;font-size:12px}
-.customer-documents-dialog .customer-free-account-head,.customer-documents-dialog .customer-free-account-row{display:grid;grid-template-columns:minmax(0,1fr) 150px 66px;align-items:center;gap:8px}
+.customer-documents-dialog .customer-free-account-head,.customer-documents-dialog .customer-free-account-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,18%) 66px;align-items:center;gap:8px}
 .customer-documents-dialog .customer-free-account-head{margin-bottom:4px;color:#5d7168;font-size:11px;font-weight:700}
 .customer-documents-dialog .customer-free-account-row{margin:0 0 7px}
 .customer-documents-dialog .customer-free-account-picker{position:relative;min-width:0}
@@ -115,6 +115,12 @@
 .customer-documents-dialog .customer-receipt-fields{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px;align-items:end}
 .customer-documents-dialog .customer-receipt-fields>label{grid-column:span 3;display:grid;gap:5px;min-width:0;font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-receipt-fields>.egreso-wide{grid-column:span 6}
+.customer-documents-dialog .customer-receipt-fields>.customer-client-field{grid-column:span 8}
+.customer-documents-dialog .customer-zeus-client-lookup{grid-column:span 4;position:relative;min-width:0}
+.customer-documents-dialog .customer-zeus-client-lookup>.button{width:100%;min-height:42px}
+.customer-documents-dialog .customer-zeus-client-lookup [data-zeus-client-results]:not(:empty){position:absolute;z-index:24;top:calc(100% + 4px);left:0;right:0;max-height:230px;overflow:auto;padding:5px;border:1px solid #c7d9cd;border-radius:8px;background:#fff;box-shadow:0 14px 35px #193c2730}
+.customer-documents-dialog .customer-zeus-client-lookup [data-zeus-client-results] .button{display:block;width:100%;text-align:left;margin:0 0 3px}
+.customer-documents-dialog .customer-receipt-fields>[data-reference-wrap]{grid-column:span 5}
 .customer-documents-dialog .customer-client-field{display:grid;gap:5px;min-width:0}
 .customer-documents-dialog .customer-client-field>label{font-size:12px;font-weight:600}
 .customer-documents-dialog .customer-client-combobox{position:relative;min-width:0}
@@ -136,7 +142,8 @@
 .customer-documents-dialog .customer-receipt-fields>[data-client-hint]:empty{display:none}
 .customer-documents-dialog .customer-receipt-fields>[data-client-hint]:not(:empty){grid-column:1/-1;color:#a02c22}
 .customer-documents-dialog .customer-receipt-fields>[hidden]{display:none}
-.customer-documents-dialog .customer-receipt-account{grid-column:span 3;align-self:center;margin:0;padding:8px 10px;border-radius:6px;background:#edf6f0;color:#246349;font-size:11px;line-height:1.4}
+.customer-documents-dialog .customer-receipt-account{grid-column:span 7;align-self:end;display:flex;align-items:center;min-height:42px;box-sizing:border-box;margin:0;padding:7px 11px;border-radius:6px;background:#edf6f0;color:#246349;font-size:11px;line-height:1.4}
+.customer-documents-dialog .customer-receipt-fields:has(>[data-reference-wrap][hidden]) .customer-receipt-account{grid-column:1/-1}
 .customer-documents-dialog .customer-receipt-account.missing{background:#fff3e8;color:#885020}
 .customer-documents-dialog .customer-receipt-section-heading{display:flex;align-items:end;justify-content:space-between;gap:14px;margin-bottom:8px}
 .customer-documents-dialog .customer-receipt-section-heading h3{margin:0 0 3px}
@@ -165,8 +172,8 @@
 .customer-documents-dialog .customer-receipt-footer .customer-receipt-total label{width:220px}
 .customer-documents-dialog .customer-receipt-footer .customer-receipt-total small{display:block;margin-top:4px;color:#537265;font-size:11px}
 .customer-documents-dialog .customer-receipt-footer .button{flex:none;min-height:38px}
-@media(max-width:850px){.customer-documents-dialog .customer-receipt-fields>label{grid-column:span 6}.customer-documents-dialog .customer-receipt-fields>.egreso-wide{grid-column:1/-1}.customer-documents-dialog .customer-receipt-account{grid-column:span 6}}
-@media(max-width:600px){.customer-documents-dialog .customer-receipt-card{padding:12px}.customer-documents-dialog .customer-receipt-fields>label,.customer-documents-dialog .customer-receipt-fields>.egreso-wide,.customer-documents-dialog .customer-receipt-account{grid-column:1/-1}.customer-documents-dialog .customer-receipt-section-heading{align-items:stretch;flex-direction:column}.customer-documents-dialog .customer-receipt-section-heading .customer-portfolio-filter{flex:auto;width:100%}.customer-documents-dialog .customer-receipt-charge-grid{grid-template-columns:1fr}.customer-documents-dialog .customer-receipt-footer{align-items:stretch;flex-direction:column;padding:12px}.customer-documents-dialog .customer-receipt-footer .customer-receipt-total label{width:100%}.customer-documents-dialog .customer-receipt-footer .button{width:100%}}
+@media(max-width:850px){.customer-documents-dialog .customer-receipt-fields>label{grid-column:span 6}.customer-documents-dialog .customer-receipt-fields>.egreso-wide{grid-column:1/-1}.customer-documents-dialog .customer-receipt-fields>.customer-client-field{grid-column:span 7}.customer-documents-dialog .customer-zeus-client-lookup{grid-column:span 5}.customer-documents-dialog .customer-receipt-fields>[data-reference-wrap],.customer-documents-dialog .customer-receipt-account{grid-column:span 6}}
+@media(max-width:600px){.customer-documents-dialog .customer-receipt-card{padding:12px}.customer-documents-dialog .customer-receipt-fields>label,.customer-documents-dialog .customer-receipt-fields>.egreso-wide,.customer-documents-dialog .customer-receipt-fields>[data-reference-wrap],.customer-documents-dialog .customer-zeus-client-lookup,.customer-documents-dialog .customer-receipt-account{grid-column:1/-1}.customer-documents-dialog .customer-receipt-section-heading{align-items:stretch;flex-direction:column}.customer-documents-dialog .customer-receipt-section-heading .customer-portfolio-filter{flex:auto;width:100%}.customer-documents-dialog .customer-receipt-charge-grid{grid-template-columns:1fr}.customer-documents-dialog .customer-receipt-footer{align-items:stretch;flex-direction:column;padding:12px}.customer-documents-dialog .customer-receipt-footer .customer-receipt-total label{width:100%}.customer-documents-dialog .customer-receipt-footer .button{width:100%}}
 .customer-documents-dialog [data-normal-withholding] .customer-receipt-charge-grid{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}
 @media(max-width:600px){.customer-documents-dialog [data-normal-withholding] .customer-receipt-charge-grid{grid-template-columns:1fr}}
 .customer-documents-dialog .customer-invoice-settings{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,3fr);gap:18px;align-items:start;margin:18px 0;padding:15px;border:1px solid #d9e5de;border-radius:10px;background:#fbfdfb}
