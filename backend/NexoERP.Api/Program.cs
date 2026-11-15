@@ -694,6 +694,20 @@ app.MapPost("/api/v1/companies/{empresaId:long}/transfers/{id:long}/complete", a
     try { return Results.Ok(await operations.CompleteTransferAsync(empresaId,id,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct)); }
     catch(SqlException error) when(error.Number is >= 51000 and < 52000) { return Results.Conflict(new { error=error.Message }); }
 }).RequireErpPermission("INVENTARIO.TRASLADO.DESPACHAR").RequireErpPermission("INVENTARIO.TRASLADO.RECIBIR");
+app.MapGet("/api/v1/companies/{empresaId:long}/transfers", async (long empresaId,string? q,int? page,int? pageSize,InventoryOperationsRepository operations,CancellationToken ct) =>
+    Results.Ok(await operations.ListTransfersAsync(empresaId,q,page??1,pageSize??20,ct)));
+app.MapGet("/api/v1/companies/{empresaId:long}/transfers/{id:long}", async (long empresaId,long id,InventoryOperationsRepository operations,CancellationToken ct) =>
+{
+    var document = await operations.GetTransferAsync(empresaId,id,ct);
+    return document is null ? Results.NotFound(new { error="No se encontró el traslado en esta empresa." }) : Results.Ok(document);
+});
+app.MapPost("/api/v1/companies/{empresaId:long}/transfers/{id:long}/reverse", async (long empresaId,long id,ReverseTransferRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>
+{
+    if (input.PeriodoInventarioId<=0 || input.FechaContable==default || input.Motivo?.Trim().Length is not (>=10 and <=500))
+        return Results.BadRequest(new { error="Escoge la fecha, el periodo de inventario y escribe un motivo de 10 a 500 caracteres." });
+    try { return Results.Ok(await operations.ReverseTransferAsync(empresaId,id,input,Convert.ToInt64(context.Items["UsuarioId"]),ct)); }
+    catch(SqlException error) when(error.Number is >= 51000 and < 52000) { return Results.Conflict(new { error=error.Message }); }
+}).RequireErpPermission("INVENTARIO.AJUSTE.REVERSAR");
 app.MapPost("/api/v1/companies/{empresaId:long}/supplier-returns/{id:long}/post", async (long empresaId,long id,PostDocumentRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>
     Results.Ok(await operations.PostReturnAsync(empresaId,id,input with { UsuarioId=Convert.ToInt64(context.Items["UsuarioId"]) },ct))).RequireErpPermission("COMPRAS.DEVOLUCION.CONTABILIZAR");
 app.MapPost("/api/v1/companies/{empresaId:long}/sales-returns/{id:long}/post", async (long empresaId,long id,PostDocumentRequest input,HttpContext context,InventoryOperationsRepository operations,CancellationToken ct) =>

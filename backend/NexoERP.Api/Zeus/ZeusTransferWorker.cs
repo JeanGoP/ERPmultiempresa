@@ -37,7 +37,7 @@ public sealed partial class ZeusRepository
         return new(state, message);
     }
 
-    public async Task<ZeusPostingStatus> RetryTransferAsync(long company, long transfer, long user, CancellationToken ct)
+    public async Task<ZeusPostingStatus> RetryTransferAsync(long company, long transfer, long? user, CancellationToken ct)
     {
         await using var connection = await connections.OpenAsync(company, false, ct);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
@@ -58,6 +58,35 @@ public sealed partial class ZeusRepository
         var status = await EnqueueTransferAsync(connection, transaction, company, transfer, user, ct);
         await transaction.CommitAsync(ct);
         return status;
+    }
+
+    internal async Task PrepareWaitingTransferReversalAsync(CancellationToken ct)
+    {
+        long company;
+        long transfer;
+        await using (var connection = await connections.OpenAsync(null, true, ct))
+        {
+            await using var query = connection.CreateCommand();
+            query.CommandText = """
+                SELECT TOP(1) j.EmpresaId,j.TrasladoId
+                FROM core.ZeusTrasladoEnvio j
+                JOIN inv.Traslado t ON t.EmpresaId=j.EmpresaId AND t.TrasladoId=j.TrasladoId
+                JOIN core.ZeusTrasladoEnvio original ON original.EmpresaId=t.EmpresaId AND original.TrasladoId=t.TrasladoOriginalId
+                WHERE j.Estado='REQUIERE_REVISION' AND j.Error=@Waiting AND original.Estado='CONTABILIZADO'
+                ORDER BY j.CreadoEnUtc,j.EmpresaId,j.TrasladoId;
+                """;
+            Add(query, "@Waiting", WaitingForOriginalTransfer);
+            await using var row = await query.ExecuteReaderAsync(ct);
+            if (!await row.ReadAsync(ct)) return;
+            company = row.GetInt64(0);
+            transfer = row.GetInt64(1);
+        }
+
+        try { await RetryTransferAsync(company, transfer, null, ct); }
+        catch (ArgumentException)
+        {
+            if ((await TransferStatusAsync(company, transfer, ct)).Estado == "REQUIERE_REVISION") throw;
+        }
     }
 
     internal async Task<ZeusTransferJob?> ClaimTransferAsync(CancellationToken ct)
@@ -133,6 +162,7 @@ public sealed class ZeusTransferWorker(IServiceScopeFactory scopes, IConfigurati
                 {
                     using var scope = scopes.CreateScope();
                     var repository = scope.ServiceProvider.GetRequiredService<ZeusRepository>();
+                    await repository.PrepareWaitingTransferReversalAsync(stoppingToken);
                     var job = await repository.ClaimTransferAsync(stoppingToken);
                     if (job is not null)
                     {

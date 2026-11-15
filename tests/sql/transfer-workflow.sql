@@ -7,7 +7,7 @@ BEGIN TRANSACTION;
 
 DECLARE @Suffix varchar(12)=RIGHT(REPLACE(CONVERT(varchar(36),NEWID()),'-',''),12);
 DECLARE @EmpresaId bigint,@UnidadId bigint,@ArticuloId bigint,@OrigenId bigint,@TransitoId bigint,@DestinoId bigint,@PeriodoId bigint,@TrasladoId bigint;
-DECLARE @SaldoInicialKey uniqueidentifier=NEWID();
+DECLARE @SaldoInicialKey uniqueidentifier=NEWID(),@OtroOrigenKey uniqueidentifier=NEWID();
 INSERT core.Empresa(Codigo,Nit,RazonSocial) VALUES(CONCAT('TRA-',@Suffix),CONCAT('3',RIGHT(@Suffix,9)),N'Empresa QA Traslado'); SET @EmpresaId=SCOPE_IDENTITY();
 INSERT core.EmpresaConfiguracion(EmpresaId) VALUES(@EmpresaId);
 INSERT inv.UnidadMedida(EmpresaId,Codigo,Nombre,Simbolo) VALUES(@EmpresaId,'UND',N'Unidad','und'); SET @UnidadId=SCOPE_IDENTITY();
@@ -17,6 +17,9 @@ INSERT inv.Bodega(EmpresaId,Codigo,Nombre,EsTransito) VALUES(@EmpresaId,'TRA',N'
 INSERT inv.Bodega(EmpresaId,Codigo,Nombre) VALUES(@EmpresaId,'DES',N'Destino'); SET @DestinoId=SCOPE_IDENTITY();
 INSERT core.PeriodoInventario(EmpresaId,Codigo,FechaInicio,FechaFin) VALUES(@EmpresaId,'2026-08','2026-08-01','2026-08-31'); SET @PeriodoId=SCOPE_IDENTITY();
 
+EXEC inv.usp_ContabilizarEntrada @EmpresaId=@EmpresaId,@BodegaId=@DestinoId,@ArticuloId=@ArticuloId,@PeriodoInventarioId=@PeriodoId,
+ @FechaMovimiento='2026-08-14',@FechaContable='2026-08-14',@TipoMovimiento='SALDO_INICIAL',@ModuloOrigen='QA',
+ @TipoDocumentoOrigen='SALDO_INICIAL',@DocumentoOrigenId=2,@NumeroDocumento='SI-OTRO',@CantidadEntrada=3,@CostoUnitarioEntrada=220,@IdempotencyKey=@OtroOrigenKey;
 EXEC inv.usp_ContabilizarEntrada @EmpresaId=@EmpresaId,@BodegaId=@OrigenId,@ArticuloId=@ArticuloId,@PeriodoInventarioId=@PeriodoId,
  @FechaMovimiento='2026-08-15',@FechaContable='2026-08-15',@TipoMovimiento='SALDO_INICIAL',@ModuloOrigen='QA',
  @TipoDocumentoOrigen='SALDO_INICIAL',@DocumentoOrigenId=1,@NumeroDocumento='SI-QA',@CantidadEntrada=10,@CostoUnitarioEntrada=100,@IdempotencyKey=@SaldoInicialKey;
@@ -34,17 +37,17 @@ IF NOT EXISTS(SELECT 1 FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId A
 EXEC inv.usp_RecibirTraslado @EmpresaId=@EmpresaId,@TrasladoId=@TrasladoId,@PeriodoInventarioId=@PeriodoId,@FechaContable='2026-08-17',@FechaRecepcion='2026-08-17';
 IF NOT EXISTS(SELECT 1 FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId AND BodegaId=@TransitoId AND ArticuloId=@ArticuloId AND Existencia=0 AND ValorTotal=0)
     THROW 51962,'La salida de tránsito es incorrecta.',1;
-IF NOT EXISTS(SELECT 1 FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId AND BodegaId=@DestinoId AND ArticuloId=@ArticuloId AND Existencia=4 AND ValorTotal=400)
+IF NOT EXISTS(SELECT 1 FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId AND BodegaId=@DestinoId AND ArticuloId=@ArticuloId AND Existencia=7 AND ValorTotal=1060)
     THROW 51963,'La entrada a destino es incorrecta.',1;
 IF (SELECT Estado FROM inv.Traslado WHERE EmpresaId=@EmpresaId AND TrasladoId=@TrasladoId)<>'RECIBIDO'
     THROW 51964,'El traslado no quedó recibido.',1;
 IF (SELECT COUNT(*) FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId AND TipoDocumentoOrigen='TRASLADO' AND DocumentoOrigenId=@TrasladoId)<>4
     THROW 51965,'El traslado no generó sus cuatro movimientos relacionados.',1;
-IF (SELECT SUM(ValorTotal) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId)<>1000
+IF (SELECT SUM(ValorTotal) FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId)<>1660
     THROW 51966,'El traslado alteró el valor total del inventario.',1;
-IF (SELECT COUNT(*) FROM inv.OrigenInventario WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId)<>1
+IF (SELECT COUNT(*) FROM inv.OrigenInventario WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId)<>2
     THROW 51968,'El traslado creó un origen artificial en vez de conservar el original.',1;
-IF (SELECT SUM(CantidadDisponible) FROM inv.SaldoOrigenBodega WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId)<>10
+IF (SELECT SUM(CantidadDisponible) FROM inv.SaldoOrigenBodega WHERE EmpresaId=@EmpresaId AND ArticuloId=@ArticuloId)<>13
     THROW 51969,'La trazabilidad de origen no conserva la cantidad total.',1;
 IF NOT EXISTS(SELECT 1 FROM inv.SaldoOrigenBodega WHERE EmpresaId=@EmpresaId AND BodegaId=@DestinoId AND ArticuloId=@ArticuloId AND CantidadDisponible=4)
     THROW 51974,'La existencia recibida no conservó su origen en la bodega destino.',1;
@@ -54,6 +57,27 @@ EXEC inv.usp_RecibirTraslado @EmpresaId=@EmpresaId,@TrasladoId=@TrasladoId,@Peri
 IF (SELECT COUNT(*) FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId AND TipoDocumentoOrigen='TRASLADO' AND DocumentoOrigenId=@TrasladoId)<>4
     THROW 51967,'El reintento duplicó movimientos del traslado.',1;
 
+EXEC inv.usp_RevertirTraslado @EmpresaId=@EmpresaId,@TrasladoId=@TrasladoId,@PeriodoInventarioId=@PeriodoId,
+    @FechaContable='2026-08-18',@Motivo=N'Corrección de bodega destino';
+EXEC inv.usp_RevertirTraslado @EmpresaId=@EmpresaId,@TrasladoId=@TrasladoId,@PeriodoInventarioId=@PeriodoId,
+    @FechaContable='2026-08-18',@Motivo=N'Corrección de bodega destino';
+DECLARE @ReversionId bigint=(SELECT TrasladoId FROM inv.Traslado
+    WHERE EmpresaId=@EmpresaId AND TrasladoOriginalId=@TrasladoId AND Estado='RECIBIDO' AND BodegaOrigenId=@DestinoId AND BodegaDestinoId=@OrigenId);
+IF @ReversionId IS NULL OR NOT EXISTS (SELECT 1 FROM inv.Traslado WHERE TrasladoId=@TrasladoId AND Estado='REVERTIDO')
+    THROW 51965,'La reversión no quedó vinculada al traslado y a sus bodegas invertidas.',1;
+IF (SELECT COUNT(*) FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId AND TipoDocumentoOrigen='TRASLADO' AND DocumentoOrigenId=@ReversionId AND ValorMovimiento=400)<>2
+    THROW 51966,'La reversión debe tener exactamente dos movimientos al costo original.',1;
+IF NOT EXISTS (SELECT 1 FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId AND BodegaId=@OrigenId AND ArticuloId=@ArticuloId AND Existencia=10 AND ValorTotal=1000)
+   OR NOT EXISTS (SELECT 1 FROM inv.SaldoArticuloBodega WHERE EmpresaId=@EmpresaId AND BodegaId=@DestinoId AND ArticuloId=@ArticuloId AND Existencia=3 AND ValorTotal=660)
+    THROW 51967,'La reversión no restableció las unidades y los valores de cada bodega.',1;
+IF NOT EXISTS (
+    SELECT 1 FROM inv.SaldoOrigenBodega s
+    JOIN inv.OrigenInventario o ON o.EmpresaId=s.EmpresaId AND o.OrigenInventarioId=s.OrigenInventarioId
+    JOIN inv.MovimientoInventario m ON m.EmpresaId=o.EmpresaId AND m.MovimientoInventarioId=o.MovimientoEntradaInicialId
+    WHERE s.EmpresaId=@EmpresaId AND s.BodegaId=@DestinoId AND s.CantidadDisponible=3 AND m.IdempotencyKey=@OtroOrigenKey
+)
+    THROW 51968,'La reversión descontó mercancía de un origen ajeno.',1;
+
 ROLLBACK TRANSACTION;
 EXEC sys.sp_set_session_context @key=N'BypassRls',@value=NULL;
-PRINT 'QA traslado correcto: origen, tránsito, destino, conservación de valor e idempotencia.';
+PRINT 'QA traslado y reversión: bodegas, valor, origen e idempotencia.';

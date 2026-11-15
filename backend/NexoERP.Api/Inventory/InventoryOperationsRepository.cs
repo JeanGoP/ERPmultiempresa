@@ -6,7 +6,7 @@ using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.Inventory;
 
-public sealed class InventoryOperationsRepository(TenantConnectionFactory connections)
+public sealed partial class InventoryOperationsRepository(TenantConnectionFactory connections)
 {
     public Task<InventoryDocumentOperationResponse> DispatchTransferAsync(long e,long id,PostTransferRequest r,CancellationToken ct)
         => ExecuteOperationAsync(e,"inv.usp_DespacharTraslado","@TrasladoId",id,r.PeriodoInventarioId,r.FechaContable,r.UsuarioId,r.CorrelationId,null,ct);

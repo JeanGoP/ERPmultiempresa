@@ -1,0 +1,88 @@
+.transfer-operation-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+.transfer-document-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.transfer-document-actions .button { margin:0; }
+.operation-result > .transfer-document-actions { margin-top:10px; }
+.transfer-documents.erp-dialog { width:min(94vw, 940px); max-height:90dvh; }
+.transfer-documents .dialog-heading { align-items:center; padding-block:16px; }
+.transfer-documents .dialog-heading h2 { margin:0; overflow-wrap:anywhere; }
+.transfer-dialog-body { display:grid; gap:14px; padding:18px 24px 22px; }
+.transfer-toolbar { display:flex; align-items:end; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; }
+.transfer-toolbar label,.transfer-reverse-fields label { display:grid; gap:6px; color:var(--ink); font-size:12px; font-weight:700; }
+.transfer-toolbar label { flex:0 1 365px; }
+.transfer-toolbar p,.transfer-dialog-pager span,.transfer-reverse-fields small { margin:0; font-size:12px; color:var(--muted); }
+.transfer-toolbar input,.transfer-reverse-fields input,.transfer-reverse-fields textarea {
+  width:100%; min-height:38px; padding:7px 9px; border:1px solid var(--line); border-radius:7px; color:var(--ink); background:#fff;
+}
+.transfer-reverse-fields textarea { resize:vertical; }
+.transfer-list-scroll,.transfer-detail-table { overflow:auto; border:1px solid var(--line); border-radius:8px; }
+.transfer-list-scroll { min-height:200px; max-height:min(46vh, 392px); }
+.transfer-history-table { min-width:610px; }
+.transfer-history-table small { display:block; font-size:11px; color:var(--muted); }
+.transfer-history-table th { position:sticky; top:0; z-index:1; }
+.transfer-history-table .button { min-height:30px; }
+.transfer-dialog-pager { display:flex; justify-content:flex-end; align-items:center; gap:10px; }
+.transfer-dialog-body > .button { justify-self:start; }
+.transfer-detail-content { display:grid; gap:12px; }
+.transfer-detail-meta { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
+.transfer-detail-meta > div:first-child { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--muted); }
+.transfer-status { display:inline-block; padding:4px 8px; border-radius:5px; color:var(--green-dark); background:#edf4f0; font-size:11px; font-weight:750; }
+.transfer-route { display:grid; grid-template-columns:minmax(0, 1fr) auto minmax(0, 1fr); align-items:center; gap:12px; padding:10px 12px; border:1px solid #dae7df; border-radius:8px; background:#f6faf8; }
+.transfer-route span { display:block; margin-bottom:3px; font-size:10px; font-weight:700; color:#52695f; }
+.transfer-route strong { display:block; font-size:13px; overflow-wrap:anywhere; }
+.transfer-route b { color:var(--green); font-size:16px; }
+.transfer-goods { table-layout:fixed; width:100%; }
+.transfer-detail-table .transfer-goods { min-width:490px; }
+.transfer-goods th:first-child { width:16%; }
+.transfer-goods th:nth-child(2) { width:31%; }
+.transfer-goods th:nth-child(3) { width:13%; }
+.transfer-goods th:nth-child(4) { width:40%; }
+.transfer-goods .transfer-quantity { text-align:right; }
+.transfer-unit-text { display:block; overflow-wrap:anywhere; }
+.transfer-unit-text + .transfer-unit-text { margin-top:2px; }
+.transfer-note h3,.transfer-reverse-form h3 { margin:0 0 6px; font-size:13px; }
+.transfer-note p { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
+.transfer-reverse-form { display:grid; gap:10px; padding:14px; border:1px solid #d9e5de; border-radius:8px; background:#f9fbfa; }
+.transfer-reverse-form h3 { margin:0; }
+.transfer-reverse-fields { display:grid; align-items:start; grid-template-columns:minmax(145px, .8fr) minmax(0, 2fr); gap:12px; }
+.transfer-dialog-notice { margin:0; padding:10px 12px; border-radius:7px; color:var(--green-dark); background:var(--green-soft); font-size:12px; }
+.transfer-dialog-error { color:#873b31; background:#faede8; }
+@media (max-width:600px) {
+  .transfer-dialog-body { padding:14px; }
+  .transfer-reverse-fields { grid-template-columns:1fr; }
+}
+
+#transferPrint { display:none; }
+@page transfer-slip { size:8.5in 5.5in; margin:.33in .42in; }
+@media print {
+  body.printing-transfer > *:not(#transferPrint),body.printing-transfer dialog::backdrop { display:none!important; }
+  body.printing-transfer { background:white!important; }
+  #transferPrint {
+    display:block!important; page:transfer-slip; color:#172825; background:white;
+    font:9pt/1.38 Inter, Arial, sans-serif;
+  }
+  #transferPrint .transfer-slip-head {
+    display:grid; grid-template-columns:minmax(0, 1fr) minmax(1.35in, auto); align-items:end; gap:16pt;
+    padding:9pt 0 10pt; border-top:3pt solid #185441; border-bottom:.6pt solid #c5d4cd; break-inside:avoid;
+  }
+  #transferPrint .transfer-slip-kicker,#transferPrint .transfer-slip-reference > span {
+    color:#416b5a; font-size:7.5pt; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  }
+  #transferPrint h1 { margin:2pt 0 4pt; color:#142d25; font-size:19pt; line-height:1.08; }
+  #transferPrint .transfer-slip-company { font-size:8.5pt; font-weight:600; overflow-wrap:anywhere; }
+  #transferPrint .transfer-slip-reference { max-width:2.7in; text-align:right; overflow-wrap:anywhere; }
+  #transferPrint .transfer-slip-reference strong { display:block; margin:1pt 0; color:#183c30; font-size:13pt; }
+  #transferPrint .transfer-slip-reference > div { font-size:8pt; }
+  #transferPrint .transfer-route { margin:9pt 0; padding:7pt 9pt; border:.6pt solid #c9d8d1; border-radius:3pt; background:white; break-inside:avoid; }
+  #transferPrint .transfer-route span { margin-bottom:2pt; font-size:7.5pt; }
+  #transferPrint .transfer-route strong { font-size:10pt; }
+  #transferPrint .transfer-route b { font-size:11pt; }
+  #transferPrint .transfer-related { margin:0 0 7pt; font-size:8pt; font-weight:650; }
+  #transferPrint .transfer-goods { border-collapse:collapse; font-size:8.5pt; }
+  #transferPrint .transfer-goods th,#transferPrint .transfer-goods td { border:.5pt solid #cad6cf; padding:5pt 6pt; vertical-align:top; overflow-wrap:anywhere; }
+  #transferPrint .transfer-goods th { color:#183c30; text-align:left; }
+  #transferPrint .transfer-goods td.transfer-quantity { text-align:right; }
+  #transferPrint .transfer-goods tr { break-inside:avoid; }
+  #transferPrint .transfer-note { margin-top:9pt; padding:7pt 0 0; border-top:.6pt solid #c5d4cd; break-inside:avoid; }
+  #transferPrint .transfer-note h3 { margin:0 0 3pt; font-size:8.5pt; color:#193c32; }
+  #transferPrint .transfer-note p { font-size:8.5pt; }
+}

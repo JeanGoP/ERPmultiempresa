@@ -33,7 +33,7 @@ static class TransferQueueTests
                 CREATE TABLE core.Sucursal(EmpresaId bigint,SucursalId bigint,Nombre nvarchar(120));
                 CREATE TABLE inv.Bodega(EmpresaId bigint,BodegaId bigint,Codigo nvarchar(30),Nombre nvarchar(120),SucursalId bigint);
                 CREATE TABLE inv.Traslado(EmpresaId bigint,TrasladoId bigint,Numero nvarchar(50),Estado varchar(20),FechaContableRecepcion date NULL,
-                    Observacion nvarchar(500),BodegaOrigenId bigint,BodegaDestinoId bigint,PRIMARY KEY(EmpresaId,TrasladoId));
+                    Observacion nvarchar(500),BodegaOrigenId bigint,BodegaDestinoId bigint,TrasladoOriginalId bigint NULL,PRIMARY KEY(EmpresaId,TrasladoId));
                 CREATE TABLE inv.TrasladoLinea(EmpresaId bigint,TrasladoId bigint,SalidaOrigenKey uniqueidentifier,EntradaDestinoKey uniqueidentifier);
                 CREATE TABLE inv.MovimientoInventario(MovimientoInventarioId bigint IDENTITY,EmpresaId bigint,IdempotencyKey uniqueidentifier,
                     BodegaId bigint,TipoMovimiento varchar(30),ValorMovimiento decimal(20,4));
@@ -43,16 +43,17 @@ static class TransferQueueTests
                     ValoresPosteriores nvarchar(max),AplicacionOrigen varchar(50));
                 INSERT core.Sucursal VALUES(1,8,'Norte');
                 INSERT inv.Bodega VALUES(1,11,'01','Origen',8),(1,12,'02','Destino',8);
-                INSERT inv.Traslado VALUES(1,1,'MOV-001','BORRADOR',NULL,N'Entrega en recepción',11,12),
-                    (1,2,'MOV-002','DESPACHADO',NULL,NULL,11,12),(1,3,'MOV-003','BORRADOR',NULL,NULL,11,12),
-                    (1,4,'MOV-004','BORRADOR',NULL,NULL,11,12);
+                INSERT inv.Traslado VALUES(1,1,'MOV-001','BORRADOR',NULL,N'Entrega en recepción',11,12,NULL),
+                    (1,2,'MOV-002','DESPACHADO',NULL,NULL,11,12,NULL),(1,3,'MOV-003','BORRADOR',NULL,NULL,11,12,NULL),
+                    (1,4,'MOV-004','BORRADOR',NULL,NULL,11,12,NULL);
                 INSERT inv.TrasladoLinea SELECT EmpresaId,TrasladoId,NEWID(),NEWID() FROM inv.Traslado;
                 INSERT inv.MovimientoInventario SELECT EmpresaId,SalidaOrigenKey,11,'TRASLADO_SALIDA',125000.1234 FROM inv.TrasladoLinea;
                 INSERT inv.MovimientoInventario SELECT EmpresaId,EntradaDestinoKey,12,'TRASLADO_ENTRADA',125000.1234 FROM inv.TrasladoLinea;
                 """);
             await Run("""
                 CREATE FUNCTION seg.fn_EmpresaAccess(@EmpresaId bigint) RETURNS TABLE WITH SCHEMABINDING AS
-                    RETURN SELECT 1 AS Permitido WHERE @EmpresaId=TRY_CONVERT(bigint,SESSION_CONTEXT(N'EmpresaId'));
+                    RETURN SELECT 1 AS Permitido WHERE @EmpresaId=TRY_CONVERT(bigint,SESSION_CONTEXT(N'EmpresaId'))
+                        OR TRY_CONVERT(bit,SESSION_CONTEXT(N'BypassRls'))=1;
                 """);
             await Run("CREATE SECURITY POLICY seg.EmpresaSecurityPolicy ADD FILTER PREDICATE seg.fn_EmpresaAccess(EmpresaId) ON core.Probe;");
             var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -140,6 +141,40 @@ static class TransferQueueTests
                     && (int)(await Scalar("SELECT COUNT(*) FROM core.ZeusTrasladoEnvio WHERE TrasladoId=4"))! == 0,
                     "Un fallo en destino revierte la salida y no genera envío a Zeus");
             }
+
+            await Run("""
+                UPDATE inv.Traslado SET Estado='REVERTIDO' WHERE TrasladoId=1;
+                INSERT inv.Traslado VALUES(1,5,'REV-001','RECIBIDO','2026-11-16',N'Error de bodega',12,11,1);
+                INSERT inv.TrasladoLinea VALUES(1,5,NEWID(),NEWID());
+                INSERT inv.MovimientoInventario SELECT EmpresaId,SalidaOrigenKey,12,'REVERSA_ENTRADA',125000.1234
+                    FROM inv.TrasladoLinea WHERE TrasladoId=5;
+                INSERT inv.MovimientoInventario SELECT EmpresaId,EntradaDestinoKey,11,'TRASLADO_ENTRADA',125000.1234
+                    FROM inv.TrasladoLinea WHERE TrasladoId=5;
+                """);
+            await using (var transaction = (SqlTransaction)await connection.BeginTransactionAsync())
+            {
+                var waiting = await ZeusRepository.EnqueueTransferAsync(connection,transaction,1,5,1,default);
+                check(waiting.Estado=="REQUIERE_REVISION" && waiting.Mensaje.Contains("original"),
+                    "La reversión espera la contabilización del traslado original en Zeus");
+                await transaction.CommitAsync();
+            }
+            await zeus.PrepareWaitingTransferReversalAsync(default);
+            check((await zeus.TransferStatusAsync(1,5,default)).Estado=="REQUIERE_REVISION",
+                "La reversión no se envía si el original todavía está pendiente");
+            await Run("""
+                UPDATE core.ZeusBodegaCuenta SET Configuracion=N'{}';
+                UPDATE core.ZeusTrasladoEnvio SET Estado='CONTABILIZADO',Fuente='37',Documento='0000000501' WHERE TrasladoId=1;
+                """);
+            await zeus.PrepareWaitingTransferReversalAsync(default);
+            var reversalSnapshot = JsonSerializer.Deserialize<ZeusSnapshot>((string)(await Scalar("SELECT Snapshot FROM core.ZeusTrasladoEnvio WHERE TrasladoId=5"))!)!;
+            check((await zeus.TransferStatusAsync(1,5,default)).Estado=="PENDIENTE"
+                && reversalSnapshot.Origen.FechaContable==new DateTime(2026,11,16)
+                && reversalSnapshot.Traslado?.BodegaOrigen==snapshot.Traslado?.BodegaDestino
+                && reversalSnapshot.Movimientos[0].Regla.Concepto=="INVENTARIO_ORIGEN"
+                && reversalSnapshot.Movimientos[0].Regla.Cuenta=="143502" && reversalSnapshot.Movimientos[0].Regla.CentroCosto=="CC02"
+                && reversalSnapshot.Movimientos[0].Valor==-125000.1234m
+                && reversalSnapshot.Movimientos[1].Regla.Cuenta=="143501" && reversalSnapshot.Movimientos[1].Valor==125000.1234m,
+                "La reversión invierte las partidas originales sin depender del mapeo actualizado");
         }
         finally
         {

@@ -5,15 +5,22 @@ namespace NexoERP.Api.Zeus;
 
 public sealed partial class ZeusRepository
 {
+    private const string WaitingForOriginalTransfer = "La reversión se enviará cuando el traslado original quede contabilizado en Zeus.";
+
     internal static async Task<ZeusPostingStatus> EnqueueTransferAsync(SqlConnection connection,SqlTransaction transaction,
         long company,long transfer,long? user,CancellationToken ct)
     {
         await using var command = Command(connection,"""
-            SELECT Estado FROM inv.Traslado WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND TrasladoId=@Transfer;
+            SELECT Estado,TrasladoOriginalId FROM inv.Traslado WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND TrasladoId=@Transfer;
             """,company,transaction);
         Add(command,"@Transfer",transfer);
-        if (await command.ExecuteScalarAsync(ct) as string != "RECIBIDO")
-            throw new ArgumentException("El traslado debe estar recibido en Nexo antes de contabilizarlo en Zeus.");
+        long? original;
+        await using (var row = await command.ExecuteReaderAsync(ct))
+        {
+            if (!await row.ReadAsync(ct) || row.GetString(0) is not ("RECIBIDO" or "REVERTIDO"))
+                throw new ArgumentException("El traslado debe estar recibido en Nexo antes de contabilizarlo en Zeus.");
+            original = row.IsDBNull(1) ? null : row.GetInt64(1);
+        }
 
         command.CommandText = "SELECT Estado FROM core.ZeusTrasladoEnvio WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND TrasladoId=@Transfer;";
         var current = await command.ExecuteScalarAsync(ct) as string;
@@ -22,7 +29,12 @@ public sealed partial class ZeusRepository
 
         ZeusSnapshot? snapshot = null;
         string? error = null;
-        try { snapshot = await BuildTransferAsync(connection,transaction,company,transfer,ct); }
+        try
+        {
+            snapshot = original is null
+                ? await BuildTransferAsync(connection,transaction,company,transfer,ct)
+                : await BuildTransferReversalAsync(connection,transaction,company,transfer,original.Value,ct);
+        }
         catch (ArgumentException exception) { error = exception.Message; }
 
         var state = snapshot is null ? "REQUIERE_REVISION" : "PENDIENTE";
@@ -41,7 +53,12 @@ public sealed partial class ZeusRepository
                 (SELECT @Estado estado,@Error error FOR JSON PATH,WITHOUT_ARRAY_WRAPPER),'ZEUS');
             """;
         await command.ExecuteNonQueryAsync(ct);
-        return new(state,error is null ? "Envío contable a Zeus registrado. Consulta Seguimiento." : $"Zeus requiere revisión. {error}");
+        return new(state,error switch
+        {
+            null => "Envío contable a Zeus registrado. Consulta Seguimiento.",
+            WaitingForOriginalTransfer => WaitingForOriginalTransfer,
+            _ => $"Zeus requiere revisión. {error}"
+        });
     }
 
     private static async Task<ZeusSnapshot> BuildTransferAsync(SqlConnection connection,SqlTransaction transaction,
@@ -69,7 +86,7 @@ public sealed partial class ZeusRepository
                     AND md.BodegaId=d.BodegaId AND md.TipoMovimiento='TRASLADO_ENTRADA'
                 WHERE l.EmpresaId=t.EmpresaId AND l.TrasladoId=t.TrasladoId
             ) costs
-            WHERE t.EmpresaId=@E AND t.TrasladoId=@Transfer AND t.Estado='RECIBIDO';
+            WHERE t.EmpresaId=@E AND t.TrasladoId=@Transfer AND t.Estado IN('RECIBIDO','REVERTIDO');
             """,company,transaction);
         Add(command,"@Transfer",transfer);
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -106,5 +123,55 @@ public sealed partial class ZeusRepository
             new(WarehouseAccount(15,"INVENTARIO_DESTINO",destination),amount,BodegaId:reader.GetInt64(6)),
             new(WarehouseAccount(12,"INVENTARIO_ORIGEN",origin),-amount,BodegaId:reader.GetInt64(3))
         ],Traslado:new(origin,destination,reader.IsDBNull(2)?null:reader.GetString(2)));
+    }
+
+    private static async Task<ZeusSnapshot> BuildTransferReversalAsync(SqlConnection connection, SqlTransaction transaction,
+        long company, long reversal, long original, CancellationToken ct)
+    {
+        await using var query = Command(connection, """
+            SELECT t.Numero,t.FechaContableRecepcion,t.Observacion,o.Numero,j.Estado,j.Snapshot,
+                COALESCE(k.ValorEntrada,0),COALESCE(k.ValorSalida,0)
+            FROM inv.Traslado t
+            JOIN inv.Traslado o ON o.EmpresaId=t.EmpresaId AND o.TrasladoId=t.TrasladoOriginalId
+            LEFT JOIN core.ZeusTrasladoEnvio j ON j.EmpresaId=o.EmpresaId AND j.TrasladoId=o.TrasladoId
+            CROSS APPLY (
+                SELECT SUM(md.ValorMovimiento) ValorEntrada,SUM(mo.ValorMovimiento) ValorSalida
+                FROM inv.TrasladoLinea l
+                JOIN inv.MovimientoInventario md ON md.EmpresaId=l.EmpresaId AND md.IdempotencyKey=l.EntradaDestinoKey
+                    AND md.BodegaId=t.BodegaDestinoId AND md.TipoMovimiento='TRASLADO_ENTRADA'
+                JOIN inv.MovimientoInventario mo ON mo.EmpresaId=l.EmpresaId AND mo.IdempotencyKey=l.SalidaOrigenKey
+                    AND mo.BodegaId=t.BodegaOrigenId AND mo.TipoMovimiento='REVERSA_ENTRADA'
+                WHERE l.EmpresaId=t.EmpresaId AND l.TrasladoId=t.TrasladoId
+            ) k
+            WHERE t.EmpresaId=@E AND t.TrasladoId=@Reversal AND o.TrasladoId=@Original;
+            """, company, transaction);
+        Add(query, "@Reversal", reversal);
+        Add(query, "@Original", original);
+        await using var row = await query.ExecuteReaderAsync(ct);
+        if (!await row.ReadAsync(ct) || row.IsDBNull(1))
+            throw new ArgumentException("No se encontró la reversión en el Kardex.");
+        if (row.IsDBNull(4))
+            throw new ArgumentException("El traslado original carece de comprobante registrado en Nexo. Verifica en Zeus antes de contabilizar la reversión.");
+        if (row.GetString(4) != "CONTABILIZADO")
+            throw new ArgumentException(WaitingForOriginalTransfer);
+        if (row.IsDBNull(5) || JsonSerializer.Deserialize<ZeusSnapshot>(row.GetString(5)) is not { Traslado: { } originalRoute } posted)
+            throw new ArgumentException("El comprobante original de Zeus carece del detalle necesario para preparar la reversión.");
+        if (posted.Origen.Total != row.GetDecimal(6) || posted.Origen.Total != row.GetDecimal(7))
+            throw new ArgumentException("El valor de la reversión en el Kardex debe coincidir con el comprobante original de Zeus.");
+
+        var date = row.GetDateTime(1);
+        var note = row.IsDBNull(2) ? null : row.GetString(2);
+        var reversalSnapshot = posted with
+        {
+            Origen = posted.Origen with { Factura = row.GetString(0), FechaContable = date, FechaFactura = date, Vencimiento = date },
+            Traslado = new(originalRoute.BodegaDestino, originalRoute.BodegaOrigen, $"Reversión de {row.GetString(3)}. {note}".Trim()),
+            Movimientos = posted.Movimientos.Select(line => line with
+            {
+                Valor = -line.Valor,
+                Regla = line.Regla with { Concepto = line.Valor > 0 ? "INVENTARIO_ORIGEN" : "INVENTARIO_DESTINO" }
+            }).ToArray()
+        };
+        ZeusJournal.ValidateTransfer(reversalSnapshot);
+        return reversalSnapshot;
     }
 }

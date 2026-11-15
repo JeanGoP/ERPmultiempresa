@@ -76,6 +76,28 @@ IF (SELECT COUNT(*) FROM inv.MovimientoInventarioUnidad WHERE EmpresaId=@Empresa
 IF (SELECT COUNT(*) FROM inv.MovimientoInventarioUnidad WHERE EmpresaId=@EmpresaId AND UnidadSerializadaId=@Moto2)<>6
     THROW 51996,'La bitacora de la moto devuelta al proveedor esta incompleta.',1;
 
+DECLARE @TrasladoConDevolucionId bigint=@TrasladoId;
+INSERT inv.Traslado(EmpresaId,Numero,BodegaOrigenId,BodegaDestinoId,FechaSalida)
+VALUES(@EmpresaId,CONCAT('TR-REV-',@Suffix),@DestinoId,@OrigenId,'2026-08-07'); SET @TrasladoId=SCOPE_IDENTITY();
+INSERT inv.TrasladoLinea(EmpresaId,TrasladoId,NumeroLinea,ArticuloId,CantidadDespachada)
+VALUES(@EmpresaId,@TrasladoId,1,@ArticuloId,1); SET @TrasladoLineaId=SCOPE_IDENTITY();
+INSERT inv.TrasladoLineaUnidad(EmpresaId,TrasladoLineaId,UnidadSerializadaId) VALUES(@EmpresaId,@TrasladoLineaId,@Moto1);
+EXEC inv.usp_DespacharTraslado @EmpresaId=@EmpresaId,@TrasladoId=@TrasladoId,@PeriodoInventarioId=@PeriodoId,@FechaContable='2026-08-07';
+EXEC inv.usp_RecibirTraslado @EmpresaId=@EmpresaId,@TrasladoId=@TrasladoId,@PeriodoInventarioId=@PeriodoId,@FechaContable='2026-08-07';
+EXEC inv.usp_RevertirTraslado @EmpresaId=@EmpresaId,@TrasladoId=@TrasladoId,@PeriodoInventarioId=@PeriodoId,
+    @FechaContable='2026-08-07',@Motivo=N'Corrección de bodega destino';
+IF NOT EXISTS(SELECT 1 FROM inv.UnidadSerializada WHERE EmpresaId=@EmpresaId AND UnidadSerializadaId=@Moto1 AND Estado='DISPONIBLE' AND BodegaActualId=@DestinoId)
+    THROW 51997,'La reversión debe regresar el mismo chasis disponible a la bodega original.',1;
+
+BEGIN TRY
+    EXEC inv.usp_RevertirTraslado @EmpresaId=@EmpresaId,@TrasladoId=@TrasladoConDevolucionId,@PeriodoInventarioId=@PeriodoId,
+        @FechaContable='2026-08-07',@Motivo=N'Corrección de bodega destino';
+    THROW 51998,'La reversión aceptó un chasis devuelto al proveedor.',1;
+END TRY
+BEGIN CATCH
+    IF ERROR_NUMBER()<>51719 OR XACT_STATE()<>-1 THROW;
+END CATCH;
+
 ROLLBACK;
 EXEC sys.sp_set_session_context @key=N'BypassRls',@value=NULL;
-PRINT 'QA ciclo serial correcto: recepcion, traslado, venta y devoluciones conservan motor, chasis, VIN, estado y bodega.';
+PRINT 'QA ciclo serial: recepción, traslado, reversión, venta y devoluciones conservan el estado y la bodega.';

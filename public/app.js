@@ -91,7 +91,7 @@ async function apiRequest(path, options = {}) {
     const saleCatalogWrites = [
       /^master-data\/(?:articles|clients)(?:\/\d+)?$/,
       /^(?:sales-invoices|sales-price-approvals\/\d+\/issue|inventory\/entries)$/,
-      /^(?:receipts\/\d+\/(?:post|transfer)|transfers\/\d+\/(?:dispatch|receive|complete))$/,
+      /^(?:receipts\/\d+\/(?:post|transfer)|transfers\/\d+\/(?:dispatch|receive|complete|reverse))$/,
       /^(?:(?:supplier|sales)-returns\/\d+\/post|(?:physical-counts|landed-cost-distributions)\/\d+\/apply|inventory\/movements\/\d+\/reverse)$/
     ];
     if (companyPath && saleCatalogWrites.some(pattern => pattern.test(companyPath[2]))) {
@@ -178,7 +178,7 @@ function canPurchaseMode(mode) {
 function canUseReceiving() { return hasAnyPermission(ACCESS.receiving); }
 function canUseWarehouseHistory() { return hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR'); }
 function canUseInventoryReports() { return hasAnyPermission([...ACCESS.purchases, ...ACCESS.inventoryOps, ...ACCESS.inventoryAdmin, ...ACCESS.costs, ...ACCESS.masters]); }
-function canUseInventoryOperations() { return hasAnyPermission(ACCESS.inventoryOps); }
+function canUseInventoryOperations() { return hasAnyPermission(ACCESS.inventoryOps) || hasPermission('INVENTARIO.AJUSTE.REVERSAR'); }
 function canUseSavedPurchases() { return hasPermission('COMPRAS.DOCUMENTO.CREAR'); }
 function canUseAccountsPayable() { return hasPermission('COMPRAS.DOCUMENTO.CREAR'); }
 function isMasterViewAllowed(view) {
@@ -1080,7 +1080,7 @@ async function fetchTransferAvailability(base, origin, article, signal) {
 function renderInventoryOperationPanel() {
   const panel = elements.inventoryOperationPanel;
   const heading = document.createElement('div');
-  heading.className = 'operation-heading';
+  heading.className = 'operation-heading transfer-operation-heading';
   heading.innerHTML = '<h2>Traslados y devoluciones</h2>';
   const form = document.createElement('form');
   form.className = 'inventory-operation-form';
@@ -1146,6 +1146,7 @@ function renderInventoryOperationPanel() {
   let unitsError = '';
   let busy = false;
   let pendingTransfer = null;
+  let lastTransfer = null;
   let articleSelection = null;
   let articleMatches = [];
   let activeArticleMatch = -1;
@@ -1161,6 +1162,16 @@ function renderInventoryOperationPanel() {
 
   const isTransfer = () => fields.type.value === 'transfer';
   const isCurrent = () => form.isConnected && company === state.erpSession?.company?.id;
+  if (apiActive) window.transferDocuments?.attachHistory(heading, company, refreshAfterReversal);
+
+  function refreshAfterReversal(originalId) {
+    if (!isCurrent() || !isTransfer()) return;
+    if (lastTransfer?.documentoId === originalId) {
+      output.textContent = `Traslado ${lastTransfer.numero} revertido.`;
+      window.transferDocuments?.appendActions(output, company, originalId, refreshAfterReversal);
+    }
+    void loadTransferAvailability();
+  }
   function closeArticleResults() {
     articleResults.hidden = true;
     articleSearch.setAttribute('aria-expanded', 'false');
@@ -1433,6 +1444,7 @@ function renderInventoryOperationPanel() {
     });
     if (posted?.estado !== 'RECIBIDO') throw new Error('El servidor no confirmó la llegada a la bodega destino.');
     pendingTransfer = null;
+    lastTransfer = created;
     const destinationName = warehouses.find(row => Number(row.bodegaId) === draft.destination)?.nombre;
     const destinationLabel = destinationName ? `la bodega ${destinationName}` : 'la bodega destino';
     output.textContent = `Traslado ${created.numero} completado. Mercancía disponible en ${destinationLabel}.`;
@@ -1447,12 +1459,14 @@ function renderInventoryOperationPanel() {
       note.textContent = `Observaciones: ${created.observacion}`;
       output.append(note);
     }
+    window.transferDocuments?.appendActions(output, company, created.documentoId, refreshAfterReversal);
     fields.number.value = `MOV-${Date.now().toString().slice(-6)}`;
     fields.observation.value = '';
     await loadTransferAvailability({clear:true});
   }
 
   async function postReturn(date, period) {
+    lastTransfer = null;
     const source = JSON.parse(fields.source.selectedOptions[0].dataset.row);
     const supplier = fields.type.value === 'supplier';
     const path = supplier ? 'supplier-returns' : 'sales-returns';
