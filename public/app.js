@@ -642,19 +642,19 @@ function renderClientMasterTable(data) {
     if(customerZeusSyncRunning)return;
     customerZeusSyncRunning=true;
     const company=state.erpSession?.company?.id;sync.disabled=true;refresh.disabled=true;
-    let cursor='',created=0,updated=0,skipped=0,processed=0;
+    let cursor='',created=0,updated=0,skipped=0,processed=0,reviewComplete=false;
     try{
       let more=true;
       while(more){
         const page=await apiRequest(`/api/v1/companies/${company}/master-data/clients/sync-zeus?cursor=${encodeURIComponent(cursor)}`,{method:'POST'});
         if(String(state.erpSession?.company?.id)!==String(company))throw new Error('Cambió la empresa durante la sincronización.');
-        created+=page.creados;updated+=page.actualizados;skipped+=page.omitidos;processed+=page.procesados;
+        created+=page.creados;updated+=page.actualizados;skipped+=page.omitidos;processed+=page.procesados;reviewComplete=page.revisionCompleta;
         if(page.hayMas&&(!page.cursor||page.cursor===cursor))throw new Error('Zeus no avanzó al siguiente lote.');
         cursor=page.cursor||cursor;more=page.hayMas;
-        showMasterNotice(`Sincronizando clientes de Zeus: ${processed} revisados, ${created} nuevos, ${updated} actualizados, ${skipped} omitidos…`);
+        showMasterNotice(`Sincronizando clientes de Zeus: ${processed} revisados, ${created} nuevos, ${updated} con cambios, ${skipped} omitidos…`);
       }
       await loadClientMasterPage(1);
-      showMasterNotice(`Sincronización completa: ${created} nuevos, ${updated} actualizados y ${skipped} omitidos de ${processed} clientes. Los omitidos requieren revisión de identificación o datos en Zeus.`);
+      showMasterNotice(`Sincronización incremental: ${created} nuevos, ${updated} con cambios y ${skipped} omitidos de ${processed} revisados. ${reviewComplete?'La revisión de clientes existentes completó una vuelta.':'La revisión de clientes existentes continuará desde este punto en la próxima ejecución.'}`);
     }catch(error){showMasterNotice(`La sincronización se detuvo después de ${processed} clientes. ${error.message}`,true);}
     finally{customerZeusSyncRunning=false;sync.disabled=false;refresh.disabled=false;if(state.masterView==='clients'&&!elements.masterDataModule.hidden)renderMasterView();}
   });
