@@ -49,4 +49,14 @@
   #kardexPrint .stock th:nth-child(7) { width:7%; }
   #kardexPrint .stock th:nth-child(8) { width:9%; }
   #kardexPrint .stock th:nth-child(9) { width:10%; }
+  #kardexPrint .aging th:nth-child(1) { width:9%; }
+  #kardexPrint .aging th:nth-child(2) { width:17%; }
+  #kardexPrint .aging th:nth-child(3) { width:10%; }
+  #kardexPrint .aging th:nth-child(4) { width:15%; }
+  #kardexPrint .aging th:nth-child(5) { width:10%; }
+  #kardexPrint .aging th:nth-child(6) { width:9%; }
+  #kardexPrint .aging th:nth-child(7) { width:10%; }
+  #kardexPrint .aging th:nth-child(8) { width:8%; }
+  #kardexPrint .aging th:nth-child(9) { width:5%; }
+  #kardexPrint .aging th:nth-child(10) { width:7%; }
 }

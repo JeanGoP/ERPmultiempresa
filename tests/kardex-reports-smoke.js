@@ -52,4 +52,13 @@ elements.inventoryWarehouse.value='99';excel.handlers.click();assert.equal(downl
 elements.inventoryWarehouse.handlers.input();assert.equal(excel.disabled,true);
 api.loading('kardex');assert.equal(print.textContent,'Imprimir Kardex');assert.equal(excel.disabled,true);
 api.reset();
-console.log('Informes de inventario: Kardex y existencias, filtros, importes, totales y bloqueo de consultas obsoletas correctos.');
+state.inventoryView='aging';sandbox.originAgeBand=1;sandbox.originAgeBands=[['0–30 días'],['31–60 días']];
+const agingContext=api.capture();assert.equal(agingContext.view,'aging');assert.equal(agingContext.ageBandIndex,1);assert.equal(agingContext.ageBandLabel,'31–60 días');assert.equal(agingContext.from,'');assert.equal(agingContext.unit,null);
+const agingRows=[{articuloId:1,codigo:'000123',descripcion:'Moto <prueba>',factura:'000456',proveedor:'Fábrica & Cía',entrada:'ENT-01',fechaEntrada:'2026-10-01',bodega:'Montelíbano',cantidad:2,dias:40,serializado:true},
+{articuloId:1,codigo:'000123',descripcion:'Moto <prueba>',factura:'FA-02',proveedor:'Proveedor',entrada:'ENT-02',fechaEntrada:'2026-10-10',bodega:'Montelíbano',cantidad:1,dias:55,serializado:false}];
+const aging=formats.model(agingRows,agingContext);assert.equal(aging.rows[0][0],'000123');assert.equal(aging.rows[0][2],'000456');assert.equal(aging.totals[7],3);assert.equal(aging.totals[8],undefined);assert.equal(aging.references,1);assert.equal(aging.averageDays,45);assert.equal(aging.maxDays,55);
+const agingHtml=formats.html(aging);assert.match(agingHtml,/Edad de artículos/);assert.match(agingHtml,/31–60 días/);assert.match(agingHtml,/Fábrica &amp; Cía/);assert.match(agingHtml,/01\/10\/2026/);assert.doesNotMatch(agingHtml,/Valores en|<b>Desde|CH-1/);
+api.loading('aging');api.loaded(agingRows,agingContext);assert.equal(print.textContent,'Imprimir edad de artículos');assert.equal(excel.disabled,false);const oldDownloadCount=downloads.length;excel.handlers.click();assert.match(downloads.at(-1),/^edad-articulos-\d{4}-\d{2}-\d{2}\.xlsx$/);
+sandbox.originAgeBand=null;excel.handlers.click();assert.equal(downloads.length,oldDownloadCount+1);api.loading('aging');api.loaded(agingRows,agingContext);assert.equal(excel.disabled,true);
+api.loaded(agingRows,api.capture());assert.equal(excel.disabled,false);elements.inventorySearch.handlers.input();assert.equal(excel.disabled,true);api.failed();assert.equal(print.disabled,true);api.reset();
+console.log('Informes de inventario: Kardex, existencias y edades; filtros, rangos, importes, totales y consultas obsoletas correctos.');

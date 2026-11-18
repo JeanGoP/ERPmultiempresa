@@ -96,8 +96,9 @@
       throw new Error('No se pudo preparar la estructura del informe para Excel.');
     }
     const stock = report.view === 'stock';
-    const sheetName = stock ? 'Existencias' : 'Kardex';
-    const title = stock ? 'EXISTENCIAS' : 'KARDEX';
+    const aging = report.view === 'aging';
+    const sheetName = aging ? 'Edad de artículos' : stock ? 'Existencias' : 'Kardex';
+    const title = aging ? 'EDAD DE ARTÍCULOS' : stock ? 'EXISTENCIAS' : 'KARDEX';
     const columns = report.columns;
     if (report.rows.length > 1048566 || columns.some(column => !['text','date','quantity','money'].includes(column.type)
         || column.total === true && !['quantity','money'].includes(column.type))) {
@@ -115,11 +116,11 @@
     const context = [
       [report.demo ? title + ' · Datos de demostración' : title, 1],
       [report.company.name, 2],
-      [`NIT ${String(report.company.nit ?? '').replace(/^NIT\s*/i, '')} · Moneda ${report.company.currency || 'COP'}`, 3],
-      [stock ? 'Existencias actuales' : `Desde ${report.from || 'Sin límite'} · Hasta ${report.until || 'Sin límite'}`, 3],
+      [`NIT ${String(report.company.nit ?? '').replace(/^NIT\s*/i, '')}${aging ? '' : ' · Moneda ' + (report.company.currency || 'COP')}`, 3],
+      [aging ? 'Edad desde la fecha contable de la entrada original' : stock ? 'Existencias actuales' : `Desde ${report.from || 'Sin límite'} · Hasta ${report.until || 'Sin límite'}`, 3],
       [`Bodega ${report.warehouseLabel || 'Todas las bodegas'}`, 3],
       [`Búsqueda ${report.query || 'Sin filtro'}`, 3],
-      [stock ? `Registros ${report.rows.length}` : unit ? `Unidad ${identifiers || unit.unidadSerializadaId || unit.id || ''}` : 'Unidad Todas las unidades', 3],
+      [aging ? `Antigüedad ${report.ageBandLabel || 'Todas las edades'}` : stock ? `Registros ${report.rows.length}` : unit ? `Unidad ${identifiers || unit.unidadSerializadaId || unit.id || ''}` : 'Unidad Todas las unidades', 3],
       [`Generado ${generatedLabel} · Bogotá, Colombia`, 3]
     ];
     const last = columnName(columns.length - 1);

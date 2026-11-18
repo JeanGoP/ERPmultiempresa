@@ -1249,6 +1249,7 @@ async function refreshInventory(){
     }
     state.inventoryData=rows;
     elements.inventoryTable.replaceChildren(buildInventoryTable(view,rows,unitId));
+    elements.inventoryTable.dataset.view=view;
     if(unitId)renderUnitKardexStats(rows,unitId);
     else renderInventoryStats(rows);
     elements.inventoryStatus.textContent=`${rows.length} registros consultados`;
@@ -3570,8 +3571,9 @@ elements.inventoryNav.addEventListener('click',()=>{if(!elements.inventoryNav.da
 document.querySelectorAll('[data-inventory-view]').forEach(button=>button.addEventListener('click',()=>showInventoryView(button.dataset.inventoryView)));
 $('#refreshInventory').addEventListener('click',()=>void refreshInventory());
 elements.inventorySearch.addEventListener('input',()=>{
-  if(!['kardex','serials','stock'].includes(state.inventoryView))return;
+  if(!['kardex','serials','stock','aging'].includes(state.inventoryView))return;
   inventoryRefreshVersion++;
+  if(state.inventoryView==='aging')window.invalidateInventoryAging?.();
   clearTimeout(inventorySearchTimer);
   inventoryKardexUnit=null;
   renderInventoryUnitFilter();

@@ -1,4 +1,4 @@
-/* Impresión y descarga de las consultas de Kardex y existencias. */
+/* Impresión y descarga de las consultas de inventario y antigüedad. */
 (() => {
   const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const number=value=>new Intl.NumberFormat('es-CO',{maximumFractionDigits:6}).format(value||0);
@@ -6,6 +6,16 @@
   const date=value=>/^\d{4}-\d{2}-\d{2}/.test(String(value||''))?String(value).slice(0,10).split('-').reverse().join('/'):value?'—':'Sin límite';
   const identifiers=unit=>[['Chasis',unit.chasis],['VIN',unit.vin],['Serial',unit.serial],['Motor',unit.motor],['Placa',unit.placa]].filter(([,value])=>value).map(([label,value])=>`${label} ${value}`).join(' · ');
   const column=(label,type,width,total=false)=>({label,type,width,total});
+  function agingModel(source,context){
+    const report=JSON.parse(JSON.stringify(context));report.view='aging';report.generatedAt=new Date().toISOString();
+    report.columns=[column('Código','text',22),column('Artículo','text',42),column('Factura','text',23),column('Proveedor','text',38),column('Entrada','text',24),column('Fecha entrada (contable)','date',23),column('Bodega actual','text',26),column('Disponible','quantity',16,true),column('Edad (días)','quantity',16),column('Control','text',28)];
+    report.rows=source.map(item=>[String(item.codigo??''),item.descripcion,item.factura,item.proveedor,item.entrada,item.fechaEntrada,item.bodega,Number(item.cantidad)||0,Number(item.dias)||0,item.serializado?'Por unidad serializada':'Por entrada (FIFO)']);
+    report.totals={7:Number(report.rows.reduce((sum,row)=>sum+row[7],0).toFixed(6))};
+    report.references=new Set(source.map(item=>item.articuloId??item.codigo)).size;
+    report.averageDays=report.totals[7]?Math.round(report.rows.reduce((sum,row)=>sum+Math.max(0,row[8])*row[7],0)/report.totals[7]):0;
+    report.maxDays=report.rows.reduce((max,row)=>Math.max(max,row[8]),0);
+    return report;
+  }
   function stockModel(source,context){
     const report=JSON.parse(JSON.stringify(context));report.view='stock';report.generatedAt=new Date().toISOString();
     report.columns=[column('Bodega','text',25),column('Ubicación','text',20),column('Artículo','text',22),column('Descripción','text',44),column('Lote','text',20),column('Vencimiento','date',15),column('Existencia','quantity',16,true),column('Costo promedio','money',21),column('Valor total','money',23,true)];
@@ -14,6 +24,7 @@
     return report;
   }
   function model(source,context){
+    if(context.view==='aging')return agingModel(source,context);
     if(context.view==='stock')return stockModel(source,context);
     const report=JSON.parse(JSON.stringify(context));
     const unitId=report.unit?.unidadSerializadaId;
@@ -41,7 +52,13 @@
     return report;
   }
   function heading(report,title,label){
-    return `<header class="kardex-print-heading"><div><p>${esc(report.company.name)}</p><h1>${title}</h1>${report.company.nit?`<span>NIT ${esc(String(report.company.nit).replace(/^NIT\s*/i,''))}</span>`:''}<span>Valores en ${esc(report.company.currency||'COP')}</span></div><div><strong>${report.rows.length} ${label}</strong><span>Generado ${esc(new Date(report.generatedAt).toLocaleString('es-CO',{timeZone:'America/Bogota'}))}</span>${report.demo?'<span>Datos de demostración</span>':''}</div></header>`;
+    return `<header class="kardex-print-heading"><div><p>${esc(report.company.name)}</p><h1>${title}</h1>${report.company.nit?`<span>NIT ${esc(String(report.company.nit).replace(/^NIT\s*/i,''))}</span>`:''}<span>${report.view==='aging'?'Edad desde la fecha contable de la entrada original':`Valores en ${esc(report.company.currency||'COP')}`}</span></div><div><strong>${report.rows.length} ${label}</strong><span>Generado ${esc(new Date(report.generatedAt).toLocaleString('es-CO',{timeZone:'America/Bogota'}))}</span>${report.demo?'<span>Datos de demostración</span>':''}</div></header>`;
+  }
+  function agingHtml(report){
+    return heading(report,'Edad de artículos','entradas / bodegas')
+      +`<section class="kardex-print-filters"><div><b>Bodega</b> ${esc(report.warehouseLabel)}</div><div><b>Búsqueda</b> ${esc(report.query||'Todos los artículos')}</div><div><b>Antigüedad</b> ${esc(report.ageBandLabel||'Todas las edades')}</div></section>`
+      +`<section class="kardex-print-summary"><div><span>Referencias</span><strong>${report.references}</strong></div><div><span>Unidades disponibles</span><strong>${number(report.totals[7])}</strong></div><div><span>Edad promedio ponderada</span><strong>${number(report.averageDays)} días</strong></div><div><span>Mayor antigüedad</span><strong>${number(report.maxDays)} días</strong></div></section>`
+      +`<table class="kardex-print-table aging"><thead><tr>${report.columns.map(col=>`<th scope="col">${col.label}</th>`).join('')}</tr></thead><tbody>${report.rows.map(row=>`<tr>${row.map((value,index)=>`<td class="${[7,8].includes(index)?'numeric':''}">${[7,8].includes(index)?number(value):index===5?date(value):esc(value||'—')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   }
   function stockHtml(report){
     return heading(report,'Existencias de inventario','registros')
@@ -50,6 +67,7 @@
       +`<table class="kardex-print-table stock"><thead><tr>${report.columns.map(col=>`<th scope="col">${col.label}</th>`).join('')}</tr></thead><tbody>${report.rows.map(row=>`<tr>${row.map((value,index)=>`<td class="${index>=6?'numeric':''}">${index>=7?money(value):index===6?number(value):index===5?(value?date(value):'—'):esc(value||'—')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   }
   function html(report){
+    if(report.view==='aging')return agingHtml(report);
     if(report.view==='stock')return stockHtml(report);
     const individual=Boolean(report.unit?.unidadSerializadaId);
     const display=(value,index)=>report.columns[index].type==='money'?money(value):report.columns[index].type==='quantity'?number(value):report.columns[index].type==='date'?date(value):esc(value||'—');
@@ -77,22 +95,24 @@
   const actions=document.querySelector('#kardexReportActions');if(!actions)return;
   const status=actions.querySelector('[data-report-status]'),printButton=actions.querySelector('[data-print-kardex]'),excelButton=actions.querySelector('[data-excel-kardex]');
   let snapshot=null,busy=false;
-  const supported=view=>['kardex','stock'].includes(view);
+  const supported=view=>['kardex','stock','aging'].includes(view);
   function capture(){
     const company=state.erpSession?.company||{};
-    const stock=state.inventoryView==='stock';
-    return {view:stock?'stock':'kardex',company:{...company},from:stock?'':elements.inventoryDateFrom.value,until:stock?'':elements.inventoryDateTo.value,warehouseId:elements.inventoryWarehouse.value,warehouseLabel:elements.inventoryWarehouse.selectedOptions?.[0]?.textContent||'Todas las bodegas',query:elements.inventorySearch.value.trim(),unit:stock?null:selectedInventoryUnit(),demo:state.runtimeMode!=='api'||!state.erpSession?.api};
+    const view=state.inventoryView,history=view==='kardex';
+    const ageBandIndex=view==='aging'&&typeof originAgeBand==='number'?originAgeBand:null;
+    const ageBandLabel=ageBandIndex!==null&&typeof originAgeBands!=='undefined'?originAgeBands[ageBandIndex]?.[0]:'Todas las edades';
+    return {view:supported(view)?view:'kardex',company:{...company},from:history?elements.inventoryDateFrom.value:'',until:history?elements.inventoryDateTo.value:'',warehouseId:elements.inventoryWarehouse.value,warehouseLabel:elements.inventoryWarehouse.selectedOptions?.[0]?.textContent||'Todas las bodegas',query:elements.inventorySearch.value.trim(),unit:history?selectedInventoryUnit():null,ageBandIndex,ageBandLabel,demo:state.runtimeMode!=='api'||!state.erpSession?.api};
   }
-  const key=context=>JSON.stringify([context.view||'kardex',String(context.company.id),context.from,context.until,context.warehouseId,context.query,context.unit?.unidadSerializadaId||null,context.demo]);
+  const key=context=>JSON.stringify([context.view||'kardex',String(context.company.id),context.from,context.until,context.warehouseId,context.query,context.unit?.unidadSerializadaId||null,context.demo,context.ageBandIndex??null]);
   function available(){return !busy&&snapshot?.report.rows.length>0&&supported(state.inventoryView)&&snapshot.key===key(capture());}
   function disable(message){snapshot=null;printButton.disabled=excelButton.disabled=true;status.textContent=message;}
   function reset(){busy=false;disable('');actions.hidden=true;clearPrint();}
-  function loading(view){actions.hidden=!supported(view);printButton.textContent=view==='stock'?'Imprimir existencias':'Imprimir Kardex';disable(supported(view)?view==='stock'?'Consultando existencias…':'Consultando movimientos…':'');}
+  function loading(view){actions.hidden=!supported(view);printButton.textContent=view==='aging'?'Imprimir edad de artículos':view==='stock'?'Imprimir existencias':'Imprimir Kardex';disable(supported(view)?view==='aging'?'Consultando antigüedad…':view==='stock'?'Consultando existencias…':'Consultando movimientos…':'');}
   function loaded(rows,context){
     if(!context||!supported(state.inventoryView)||key(context)!==key(capture()))return;
     const report=model(rows,context);snapshot={report,key:key(context)};actions.hidden=false;
     printButton.disabled=excelButton.disabled=!report.rows.length;
-    const records=report.view==='stock'?'registros':'movimientos';
+    const records=report.view==='aging'?'entradas / bodegas':report.view==='stock'?'registros':'movimientos';
     status.textContent=report.rows.length?`${report.rows.length} ${records} para imprimir o descargar`:`No hay ${records} con estos filtros`;
   }
   printButton.addEventListener('click',()=>{
@@ -104,7 +124,7 @@
     busy=true;excelButton.disabled=true;
     try{
       const report=snapshot.report,blob=window.kardexExcel.workbook(report),url=URL.createObjectURL(blob),link=document.createElement('a');
-      link.href=url;link.download=report.view==='stock'?`existencias-${new Date(report.generatedAt).toLocaleDateString('sv-SE',{timeZone:'America/Bogota'})}.xlsx`:`kardex-${report.from||'inicio'}-${report.until||'actual'}${report.unit?'-unidad':''}.xlsx`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+      link.href=url;link.download=report.view==='aging'?`edad-articulos-${new Date(report.generatedAt).toLocaleDateString('sv-SE',{timeZone:'America/Bogota'})}.xlsx`:report.view==='stock'?`existencias-${new Date(report.generatedAt).toLocaleDateString('sv-SE',{timeZone:'America/Bogota'})}.xlsx`:`kardex-${report.from||'inicio'}-${report.until||'actual'}${report.unit?'-unidad':''}.xlsx`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
     }catch(error){status.textContent=`No fue posible descargar el Excel. ${error.message}`;}
     finally{busy=false;excelButton.disabled=!available();}
   });

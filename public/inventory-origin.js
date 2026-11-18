@@ -89,12 +89,13 @@ async function openInvoiceTransfer(entry){
   }catch(error){showError(error.message);}
 }
 
-let originAgeBand=null,originAgeRows=[],originAgeRequest=0;
+let originAgeBand=null,originAgeRows=[],originAgeRequest=0,originAgeContext=null,originAgeCompany=null;
+window.invalidateInventoryAging=()=>{originAgeRequest++;originAgeContext=null;};
 // Extend the shared inventory refresh used by navigation and toolbar filters.
 const refreshInventoryStandard=refreshInventory;
 const originSearchPlaceholder=elements.inventorySearch.placeholder;
 refreshInventory=async function(){
-  if(state.inventoryView==='aging'){window.kardexReports?.loading('aging');return refreshInventoryAging();}
+  if(state.inventoryView==='aging')return refreshInventoryAging();
   elements.inventorySearch.placeholder=originSearchPlaceholder;
   elements.inventoryTable.after(elements.inventoryOperationPanel);
   return refreshInventoryStandard();
@@ -102,16 +103,18 @@ refreshInventory=async function(){
 const originAgeBands=[['0–30 días',0,30,'#208573'],['31–60 días',31,60,'#b99230'],['61–90 días',61,90,'#d17b3c'],['91–180 días',91,180,'#ba5551'],['Más de 180',181,Infinity,'#8a3f59']];
 async function refreshInventoryAging(){
   const request=++originAgeRequest,company=state.erpSession?.company?.id;
+  const reportContext=window.kardexReports?.capture();originAgeContext=null;
+  window.kardexReports?.loading('aging');
   elements.inventorySearch.placeholder='Artículo, factura o proveedor';
   elements.breadcrumbCurrent.textContent='Edad de artículos';elements.inventoryStatus.textContent='Consultando entradas originales…';
   elements.inventoryNotice.hidden=true;elements.inventoryOperationPanel.hidden=false;
-  elements.inventoryStats.replaceChildren();elements.inventoryOperationPanel.replaceChildren();elements.inventoryTable.replaceChildren(emptyMessage('Consultando entradas originales…'));
+  if(originAgeCompany!==company||elements.inventoryTable.dataset.view!=='aging'||!originAgeRows.length){elements.inventoryStats.replaceChildren();elements.inventoryOperationPanel.replaceChildren();elements.inventoryTable.replaceChildren(emptyMessage('Consultando entradas originales…'));}
   try{
     const params=new URLSearchParams();if(elements.inventoryWarehouse.value)params.set('bodegaId',elements.inventoryWarehouse.value);if(elements.inventorySearch.value.trim())params.set('q',elements.inventorySearch.value.trim());
     const rows=await apiRequest('/api/v1/companies/'+company+'/inventory/aging?'+params);
     if(request!==originAgeRequest||state.inventoryView!=='aging'||company!==state.erpSession?.company?.id)return;
-    originAgeRows=rows;renderInventoryAging();
-  }catch(error){if(state.inventoryView!=='aging'||request!==originAgeRequest)return;originAgeRows=[];elements.inventoryStats.replaceChildren();elements.inventoryOperationPanel.replaceChildren();elements.inventoryTable.replaceChildren(emptyMessage(error.message));elements.inventoryStatus.textContent='No fue posible consultar';}
+    originAgeRows=rows;originAgeContext=reportContext;originAgeCompany=company;renderInventoryAging();
+  }catch(error){if(state.inventoryView!=='aging'||request!==originAgeRequest||company!==state.erpSession?.company?.id)return;originAgeRows=[];originAgeContext=null;elements.inventoryStats.replaceChildren();elements.inventoryOperationPanel.replaceChildren();elements.inventoryTable.replaceChildren(emptyMessage(error.message));elements.inventoryStatus.textContent='No fue posible consultar';window.kardexReports?.failed();}
 }
 function renderInventoryAging(){
   const rows=originAgeRows,quantity=rows.reduce((s,x)=>s+x.cantidad,0);
@@ -132,4 +135,6 @@ function renderInventoryAging(){
   const exportButton=document.createElement('button');exportButton.type='button';exportButton.className='button primary';exportButton.textContent='Descargar informe CSV';exportButton.disabled=!filtered.length;
   exportButton.onclick=()=>{const cell=v=>'"'+String(v??'').replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"';const blob=new Blob(['\uFEFF'+[headings,...values].map(row=>row.map(cell).join(';')).join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='edad-articulos.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   actions.append(all,exportButton);panel.append(actions);elements.inventoryStatus.textContent=filtered.length+' entradas / bodegas · '+(originAgeBand===null?'Todas las edades':originAgeBands[originAgeBand][0]);
+  elements.inventoryTable.dataset.view='aging';
+  if(originAgeContext)window.kardexReports?.loaded(filtered,{...originAgeContext,ageBandIndex:originAgeBand,ageBandLabel:originAgeBand===null?'Todas las edades':originAgeBands[originAgeBand][0]});
 }
