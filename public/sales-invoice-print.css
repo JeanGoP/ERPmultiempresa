@@ -33,18 +33,22 @@
   #salesInvoicePrint .invoice-customer strong { min-width:16mm; }
   #salesInvoicePrint .invoice-customer span { overflow-wrap:anywhere; }
   #salesInvoicePrint table { width:100%; border-collapse:collapse; color:black; table-layout:fixed; }
-  #salesInvoicePrint th,#salesInvoicePrint td { vertical-align:top; color:black; overflow-wrap:anywhere; }
+  #salesInvoicePrint th,#salesInvoicePrint td {
+    vertical-align:top; color:black; overflow-wrap:anywhere; max-width:none;
+    font-family:Arial, sans-serif; font-size:inherit; letter-spacing:normal; text-transform:none; white-space:normal;
+  }
   #salesInvoicePrint .invoice-items { font-size:7pt; }
   #salesInvoicePrint .invoice-items th,#salesInvoicePrint .invoice-items td { border:.6pt solid black; padding:.8mm 1mm; }
   #salesInvoicePrint .invoice-items th { text-align:left; font-size:7.2pt; background:white; line-height:1.1; }
+  #salesInvoicePrint .invoice-items th:nth-child(n+6) { text-align:right; }
   #salesInvoicePrint .invoice-items thead { display:table-header-group; }
   #salesInvoicePrint .invoice-items tr { break-inside:avoid; }
   #salesInvoicePrint .item-code { width:9%; }
-  #salesInvoicePrint .item-name { width:22%; }
+  #salesInvoicePrint .item-name { width:21%; }
   #salesInvoicePrint .item-presentation { width:14%; }
   #salesInvoicePrint .item-warehouse { width:7%; }
   #salesInvoicePrint .item-lot { width:5%; }
-  #salesInvoicePrint .item-count { width:7%; }
+  #salesInvoicePrint .item-count { width:8%; }
   #salesInvoicePrint .item-price { width:12%; }
   #salesInvoicePrint .item-discount { width:6%; }
   #salesInvoicePrint .item-tax { width:5%; }
