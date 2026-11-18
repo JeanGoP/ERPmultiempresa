@@ -421,17 +421,88 @@ function manualSupplierNit(value){
 function findManualSupplier(value){
   const nit=manualSupplierNit(value);
   if(!nit)return null;
-  return (state.apiContext?.masterData?.suppliers||[]).find(x=>x.active!==false&&x.identification===nit)||null;
+  return (state.apiContext?.masterData?.suppliers||[]).find(x=>x.active!==false&&manualSupplierNit(x.identification)===nit)||null;
+}
+function findManualSupplierSuggestions(value,limit=8){
+  const query=foldSupplierSearch(value).trim();
+  if(query.length<2)return {items:[],total:0};
+  const terms=query.split(/\s+/);
+  const numeric=/^[\d.\s-]+$/.test(query)?manualSupplierNit(query):'';
+  const matches=(state.apiContext?.masterData?.suppliers||[]).filter(x=>{
+    if(x.active===false)return false;
+    if(numeric)return manualSupplierNit(x.identification).includes(numeric);
+    const text=foldSupplierSearch(`${x.name} ${x.commercialName||''} ${x.identification}`);
+    return terms.every(term=>text.includes(term));
+  });
+  const rank=x=>numeric?(manualSupplierNit(x.identification)===numeric?0:manualSupplierNit(x.identification).startsWith(numeric)?1:2):(foldSupplierSearch(x.name).startsWith(query)?0:1);
+  matches.sort((a,b)=>rank(a)-rank(b)||String(a.name).localeCompare(String(b.name),'es-CO'));
+  return {items:matches.slice(0,limit),total:matches.length};
 }
 let manualSupplierAutoFilled=false;
+let closeManualSupplierSearch=()=>{};
 function syncManualSupplierFromNit(){
+  closeManualSupplierSearch();
   const nit=$('#manualNit');const name=$('#manualSupplier');const status=$('#manualSupplierStatus');
   const supplier=findManualSupplier(nit.value);
-  if(supplier){name.value=supplier.name;name.readOnly=true;manualSupplierAutoFilled=true;status.textContent=`Proveedor del maestro: ${supplier.name}`;status.classList.add('found');return supplier;}
+  name.readOnly=false;
+  if(supplier){name.value=supplier.name;manualSupplierAutoFilled=true;status.textContent=`Proveedor del maestro: ${supplier.name}`;status.classList.add('found');return supplier;}
   if(manualSupplierAutoFilled)name.value='';
-  name.readOnly=false;manualSupplierAutoFilled=false;status.classList.remove('found');
+  manualSupplierAutoFilled=false;status.classList.remove('found');
   status.textContent=manualSupplierNit(nit.value).length>=6?'NIT no encontrado en el maestro. Puedes escribir el proveedor manualmente.':'';
   return null;
+}
+function wireManualSupplierSearch(){
+  const name=$('#manualSupplier'),nit=$('#manualNit'),status=$('#manualSupplierStatus');
+  const pickers=[name,nit].map(input=>({input,results:document.getElementById(input.getAttribute('aria-controls')),items:[],active:-1}));
+  function hide(picker){
+    picker.results.hidden=true;picker.items=[];picker.active=-1;
+    picker.input.setAttribute('aria-expanded','false');picker.input.removeAttribute('aria-activedescendant');
+  }
+  closeManualSupplierSearch=()=>pickers.forEach(hide);
+  function choose(picker,index){
+    const supplier=picker.items[index];if(!supplier)return;
+    nit.value=`${supplier.identification}${supplier.verificationDigit?'-'+supplier.verificationDigit:''}`;
+    syncManualSupplierFromNit();
+  }
+  function render(picker){
+    closeManualSupplierSearch();
+    if(picker.input.value.trim().length<2)return;
+    const found=findManualSupplierSuggestions(picker.input.value);picker.items=found.items;
+    const nodes=found.items.map((supplier,index)=>{
+      const option=document.createElement('button');option.type='button';option.id=`${picker.results.id}Option${index}`;
+      option.setAttribute('role','option');option.setAttribute('aria-selected','false');
+      const title=document.createElement('strong');title.textContent=supplier.name;
+      const detail=document.createElement('small');detail.textContent=`${supplier.identification}${supplier.verificationDigit?'-'+supplier.verificationDigit:''}${supplier.city?' · '+supplier.city:''}`;
+      option.append(title,detail);option.addEventListener('click',()=>choose(picker,index));return option;
+    });
+    if(!nodes.length||found.total>found.items.length){
+      const hint=document.createElement('p');hint.textContent=nodes.length?`${found.total} coincidencias. Sigue escribiendo para precisar.`:'No hay proveedores con ese dato.';nodes.push(hint);
+    }
+    picker.results.replaceChildren(...nodes);picker.results.hidden=false;picker.input.setAttribute('aria-expanded','true');
+  }
+  for(const picker of pickers){
+    picker.input.addEventListener('input',()=>{
+      if(picker.input===nit)syncManualSupplierFromNit();
+      else{
+        if(manualSupplierAutoFilled)nit.value='';
+        manualSupplierAutoFilled=false;status.textContent='';status.classList.remove('found');
+      }
+      render(picker);
+    });
+    picker.input.addEventListener('focus',()=>render(picker));
+    picker.input.addEventListener('blur',()=>setTimeout(()=>{if(document.activeElement!==picker.input&&!picker.results.contains(document.activeElement))hide(picker);},120));
+    picker.results.addEventListener('pointerdown',event=>event.preventDefault());
+    picker.input.addEventListener('keydown',event=>{
+      if(event.key==='Escape'&&!picker.results.hidden){event.preventDefault();event.stopPropagation();hide(picker);return;}
+      if(picker.results.hidden||!picker.items.length)return;
+      if(event.key==='Enter'){event.preventDefault();choose(picker,picker.active<0?0:picker.active);return;}
+      if(event.key!=='ArrowDown'&&event.key!=='ArrowUp')return;
+      event.preventDefault();picker.active=event.key==='ArrowDown'?(picker.active+1)%picker.items.length:(picker.active<0?picker.items.length-1:(picker.active-1+picker.items.length)%picker.items.length);
+      const buttons=picker.results.querySelectorAll('button');buttons.forEach((button,index)=>button.setAttribute('aria-selected',String(index===picker.active)));
+      const option=buttons[picker.active];picker.input.setAttribute('aria-activedescendant',option.id);option.scrollIntoView({block:'nearest'});
+    });
+  }
+  document.addEventListener('pointerdown',event=>{if(!event.target.closest('.manual-supplier-picker'))closeManualSupplierSearch();});
 }
 function apiClientToMaster(x){return {id:x.terceroId,identificationType:x.tipoIdentificacion,identification:x.numeroIdentificacion,verificationDigit:x.digitoVerificacion||'',name:x.razonSocial,commercialName:x.nombreComercial||'',taxResponsibility:x.codigoResponsabilidadFiscal||'',taxSchemeCode:x.regimenFiscalCodigo||'',taxSchemeName:x.regimenFiscalNombre||'',address:x.direccion||'',cityCode:x.ciudadCodigo||'',city:x.ciudad||'',departmentCode:x.departamentoCodigo||'',department:x.departamento||'',postalCode:x.codigoPostal||'',countryCode:x.paisCodigo||'',country:x.pais||'',contactName:x.contactoNombre||'',phone:x.telefono||'',email:x.correo||'',website:x.sitioWeb||'',personType:x.tipoPersona,firstName:x.nombre1||'',lastName:x.apellido1||'',seller:x.vendedorZeus||'',clientType:x.tipoClienteZeus||'',division:x.divisionPoliticaZeus||'',zeusEstado:x.zeusEstado,zeusMensaje:x.zeusMensaje,active:x.activo};}
 
@@ -3339,6 +3410,7 @@ function selectCompany(option) {
     signedInAt: state.erpSession?.signedInAt || new Date().toISOString(),
   };
   state.apiContext=null; state.purchaseWorkflow=null; state.manualWorkflow=null; state.manualDraft=null;
+  closeManualSupplierSearch();
   $('#manualNit').value='';$('#manualSupplier').value='';$('#manualSupplier').readOnly=false;manualSupplierAutoFilled=false;$('#manualSupplierStatus').textContent='';
   closeErpDialog(elements.companyDialog);
   enterErp(session);
@@ -3510,7 +3582,7 @@ elements.inventoryDateTo.addEventListener('change',()=>void refreshInventory());
 elements.inventoryTable.addEventListener('click',event=>{const historyButton=event.target.closest('[data-warehouse-history-id]');if(historyButton){void openWarehouseReceiptHistory(Number(historyButton.dataset.warehouseHistoryId));return;}const button=event.target.closest('[data-warehouse-receipt-id]');if(button)void openWarehouseReceipt(Number(button.dataset.warehouseReceiptId));});
 $('#addManualLine').addEventListener('click', () => addManualLine());
 elements.manualForm.addEventListener('submit', saveManualDraft);
-$('#manualNit').addEventListener('input',syncManualSupplierFromNit);
+wireManualSupplierSearch();
 
 elements.browseButton.addEventListener('click', (event) => { event.stopPropagation(); elements.fileInput.click(); });
 elements.dropZone.addEventListener('click', (event) => {

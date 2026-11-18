@@ -425,8 +425,8 @@
             <div class="form-section">
               <div class="form-section-heading"><strong>Documento del proveedor</strong><span>Los campos con * son obligatorios</span></div>
               <div class="form-grid">
-                <label><span>Proveedor *</span><input id="manualSupplier" required autocomplete="organization" placeholder="Se completa al escribir el NIT"></label>
-                <label><span>NIT *</span><input id="manualNit" required inputmode="numeric" placeholder="900123456-7"><small id="manualSupplierStatus" class="manual-supplier-status" role="status"></small></label>
+                <div class="manual-supplier-field"><label for="manualSupplier"><span>Proveedor *</span></label><div class="manual-supplier-picker"><input id="manualSupplier" required autocomplete="off" placeholder="Busca por nombre o NIT…" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="manualSupplierResults"><div id="manualSupplierResults" class="manual-supplier-results" role="listbox" aria-label="Proveedores encontrados" hidden></div></div></div>
+                <div class="manual-supplier-field"><label for="manualNit"><span>NIT *</span></label><div class="manual-supplier-picker"><input id="manualNit" required inputmode="numeric" autocomplete="off" placeholder="900123456-7" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="manualNitResults"><div id="manualNitResults" class="manual-supplier-results" role="listbox" aria-label="Proveedores encontrados por NIT" hidden></div></div><small id="manualSupplierStatus" class="manual-supplier-status" role="status"></small></div>
                 <label><span>Tipo de documento *</span><select id="manualDocumentType"><option value="FACTURA">Factura</option><option value="REMISION">Remisión</option><option value="DOCUMENTO_SOPORTE">Documento soporte</option></select></label>
                 <label><span>Número *</span><input id="manualInvoiceNumber" required placeholder="Ej. FE-1042"></label>
                 <label><span>Fecha de factura *</span><input id="manualIssueDate" type="date" required></label>

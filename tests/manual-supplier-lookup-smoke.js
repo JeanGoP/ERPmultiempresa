@@ -18,7 +18,18 @@ assert.equal(context.foldSupplierSearch('Fábrica xx'),'fabrica xx');
 assert.equal(context.findManualSupplier(fields.manualNit.value).name,supplier.name);
 context.syncManualSupplierFromNit();
 assert.equal(fields.manualSupplier.value,supplier.name);
-assert.equal(fields.manualSupplier.readOnly,true);
+assert.equal(fields.manualSupplier.readOnly,false);
+assert.equal(context.findManualSupplierSuggestions('fabrica').items[0].name,supplier.name);
+assert.equal(context.findManualSupplierSuggestions('motos fabrica').items[0].identification,supplier.identification);
+assert.equal(context.findManualSupplierSuggestions('900.123').items[0].name,supplier.name);
+assert.equal(context.findManualSupplierSuggestions('900.123.456-7').items[0].name,supplier.name);
+assert.equal(context.findManualSupplierSuggestions('').total,0);
+assert.equal(context.findManualSupplierSuggestions('desconocido').total,0);
+context.state.apiContext.masterData.suppliers.push({...supplier,identification:'111',name:'Proveedor inactivo',active:false});
+assert.equal(context.findManualSupplierSuggestions('inactivo').total,0);
+context.state.apiContext.masterData.suppliers.push(...Array.from({length:12},(_,i)=>({...supplier,identification:String(i),name:`Fábrica ${i}`})));
+assert.equal(context.findManualSupplierSuggestions('fabrica').items.length,8);
+assert.equal(context.findManualSupplierSuggestions('fabrica').total,13);
 
 const payload=context.buildManualSupplierDocumentPayload({nit:supplier.identification,supplier:supplier.name,supplierProfile:supplier,
   invoiceNumber:'F-1',documentType:'FACTURA',issueDate:'2026-11-11',dueDate:null,paymentCondition:'CONTADO',creditDays:0,
@@ -34,4 +45,4 @@ context.syncManualSupplierFromNit();
 assert.equal(fields.manualSupplier.value,'');
 assert.equal(fields.manualSupplier.readOnly,false);
 assert.match(fs.readFileSync('backend/NexoERP.Api/Purchasing/PurchasingRepository.cs','utf8'),/RazonSocial COLLATE Latin1_General_CI_AI LIKE/);
-console.log('Entrada manual: NIT completa proveedor y búsqueda admite nombres sin tildes.');
+console.log('Entrada manual: búsqueda por nombre y NIT sin tildes, sugerencias limitadas y datos del proveedor.');
