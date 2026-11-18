@@ -6,6 +6,13 @@ namespace NexoERP.Api.Zeus;
 
 public static class ZeusPurchaseEntryReversalPolicy
 {
+    public static void EnsureFullInvoice(ZeusSnapshot original,long receipt,long supplier,string invoice,decimal total)
+    {
+        if(original.Origen.RecepcionId!=receipt||original.Origen.ProveedorId!=supplier
+           ||original.Origen.Factura!=invoice||original.Origen.Total!=total)
+            throw new ArgumentException("El comprobante congelado de Zeus no corresponde a la factura completa del proveedor. Revisa la contabilización original antes de revertir.");
+    }
+
     public static ZeusSnapshot Build(ZeusSnapshot original,Guid originalKey,string source,string document,DateOnly date,string reason)
     {
         if(original.ReversionEntrada is not null||original.Egreso is not null||original.ClienteDocumento is not null

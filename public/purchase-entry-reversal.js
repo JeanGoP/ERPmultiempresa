@@ -9,19 +9,21 @@
 
   function attach(container,detail,onChanged){
     const entry=detail.documento;
-    if(!hasPermission(permission)||!entry.recepcionMercanciaId||!['CONTABILIZADA','REVERTIDA'].includes(entry.recepcionEstado))return;
+    const posted=entry.recepcionEstado==='CONTABILIZADA'||entry.causacionEstado==='CONTABILIZADA';
+    if(!hasPermission(permission)||!entry.recepcionMercanciaId||!posted&&!reversed(entry))return;
+    const mixed=Boolean(entry.causacionServicioId)||detail.lineas?.some(line=>line.clasificacion==='SERVICIO_GASTO');
     const company=String(state.erpSession.company.id),open=document.createElement('button');
     open.type='button';open.className=`button ${reversed(entry)?'secondary':'danger'}`;
-    open.textContent=reversed(entry)?'Ver reversión':'Revertir entrada';
-    open.addEventListener('click',()=>{if(active(company))void show(company,entry,onChanged);});
+    open.textContent=reversed(entry)?'Ver reversión':mixed?'Revertir factura mixta':'Revertir entrada';
+    open.addEventListener('click',()=>{if(active(company))void show(company,entry,onChanged,mixed);});
     container.append(open);
   }
 
-  async function show(company,entry,onChanged){
+  async function show(company,entry,onChanged,mixed=false){
     const dialog=document.createElement('dialog');
     dialog.className='erp-dialog purchase-entry-reversal';
     dialog.setAttribute('aria-labelledby','purchaseReversalTitle');
-    dialog.innerHTML=`<header class="dialog-heading"><div><span class="dialog-kicker">COMPRAS</span><h2 id="purchaseReversalTitle">${reversed(entry)?'Reversión de entrada':'Revertir entrada'}</h2></div><button type="button" class="dialog-close" data-reversal-close aria-label="Cerrar">×</button></header>
+    dialog.innerHTML=`<header class="dialog-heading"><div><span class="dialog-kicker">COMPRAS</span><h2 id="purchaseReversalTitle">${reversed(entry)?'Consulta de reversión':mixed?'Revertir factura mixta':'Revertir entrada'}</h2></div><button type="button" class="dialog-close" data-reversal-close aria-label="Cerrar">×</button></header>
       <div class="purchase-reversal-body"><div class="purchase-reversal-document"><strong>${escape(entry.numeroDocumento)}</strong><span>${escape(entry.proveedor)} · ${escape(entry.proveedorIdentificacion)}</span><span>${escape(entry.recepcionNumero||'Entrada de mercancía')}</span></div>
       <p role="status" data-reversal-notice>Consultando el estado de la entrada…</p><div data-reversal-content></div></div>`;
     document.body.append(dialog);dialog.showModal();
@@ -40,13 +42,21 @@
     function result(data){
       clearTimeout(pollTimer);content.replaceChildren();
       const info=document.createElement('section');info.className='purchase-reversal-result';
-      const title=document.createElement('h3');title.textContent='Entrada revertida en Nexo';
+      const title=document.createElement('h3');title.textContent=mixed?'Factura mixta revertida en Nexo':'Entrada revertida en Nexo';
       const details=document.createElement('p');details.textContent=[data.fechaContable&&`Fecha: ${labelDate(data.fechaContable)}`,data.motivo&&`Motivo: ${data.motivo}`].filter(Boolean).join(' · ');
       const zeus=document.createElement('p');zeus.textContent=data.zeus?.mensaje||'Consulta el estado del contrasiento en Zeus.';
       zeus.dataset.reversalZeus=data.zeus?.estado||'';
       const refresh=document.createElement('button');refresh.type='button';refresh.className='button secondary';refresh.textContent='Actualizar estado';
       refresh.addEventListener('click',()=>void load());
       info.append(title,details,zeus,refresh);content.append(info);message('');
+      if(data.causacionEstado){
+        const service=document.createElement('p');service.textContent=`Servicios: ${{REVERTIDA:'revertidos',CANCELADA:'cancelados antes de contabilizar'}[data.causacionEstado]||data.causacionEstado}`;
+        info.insertBefore(service,zeus);
+      }
+      if(data.comprobantesRevertidos>0){
+        const vouchers=document.createElement('p');vouchers.textContent=`Comprobantes contables revertidos: ${Number(data.comprobantesRevertidos)}`;
+        info.insertBefore(vouchers,zeus);
+      }
       if(['RECHAZADO','INCIERTO'].includes(data.zeus?.estado)){
         const reconcile=data.zeus.estado==='INCIERTO',action=document.createElement('button');
         action.type='button';action.className='button secondary';
@@ -65,14 +75,15 @@
       if(pending(data.zeus?.estado)&&attempts++<20)pollTimer=setTimeout(()=>void load(),3000);
     }
 
-    function form(){
-      content.innerHTML=`<p class="purchase-reversal-explanation">Se registrarán los movimientos contrarios de inventario, seriales y cuenta por pagar. Si la entrada ya está contabilizada en Zeus, se enviará su contrasiento conservando el comprobante original.</p>
+    function form(status={}){
+      content.innerHTML=`<p class="purchase-reversal-explanation">${mixed?'Se revertirá la factura completa: mercancía, servicios contabilizados y cuenta por pagar. Los procesos pendientes se cancelarán. Se conservarán las cuentas, impuestos y centros de costo originales.':'Se registrarán los movimientos contrarios de inventario, seriales y cuenta por pagar.'} Si la factura ya está contabilizada en Zeus, se enviará su contrasiento conservando el comprobante original.</p>
         <form><div class="purchase-reversal-date"><label>Fecha contable<input name="fecha" type="date" required></label><p data-reversal-period></p></div>
         <label>Motivo de la reversión<textarea name="motivo" rows="3" minlength="10" maxlength="500" required placeholder="Describe el error que deseas corregir"></textarea></label>
         <p class="purchase-reversal-limit">La operación se bloqueará si la mercancía ya fue vendida, trasladada o utilizada, o si la factura tiene pagos o procesos que deban resolverse antes.</p>
         <div class="purchase-reversal-actions"><button type="button" class="button secondary" data-reversal-cancel>Cancelar</button><button type="submit" class="button danger">Confirmar reversión</button></div></form>`;
       const form=content.querySelector('form'),date=form.elements.fecha,reason=form.elements.motivo,submit=form.querySelector('[type="submit"]'),cancel=form.querySelector('[data-reversal-cancel]'),period=content.querySelector('[data-reversal-period]');
-      date.value=accountingToday();date.min=entry.recepcionFechaContable||entry.fechaDocumento||'';
+      date.min=status.fechaMinimaReversion||(entry.recepcionEstado==='CONTABILIZADA'?entry.recepcionFechaContable:'')||entry.fechaDocumento||'';
+      date.value=accountingToday()<date.min?date.min:accountingToday();
       const validate=()=>{
         const match=receiptPeriodForDate(date.value);
         period.textContent=match?`Período: ${match.codigo}`:'Abre el período de esta fecha en Inventarios → Períodos de inventario.';
@@ -115,7 +126,7 @@
         if(!data.reversionId&&!state.apiContext){await loadApiCompanyContext();if(!current()||request!==version)return;}
         if(data.reversionId){result(data);if(!reversed(entry))await changed();}
         else if(reversed(entry)){message('La entrada figura revertida, pero no se encontró su registro de reversión.',true);}
-        else if(!content.querySelector('form'))form();
+        else if(!content.querySelector('form'))form(data);
       }catch(error){if(current()&&request===version)message(error.status===404?'Actualiza el backend para consultar y revertir entradas completas.':error.message,true);}
     }
     await load();

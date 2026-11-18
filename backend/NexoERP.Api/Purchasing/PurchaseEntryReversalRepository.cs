@@ -10,9 +10,11 @@ public sealed record PurchaseEntryReversalInput(long PeriodoInventarioId,DateOnl
 public sealed record PurchaseEntryReversalZeusStatus(string Estado,string Mensaje,string? Fuente=null,string? Documento=null);
 public sealed record PurchaseEntryReversalStatus(long DocumentoProveedorId,long? RecepcionMercanciaId,long? ReversionId,
     string Estado,DateOnly? FechaContable,string? Motivo,PurchaseEntryReversalZeusStatus Zeus,string EstadoDocumento,
-    string? EstadoEntrada,string? EstadoOriginalZeus);
+    string? EstadoEntrada,string? EstadoOriginalZeus,long? CausacionServicioId=null,string? CausacionEstado=null,
+    int ComprobantesRevertidos=0,DateOnly? FechaMinimaReversion=null);
 public sealed record PurchaseEntryReversalResponse(long ReversionId,long RecepcionMercanciaId,long DocumentoProveedorId,
-    string Estado,int Movimientos,bool YaExistia,PurchaseEntryReversalZeusStatus Zeus);
+    string Estado,int Movimientos,bool YaExistia,PurchaseEntryReversalZeusStatus Zeus,
+    long? CausacionServicioId=null,string? CausacionEstado=null,int ComprobantesRevertidos=0);
 internal sealed record PurchaseEntryReversalJob(long Company,long Document,long Reversal,Guid Key,ZeusSnapshot Snapshot);
 
 public sealed class PurchaseEntryReversalRepository(TenantConnectionFactory connections,ZeusTransport transport)
@@ -31,16 +33,20 @@ public sealed class PurchaseEntryReversalRepository(TenantConnectionFactory conn
         await using var connection=await connections.OpenAsync(company,false,ct);
         await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable,ct);
         await using var command=ZeusRepository.Command(connection,"""
-            SELECT r.RecepcionMercanciaId
+            SELECT r.RecepcionMercanciaId,d.TerceroId,d.NumeroDocumento,d.TotalPagar
             FROM comp.DocumentoProveedor d WITH(UPDLOCK,HOLDLOCK)
             LEFT JOIN inv.RecepcionMercancia r WITH(UPDLOCK,HOLDLOCK)
                 ON r.EmpresaId=d.EmpresaId AND r.DocumentoProveedorId=d.DocumentoProveedorId
             WHERE d.EmpresaId=@E AND d.DocumentoProveedorId=@Document;
             """,company,transaction);
         ZeusRepository.Add(command,"@Document",document);
-        var receiptValue=await command.ExecuteScalarAsync(ct);
-        if(receiptValue is null or DBNull)throw new ArgumentException("El documento no tiene una entrada de mercancía en esta empresa.");
-        var receipt=Convert.ToInt64(receiptValue);
+        long receipt,supplier;string invoice;decimal total;
+        await using(var reader=await command.ExecuteReaderAsync(ct))
+        {
+            if(!await reader.ReadAsync(ct)||reader.IsDBNull(0))
+                throw new ArgumentException("El documento no tiene una entrada de mercancía en esta empresa.");
+            receipt=reader.GetInt64(0);supplier=reader.GetInt64(1);invoice=reader.GetString(2);total=reader.GetDecimal(3);
+        }
         ZeusRepository.Add(command,"@Receipt",receipt);
         command.CommandText="SELECT ReversionEntradaMercanciaId FROM inv.ReversionEntradaMercancia WITH(UPDLOCK,HOLDLOCK) WHERE EmpresaId=@E AND RecepcionMercanciaId=@Receipt";
         var existing=await command.ExecuteScalarAsync(ct);
@@ -74,6 +80,7 @@ public sealed class PurchaseEntryReversalRepository(TenantConnectionFactory conn
                 catch(JsonException){throw new ArgumentException("El comprobante original de Zeus no conserva datos válidos para su reversión.");}
                 if(original is null||original.Origen.RecepcionId!=receipt||source is null||number is null)
                     throw new ArgumentException("La entrada no conserva el comprobante original confirmado de Zeus.");
+                ZeusPurchaseEntryReversalPolicy.EnsureFullInvoice(original,receipt,supplier,invoice,total);
                 reversal=ZeusPurchaseEntryReversalPolicy.Build(original,originalKey,source,number,input.FechaContable,reason!);
                 try{await transport.CheckPurchaseEntryReversalAsync(company,reversal,ct);}
                 catch(SqlException){throw new ArgumentException("No se pudo comprobar el comprobante y el saldo exacto de la factura en Zeus. La entrada no fue revertida.");}
@@ -111,7 +118,8 @@ public sealed class PurchaseEntryReversalRepository(TenantConnectionFactory conn
         var status=await ReadStatusAsync(connection,transaction,company,document,ct)
             ??throw new InvalidOperationException("La reversión no quedó registrada.");
         await transaction.CommitAsync(ct);
-        return operation with {Zeus=status.Zeus};
+        return operation with {Zeus=status.Zeus,CausacionServicioId=status.CausacionServicioId,
+            CausacionEstado=status.CausacionEstado,ComprobantesRevertidos=status.ComprobantesRevertidos};
     }
 
     private static async Task<PurchaseEntryReversalResponse> ReverseLocalAsync(SqlConnection connection,SqlTransaction transaction,
@@ -146,11 +154,28 @@ public sealed class PurchaseEntryReversalRepository(TenantConnectionFactory conn
     {
         await using var command=ZeusRepository.Command(connection,"""
             SELECT d.DocumentoProveedorId,r.RecepcionMercanciaId,v.ReversionEntradaMercanciaId,v.Estado,v.FechaContable,v.Motivo,
-                   v.ZeusEstado,v.ZeusError,v.ZeusFuente,v.ZeusDocumento,d.Estado,r.Estado,j.Estado
+                   v.ZeusEstado,v.ZeusError,v.ZeusFuente,v.ZeusDocumento,d.Estado,r.Estado,j.Estado,
+                   c.CausacionServicioId,c.Estado,
+                   (SELECT COUNT(*) FROM inv.ReversionEntradaComprobante p
+                      WHERE p.EmpresaId=v.EmpresaId AND p.ReversionEntradaMercanciaId=v.ReversionEntradaMercanciaId
+                        AND p.ComprobanteReversionId IS NOT NULL),
+                   (SELECT MAX(f.FechaContable) FROM(
+                      SELECT r.FechaContable WHERE r.Estado='CONTABILIZADA'
+                      UNION ALL SELECT cs.FechaContable FROM comp.CausacionServicio cs
+                        WHERE cs.EmpresaId=d.EmpresaId AND cs.DocumentoProveedorId=d.DocumentoProveedorId AND cs.Estado='CONTABILIZADA'
+                      UNION ALL SELECT cc.FechaContable FROM cont.ComprobanteContable cc
+                        WHERE cc.EmpresaId=d.EmpresaId AND(
+                          cc.TipoDocumentoOrigen='RECEPCION_MERCANCIA' AND cc.DocumentoOrigenId=r.RecepcionMercanciaId
+                          OR cc.TipoDocumentoOrigen='DOCUMENTO_PROVEEDOR' AND cc.DocumentoOrigenId=d.DocumentoProveedorId
+                          OR cc.TipoDocumentoOrigen='CAUSACION_SERVICIO' AND EXISTS(
+                            SELECT 1 FROM comp.CausacionServicio cs WHERE cs.EmpresaId=d.EmpresaId
+                              AND cs.DocumentoProveedorId=d.DocumentoProveedorId AND cs.CausacionServicioId=cc.DocumentoOrigenId))
+                    )f)
             FROM comp.DocumentoProveedor d
             LEFT JOIN inv.RecepcionMercancia r ON r.EmpresaId=d.EmpresaId AND r.DocumentoProveedorId=d.DocumentoProveedorId
             LEFT JOIN inv.ReversionEntradaMercancia v ON v.EmpresaId=r.EmpresaId AND v.RecepcionMercanciaId=r.RecepcionMercanciaId
             LEFT JOIN core.ZeusEnvio j ON j.EmpresaId=r.EmpresaId AND j.RecepcionMercanciaId=r.RecepcionMercanciaId
+            LEFT JOIN comp.CausacionServicio c ON c.EmpresaId=d.EmpresaId AND c.DocumentoProveedorId=d.DocumentoProveedorId
             WHERE d.EmpresaId=@E AND d.DocumentoProveedorId=@Document;
             """,company,transaction);
         ZeusRepository.Add(command,"@Document",document);
@@ -169,7 +194,9 @@ public sealed class PurchaseEntryReversalRepository(TenantConnectionFactory conn
         };
         return new(reader.GetInt64(0),reader.IsDBNull(1)?null:reader.GetInt64(1),reader.IsDBNull(2)?null:reader.GetInt64(2),
             Optional(3)??"SIN_REVERSIÓN",reader.IsDBNull(4)?null:DateOnly.FromDateTime(reader.GetDateTime(4)),Optional(5),
-            new(state,message,source,number),reader.GetString(10),Optional(11),Optional(12));
+            new(state,message,source,number),reader.GetString(10),Optional(11),Optional(12),
+            reader.IsDBNull(13)?null:reader.GetInt64(13),Optional(14),reader.GetInt32(15),
+            reader.IsDBNull(16)?null:DateOnly.FromDateTime(reader.GetDateTime(16)));
     }
 
     public async Task<PurchaseEntryReversalStatus> RetryAsync(long company,long document,long user,CancellationToken ct)

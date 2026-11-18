@@ -614,6 +614,7 @@ app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:
     try { return Results.Ok(await reversals.RequestAsync(empresaId,documentoId,input,Convert.ToInt64(context.Items["UsuarioId"]),ct)); }
     catch(ArgumentException error) { return Results.Conflict(new{error=error.Message}); }
     catch(InvalidOperationException error) { return Results.Conflict(new{error=error.Message}); }
+    catch(SqlException error) when(error.Number is 1205 or 1222) { return Results.Conflict(new{error="Otra operación está trabajando sobre esta compra. Consulta el documento antes de volver a solicitar la reversión."}); }
     catch(SqlException error) when(error.Number is >=50000 and <60000) { return Results.Conflict(new{error=error.Message,code=error.Number}); }
 }).RequireErpPermission("INVENTARIO.AJUSTE.REVERSAR");
 
