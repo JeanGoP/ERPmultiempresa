@@ -304,6 +304,7 @@ function enterErp(session) {
   window.resetEgresos?.();
   window.resetCustomerDocuments?.();
   window.kardexDocuments?.close();
+  window.kardexReports?.reset();
   window.resetSalesReceivables?.();
   window.resetZeus?.();
   state.securityData=null;state.securityEditingUserId=null;state.securityEditingRoleId=null;state.securityPasswordUserId=null;
@@ -323,6 +324,7 @@ function leaveErp() {
   window.resetEgresos?.();
   window.resetCustomerDocuments?.();
   window.kardexDocuments?.close();
+  window.kardexReports?.reset();
   window.resetSalesReceivables?.();
   window.resetZeus?.();
   state.securityData=null;
@@ -1209,6 +1211,8 @@ async function refreshInventory(){
   if(inventoryKardexUnit?.companyId!==companyId)inventoryKardexUnit=null;
   renderInventoryUnitFilter();
   const unitId=view==='kardex'?selectedInventoryUnit()?.unidadSerializadaId:null;
+  const reportContext=view==='kardex'&&typeof window!=='undefined'?window.kardexReports?.capture():null;
+  if(typeof window!=='undefined')window.kardexReports?.loading(view);
   if(view==='operations'){renderInventoryOperationPanel();return;}
   if(view==='receiving'){await refreshWarehouseReceiving(request);return;}
   if(view==='receipt-issues'){await refreshWarehouseReceiptIssues(request);return;}
@@ -1248,6 +1252,7 @@ async function refreshInventory(){
     if(unitId)renderUnitKardexStats(rows,unitId);
     else renderInventoryStats(rows);
     elements.inventoryStatus.textContent=`${rows.length} registros consultados`;
+    if(view==='kardex'&&typeof window!=='undefined')window.kardexReports?.loaded(rows,reportContext);
   }catch(error){
     if(!current())return;
     if(unitId){
@@ -1257,6 +1262,7 @@ async function refreshInventory(){
     elements.inventoryNotice.textContent=error.message;
     elements.inventoryNotice.hidden=false;
     elements.inventoryStatus.textContent='No fue posible consultar';
+    if(view==='kardex'&&typeof window!=='undefined')window.kardexReports?.failed();
   }
 }
 function showInventoryView(view='stock'){clearTimeout(inventorySearchTimer);if(!isInventoryViewAllowed(view)){const fallback=firstAllowedInventoryView();if(fallback&&fallback!==view){showInventoryView(fallback);return;}routeToDefaultWorkspace(true);return;}if(view!=='kardex')inventoryKardexUnit=null;state.inventoryView=view;renderInventoryUnitFilter();elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.savedPurchasesModule.hidden=true;elements.accountsPayableModule.hidden=true;elements.inventoryModule.hidden=false;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.savedPurchasesNav.classList.remove('active');elements.accountsPayableNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');document.querySelector('.breadcrumb span').textContent=view==='receiving'?'Bodega':view==='receipt-history'||view==='receipt-issues'?'Administración':'Inventario';elements.breadcrumbCurrent.textContent={stock:'Existencias',receiving:'Recepción física','receipt-issues':'Novedades pendientes','receipt-history':'Historial recepciones',kardex:'Kardex',serials:'Seriales',expiry:'Vencimientos',operations:'Movimientos'}[view];document.querySelectorAll('[data-registration-mode],[data-master-view]').forEach(x=>x.classList.remove('active'));document.querySelectorAll('[data-inventory-view]').forEach(x=>x.classList.toggle('active',x.dataset.inventoryView===view));const isKardex=view==='kardex';const isOperations=view==='operations';const isReceiving=view==='receiving';const isReceiptHistory=view==='receipt-history';const isReceiptIssues=view==='receipt-issues';elements.inventoryDateFromField.hidden=!(isKardex||isReceiptHistory||isReceiptIssues);elements.inventoryDateToField.hidden=!(isKardex||isReceiptHistory||isReceiptIssues);elements.inventoryIssueTypeField.hidden=!isReceiptIssues;elements.inventoryTable.hidden=isOperations||isReceiptIssues;elements.inventoryOperationPanel.hidden=!(isOperations||isReceiving||isReceiptHistory||isReceiptIssues);elements.inventorySearch.closest('label').hidden=isOperations;elements.inventoryWarehouse.closest('label').hidden=isOperations;$('#refreshInventory').hidden=isOperations;populateInventoryWarehouses();if(isReceiving||isReceiptHistory)state.warehouseReceiptDetail=null;void refreshInventory();window.scrollTo({top:0,behavior:'smooth'});}
