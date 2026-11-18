@@ -37,4 +37,19 @@ assert.equal(individual.rows.length,1);assert.equal(individual.rows[0][8],1);ass
 assert.ok(!individual.columns.some(col=>col.label==='Saldo posterior'||col.label==='Valor salida'));
 assert.match(formats.html(individual),/CH-1/);assert.match(formats.html(individual),/Estado posterior/);
 api.loading('serials');assert.equal(actions.hidden,true);api.reset();assert.equal(actions.hidden,true);
-console.log('Kardex: informe general y por unidad, filtros, importes, totales y bloqueo de consultas obsoletas correctos.');
+state.inventoryView='stock';
+const stockContext=api.capture();
+assert.equal(stockContext.view,'stock');assert.equal(stockContext.from,'');assert.equal(stockContext.until,'');assert.equal(stockContext.unit,null);
+const stockRows=[{bodega:'Montelíbano',ubicacion:'PISO 1',codigo:'000123',descripcion:'Moto <prueba>',numeroLote:'00001',fechaVencimiento:'2027-01-01',existencia:2.5,costoPromedio:2000,valorTotal:5000},
+{bodega:'Montelíbano',codigo:'000123',descripcion:'Moto <prueba>',existencia:3,costoPromedio:2200,valorTotal:6600}];
+const stock=formats.model(stockRows,stockContext);assert.equal(stock.rows.length,2);assert.equal(stock.rows[0][2],'000123');assert.equal(stock.rows[0][4],'00001');
+assert.equal(stock.rows[1][5],'');assert.equal(stock.totals[6],5.5);assert.equal(stock.totals[8],11600);assert.equal(stock.totals[7],undefined);
+const stockHtml=formats.html(stock);assert.match(stockHtml,/Existencias de inventario/);assert.match(stockHtml,/Montelíbano/);assert.match(stockHtml,/DR150/);assert.match(stockHtml,/01\/01\/2027/);assert.match(stockHtml,/Moto &lt;prueba&gt;/);assert.doesNotMatch(stockHtml,/<b>Desde|<b>Hasta|CH-1/);
+api.loading('stock');assert.equal(actions.hidden,false);assert.equal(print.textContent,'Imprimir existencias');assert.equal(excel.disabled,true);
+api.loaded(stockRows,stockContext);assert.equal(excel.disabled,false);excel.handlers.click();assert.equal(downloads.length,2);assert.match(downloads[1],/^existencias-\d{4}-\d{2}-\d{2}\.xlsx$/);
+elements.inventoryDateFrom.value='2020-01-01';excel.handlers.click();assert.equal(downloads.length,3);
+elements.inventoryWarehouse.value='99';excel.handlers.click();assert.equal(downloads.length,3);api.loading('stock');api.loaded(stockRows,stockContext);assert.equal(excel.disabled,true);
+elements.inventoryWarehouse.handlers.input();assert.equal(excel.disabled,true);
+api.loading('kardex');assert.equal(print.textContent,'Imprimir Kardex');assert.equal(excel.disabled,true);
+api.reset();
+console.log('Informes de inventario: Kardex y existencias, filtros, importes, totales y bloqueo de consultas obsoletas correctos.');

@@ -96,6 +96,15 @@ assert.equal(style.getElementsByTagNameNS(namespace,'fonts')[0].getElementsByTag
   .getElementsByTagNameNS(namespace,'sz')[0].getAttribute('val'),'16');
 assert.match(workbook({...report,demo:true})['xl/worksheets/sheet1.xml'],/Datos de demostración/);
 
+const stockFiles=workbook({...report,view:'stock',unit:null});
+for(const [name,xml] of Object.entries(stockFiles))parse(xml,name);
+const stockSheet=parse(stockFiles['xl/worksheets/sheet1.xml'],'Existencias');
+assert.equal(contents(cell(stockSheet,'A1'),'t'),'EXISTENCIAS');
+assert.equal(contents(cell(stockSheet,'A4'),'t'),'Existencias actuales');
+assert.equal(contents(cell(stockSheet,'A7'),'t'),'Registros 2');
+assert.match(stockFiles['xl/workbook.xml'],/sheet name="Existencias"/);
+assert.match(stockFiles['xl/workbook.xml'],/'Existencias'!\$1:\$9/);
+assert.doesNotMatch(stockFiles['xl/workbook.xml'],/'Kardex'!/);
 const emptyFiles=workbook({...report,rows:[],totals:{4:0,6:0},from:null,until:null,query:'',unit:null,warehouseLabel:''});
 const empty=parse(emptyFiles['xl/worksheets/sheet1.xml'],'Kardex vacío');
 assert.match(empty.documentElement.textContent,/Sin límite/);

@@ -21,12 +21,12 @@
       ? Number.isFinite(value.getTime()) ? value.toISOString() : ''
       : String(value);
     const parts = /^(\d{4})-(\d{2})-(\d{2})(?:$|T)/.exec(input);
-    if (!parts) throw new Error('El Kardex contiene una fecha inválida.');
+    if (!parts) throw new Error('El informe contiene una fecha inválida.');
     const [year, month, day] = parts.slice(1).map(Number);
     const instant = new Date(Date.UTC(year, month - 1, day));
     if (year < 1900 || year > 9999 || instant.getUTCFullYear() !== year
         || instant.getUTCMonth() !== month - 1 || instant.getUTCDate() !== day) {
-      throw new Error('El Kardex contiene una fecha inválida.');
+      throw new Error('El informe contiene una fecha inválida.');
     }
     const days = (instant.getTime() - Date.UTC(1899, 11, 31)) / dayMilliseconds;
     return days + (instant.getTime() >= Date.UTC(1900, 2, 1) ? 1 : 0);
@@ -34,13 +34,13 @@
 
   function textCell(reference, value, style = 0) {
     const text = clean(value);
-    if (text.length > 32767) throw new Error('Un texto del Kardex excede el límite de una celda de Excel.');
+    if (text.length > 32767) throw new Error('Un texto del informe excede el límite de una celda de Excel.');
     return `<c r="${reference}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${escape(text)}</t></is></c>`;
   }
 
   function numberCell(reference, value, style, formula) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
-      throw new Error('El Kardex contiene una cantidad o un valor inválido.');
+      throw new Error('El informe contiene una cantidad o un valor inválido.');
     }
     return `<c r="${reference}" s="${style}">${formula ? `<f>${formula}</f>` : ''}<v>${value}</v></c>`;
   }
@@ -48,7 +48,7 @@
   function columnWidth(column) {
     if (column.width != null) {
       if (!Number.isFinite(column.width) || column.width <= 0 || column.width > 255) {
-        throw new Error('Revisa el ancho de las columnas del Kardex.');
+        throw new Error('Revisa el ancho de las columnas del informe.');
       }
       return column.width;
     }
@@ -93,15 +93,18 @@
   function workbook(report) {
     if (!report?.company || !Array.isArray(report.columns) || !report.columns.length
         || report.columns.length > 16384 || !Array.isArray(report.rows)) {
-      throw new Error('No se pudo preparar la estructura del Kardex para Excel.');
+      throw new Error('No se pudo preparar la estructura del informe para Excel.');
     }
+    const stock = report.view === 'stock';
+    const sheetName = stock ? 'Existencias' : 'Kardex';
+    const title = stock ? 'EXISTENCIAS' : 'KARDEX';
     const columns = report.columns;
     if (report.rows.length > 1048566 || columns.some(column => !['text','date','quantity','money'].includes(column.type)
         || column.total === true && !['quantity','money'].includes(column.type))) {
-      throw new Error('Revisa las columnas y la cantidad de registros del Kardex.');
+      throw new Error('Revisa las columnas y la cantidad de registros del informe.');
     }
     const generated = new Date(report.generatedAt || Date.now());
-    if (!Number.isFinite(generated.getTime())) throw new Error('La fecha de generación del Kardex no es válida.');
+    if (!Number.isFinite(generated.getTime())) throw new Error('La fecha de generación del informe no es válida.');
     const generatedLabel = new Intl.DateTimeFormat('es-CO', {
       timeZone:'America/Bogota', year:'numeric', month:'2-digit', day:'2-digit',
       hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23'
@@ -110,13 +113,13 @@
     const identifiers = unit ? [['Chasis',unit.chasis],['VIN',unit.vin],['Motor',unit.motor],['Serial',unit.serial],['Placa',unit.placa]]
       .filter(([,value]) => value).map(([label,value]) => `${label} ${value}`).join(' · ') : '';
     const context = [
-      [report.demo ? 'KARDEX · Datos de demostración' : 'KARDEX', 1],
+      [report.demo ? title + ' · Datos de demostración' : title, 1],
       [report.company.name, 2],
       [`NIT ${String(report.company.nit ?? '').replace(/^NIT\s*/i, '')} · Moneda ${report.company.currency || 'COP'}`, 3],
-      [`Desde ${report.from || 'Sin límite'} · Hasta ${report.until || 'Sin límite'}`, 3],
+      [stock ? 'Existencias actuales' : `Desde ${report.from || 'Sin límite'} · Hasta ${report.until || 'Sin límite'}`, 3],
       [`Bodega ${report.warehouseLabel || 'Todas las bodegas'}`, 3],
       [`Búsqueda ${report.query || 'Sin filtro'}`, 3],
-      [unit ? `Unidad ${identifiers || unit.unidadSerializadaId || unit.id || ''}` : 'Unidad Todas las unidades', 3],
+      [stock ? `Registros ${report.rows.length}` : unit ? `Unidad ${identifiers || unit.unidadSerializadaId || unit.id || ''}` : 'Unidad Todas las unidades', 3],
       [`Generado ${generatedLabel} · Bogotá, Colombia`, 3]
     ];
     const last = columnName(columns.length - 1);
@@ -129,7 +132,7 @@
     sheet.push(`<row r="${headerRow}" ht="${rowHeight(columns.map(column => column.label), widths, 30)}" customHeight="1">${columns.map((column, index) => textCell(`${columnName(index)}${headerRow}`, column.label, 4)).join('')}</row>`);
     const sums = columns.map(() => 0);
     report.rows.forEach((values, index) => {
-      if (!Array.isArray(values) || values.length !== columns.length) throw new Error('Una fila del Kardex no coincide con sus columnas.');
+      if (!Array.isArray(values) || values.length !== columns.length) throw new Error('Una fila del informe no coincide con sus columnas.');
       const at = firstDataRow + index;
       const cells = values.map((value, columnIndex) => {
         const column = columns[columnIndex];
@@ -162,8 +165,8 @@
     const files = {
       '[Content_Types].xml':`${xmlHeader}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`,
       '_rels/.rels':`${xmlHeader}<Relationships xmlns="${relationshipNs}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`,
-      'docProps/core.xml':`${xmlHeader}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>Kardex</dc:title><dc:creator>Nexo ERP</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${generated.toISOString()}</dcterms:created></cp:coreProperties>`,
-      'xl/workbook.xml':`${xmlHeader}<workbook xmlns="${spreadsheetNs}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="Kardex" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm.Print_Titles" localSheetId="0">'Kardex'!$1:$9</definedName><definedName name="_xlnm.Print_Area" localSheetId="0">'Kardex'!$A$1:$${last}$${finalRow}</definedName></definedNames><calcPr calcId="191029" calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>`,
+      'docProps/core.xml':`${xmlHeader}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${sheetName}</dc:title><dc:creator>Nexo ERP</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${generated.toISOString()}</dcterms:created></cp:coreProperties>`,
+      'xl/workbook.xml':`${xmlHeader}<workbook xmlns="${spreadsheetNs}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="${sheetName}" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm.Print_Titles" localSheetId="0">'${sheetName}'!$1:$9</definedName><definedName name="_xlnm.Print_Area" localSheetId="0">'${sheetName}'!$A$1:$${last}$${finalRow}</definedName></definedNames><calcPr calcId="191029" calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>`,
       'xl/_rels/workbook.xml.rels':`${xmlHeader}<Relationships xmlns="${relationshipNs}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
       'xl/styles.xml':styles(),
       'xl/worksheets/sheet1.xml':`${xmlHeader}<worksheet xmlns="${spreadsheetNs}"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension ref="A1:${last}${finalRow}"/><sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="9" topLeftCell="A10" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A10" sqref="A10"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="24"/><cols>${columns.map((_, index) => `<col min="${index + 1}" max="${index + 1}" width="${widths[index]}" customWidth="1"/>`).join('')}</cols><sheetData>${sheet.join('')}</sheetData><autoFilter ref="A9:${last}${dataEnd}"/>${mergeCells}<pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.15" footer="0.15"/><pageSetup paperSize="1" orientation="landscape" fitToWidth="1" fitToHeight="0"/><headerFooter><oddFooter>&amp;L Nexo ERP&amp;R Página &amp;P de &amp;N</oddFooter></headerFooter></worksheet>`

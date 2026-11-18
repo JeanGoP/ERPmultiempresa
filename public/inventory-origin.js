@@ -94,7 +94,7 @@ let originAgeBand=null,originAgeRows=[],originAgeRequest=0;
 const refreshInventoryStandard=refreshInventory;
 const originSearchPlaceholder=elements.inventorySearch.placeholder;
 refreshInventory=async function(){
-  if(state.inventoryView==='aging')return refreshInventoryAging();
+  if(state.inventoryView==='aging'){window.kardexReports?.loading('aging');return refreshInventoryAging();}
   elements.inventorySearch.placeholder=originSearchPlaceholder;
   elements.inventoryTable.after(elements.inventoryOperationPanel);
   return refreshInventoryStandard();

@@ -40,4 +40,13 @@
   #kardexPrint th:nth-child(11) { width:7%; }
   #kardexPrint .individual th:nth-child(4) { width:20%; }
   #kardexPrint .individual th:nth-child(5) { width:18%; }
+  #kardexPrint .stock th:nth-child(1) { width:14%; }
+  #kardexPrint .stock th:nth-child(2) { width:8%; }
+  #kardexPrint .stock th:nth-child(3) { width:10%; }
+  #kardexPrint .stock th:nth-child(4) { width:25%; }
+  #kardexPrint .stock th:nth-child(5) { width:8%; }
+  #kardexPrint .stock th:nth-child(6) { width:9%; }
+  #kardexPrint .stock th:nth-child(7) { width:7%; }
+  #kardexPrint .stock th:nth-child(8) { width:9%; }
+  #kardexPrint .stock th:nth-child(9) { width:10%; }
 }
