@@ -34,7 +34,7 @@ try
             CREATE TABLE inv.RecepcionMercanciaLinea(EmpresaId bigint,RecepcionMercanciaId bigint,RecepcionMercanciaLineaId bigint);
             CREATE TABLE inv.RecepcionMercanciaUnidad(EmpresaId bigint,RecepcionMercanciaLineaId bigint,UnidadSerializadaId bigint);
             INSERT inv.Bodega VALUES(1,1,'Origen'),(1,2,'Destino'),(2,1,'Otra empresa');
-            INSERT inv.Articulo VALUES(1,1,'DR150','Motocicleta DR150'),(2,1,'DR150','Motocicleta ajena');
+            INSERT inv.Articulo VALUES(1,1,'DR150','Motocicleta DR150'),(1,2,'REP-1','Repuesto sin serial'),(2,1,'DR150','Motocicleta ajena');
             INSERT inv.UnidadIdentificador VALUES
                 (1,11,'CHASIS','LC6-AAA'),(1,11,'VIN','LC6-AAA'),(1,11,'MOTOR','MOTOR-A'),(1,11,'PLACA','AAA01'),
                 (1,12,'CHASIS','LC6-BBB'),(1,14,'CHASIS','OLD-CHASSIS'),(2,21,'CHASIS','LC6-AAA');
@@ -47,7 +47,8 @@ try
                 (1,6,'2026-11-05','2026-11-05','REVERSA_ENTRADA','REV-A',2,1,NULL,0,1,1000,1000,0,1000,'REVERSA_MOVIMIENTO',1,1),
                 (1,7,'2026-11-06','2026-11-06','VENTA','FV-B',1,1,NULL,0,1,1000,1000,0,1000,'FACTURA_VENTA',2,2),
                 (1,8,'2026-10-01','2026-10-01','COMPRA','ENT-OLD',1,1,NULL,1,0,900,900,1,900,'RECEPCION_MERCANCIA',8,8),
-                (2,9,'2026-11-01','2026-11-01','COMPRA','ENT-AJENA',1,1,NULL,1,0,1000,1000,1,1000,'RECEPCION_MERCANCIA',1,1);
+                (2,9,'2026-11-01','2026-11-01','COMPRA','ENT-AJENA',1,1,NULL,1,0,1000,1000,1,1000,'RECEPCION_MERCANCIA',1,1),
+                (1,10,'2026-11-07','2026-11-07','COMPRA','ENT-REP',1,2,NULL,5,0,100,500,5,100,'RECEPCION_MERCANCIA',10,10);
             INSERT inv.MovimientoInventarioUnidad VALUES
                 (1,1,11,NULL,'DISPONIBLE'),(1,1,12,NULL,'DISPONIBLE'),
                 (1,2,11,'DISPONIBLE','EN_TRANSITO'),(1,3,11,'EN_TRANSITO','DISPONIBLE'),
@@ -70,6 +71,12 @@ try
         Console.WriteLine("OK: " + message);
     }
 
+    var unfiltered = await Read();
+    var sparePart = unfiltered.Single(row => row.MovimientoInventarioId == 10);
+    Check(unfiltered.Count == 9 && sparePart.Unidades is { Count: 0 } && sparePart.Entrada == 5 && sparePart.ValorMovimiento == 500,
+        "El Kardex general admite movimientos sin seriales y conserva sus cantidades e importes");
+    Check((await Read("REP-1")).Single().Unidades is { Count: 0 },
+        "La búsqueda de un artículo sin seriales devuelve una lista de unidades vacía");
     var general = await Read("DR150");
     var purchase = general.Single(row => row.MovimientoInventarioId == 1);
     Check(general.Count == 8 && purchase.Entrada == 2 && purchase.ValorMovimiento == 2000

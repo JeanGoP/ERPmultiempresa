@@ -226,7 +226,8 @@ public sealed class InventoryRepository(TenantConnectionFactory connections)
         var result = new List<KardexMovementResponse>();
         while (await reader.ReadAsync(cancellationToken))
         {
-            var units = System.Text.Json.JsonSerializer.Deserialize<KardexUnitResponse[]>(reader.GetString(17)) ?? [];
+            var units = reader.IsDBNull(17) ? Array.Empty<KardexUnitResponse>()
+                : System.Text.Json.JsonSerializer.Deserialize<KardexUnitResponse[]>(reader.GetString(17)) ?? [];
             result.Add(new(reader.GetInt64(0),reader.GetDateTime(1),DateOnly.FromDateTime(reader.GetDateTime(2)),
                 reader.GetString(3),reader.GetString(4),reader.GetInt64(5),reader.GetString(6),reader.GetInt64(7),
                 reader.GetString(8),reader.GetString(9),reader.IsDBNull(10)?null:reader.GetString(10),
