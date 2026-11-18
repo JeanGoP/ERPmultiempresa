@@ -127,7 +127,8 @@
     const vat = data.articulos.reduce((sum,item) => sum + Number(item.iva || 0), 0);
     const gross = prices.reduce((sum,item) => sum + item.gross, 0);
     const discount = prices.reduce((sum,item) => sum + item.discount, 0);
-    const conceptsTotal = (data.conceptos || []).reduce((sum,item) => sum + Number(item.valor || 0), 0);
+    const conceptsTotal = round(totalConcepts.reduce((sum,item) => sum + Number(item.valor || 0), 0));
+    const printedTotal = round(base + vat + conceptsTotal);
     const taxes = new Map();
     for (const item of data.articulos) {
       const rate = Number(item.ivaTarifa || 0);
@@ -172,7 +173,7 @@
       </section>
       <div class="invoice-bottom">
         <section class="invoice-settlement">
-          <div class="invoice-words"><strong>Son</strong><span>${escape(totalWords(h.total,currency))}</span></div>
+          <div class="invoice-words"><strong>Son</strong><span>${escape(totalWords(printedTotal,currency))}</span></div>
           <div class="invoice-barcode">${barcode(h.numero)}<span>${escape(h.numero)}</span></div>
           <div class="invoice-observations"><h3>Observaciones</h3><p>${escape(h.observacion || '')}</p></div>
           <table class="invoice-totals"><tbody>
@@ -180,7 +181,7 @@
             <tr><th>Total venta neta</th><td>${amount(base)}</td></tr><tr><th>Total IVA</th><td>${amount(vat)}</td></tr>
             <tr><th>Otros conceptos</th><td>${amount(conceptsTotal)}</td></tr>
             ${totalConcepts.map(item => `<tr class="invoice-concept-total"><th>${escape(item.nombre)}</th><td>${amount(item.valor)}</td></tr>`).join('')}
-            <tr class="invoice-grand-total"><th>Total factura</th><td>${amount(h.total)}</td></tr>
+            <tr class="invoice-grand-total"><th>Total factura</th><td>${amount(printedTotal)}</td></tr>
           </tbody></table>
         </section>
         <section class="invoice-signatures"><div><span>${escape(h.elaboradoPor || '')}</span><strong>Elaborado por</strong></div>

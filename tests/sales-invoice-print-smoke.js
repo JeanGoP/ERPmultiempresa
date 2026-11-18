@@ -27,6 +27,8 @@ assert.match(positioned,/<td>D<\/td><td colspan="8">Domicilio<\/td>/);
 assert.match(positioned,/<th>Domicilio<\/th>/);
 assert.doesNotMatch(positioned,/>Interno</);
 assert.doesNotMatch(positioned,/Conceptos del cuerpo/);
+assert.match(positioned,/Otros conceptos<\/th><td>23\.000,00/);
+assert.match(positioned,/Total factura<\/th><td>142\.000,00/);
 data.conceptos=[{codigo:'L',nombre:'Anterior',valor:1000,ubicacionFormato:'TOTALES'}];
 assert.match(context.window.salesInvoicePrint.html(data,{name:'MOTOCENTRO',nit:'NIT 900006537-4'}),/<th>Anterior<\/th>/);
 data.empresa={razonSocial:'Empresa de prueba',nit:'900000001',digitoVerificacion:'2',direccion:'Calle 1 # 2-3',telefono:'1234567',ciudad:'Montelíbano'};
@@ -53,8 +55,27 @@ assert.match(discounted,/Referencia ERP FV-7/);
 assert.match(discounted,/<svg[^>]*viewBox=/);
 assert.match(fs.readFileSync(path.join(__dirname,'../public/sales-invoice-print.css'),'utf8'),/size:letter/);
 for(const [total,expected] of [[1,'UN PESO CON 00/100'],[21.25,'VEINTIÚN PESOS CON 25/100'],[1000000,'UN MILLÓN DE PESOS CON 00/100'],[7790001,'SIETE MILLONES SETECIENTOS NOVENTA MIL UN PESOS CON 00/100']]){
-  data.header.total=total;
-  assert.ok(context.window.salesInvoicePrint.html(data,{}).includes(expected),expected);
+  const wordsData={...data,header:{...data.header,total},articulos:[{...data.articulos[0],base:total,iva:0,precioBaseConIva:null,descuentoPorcentaje:0}]};
+  assert.ok(context.window.salesInvoicePrint.html(wordsData,{}).includes(expected),expected);
+}
+const financing={
+  header:{...data.header,total:12220000},
+  articulos:[{codigo:'DR150',descripcion:'DR150 ABS',cantidad:1,precio:10990000,base:9235294.12,iva:1754705.88,ivaTarifa:19}],
+  conceptos:[{codigo:'01',nombre:'FINANCIACION',valor:1230000,mostrarEnCuerpo:false,mostrarEnTotales:false}]
+};
+const original=JSON.stringify(financing);
+const hidden=context.window.salesInvoicePrint.html(financing,{});
+assert.doesNotMatch(hidden,/FINANCIACION|1\.230\.000,00|12\.220\.000,00|DOCE MILLONES/);
+assert.match(hidden,/Otros conceptos<\/th><td>0,00/);
+assert.match(hidden,/Total factura<\/th><td>10\.990\.000,00/);
+assert.match(hidden,/DIEZ MILLONES NOVECIENTOS NOVENTA MIL PESOS CON 00\/100/);
+assert.equal(JSON.stringify(financing),original,'La impresión no modifica los valores contables guardados');
+for(const [body,totals] of [[true,false],[false,true],[true,true]]){
+  const sample={...financing,conceptos:[{...financing.conceptos[0],mostrarEnCuerpo:body,mostrarEnTotales:totals}]};
+  const html=context.window.salesInvoicePrint.html(sample,{});
+  assert.equal(/<td colspan="8">FINANCIACION<\/td>/.test(html),body);
+  assert.equal(/<th>FINANCIACION<\/th>/.test(html),totals);
+  assert.ok(html.includes(totals?'Total factura</th><td>12.220.000,00':'Total factura</th><td>10.990.000,00'));
 }
 data.header.numero='<svg onload="bad">';
 assert.doesNotMatch(context.window.salesInvoicePrint.html(data,{}),/<svg onload/);
