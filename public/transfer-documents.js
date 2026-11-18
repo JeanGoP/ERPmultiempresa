@@ -120,6 +120,7 @@
       <button class="dialog-close" data-transfer-close type="button" aria-label="Cerrar">×</button></header>
       <div class="transfer-dialog-body" data-transfer-list>
         <div class="transfer-toolbar"><label>Buscar traslado<input type="search" maxlength="120" placeholder="Número, bodega, producto o serial" data-transfer-query></label>
+          <div class="transfer-document-actions"><button type="button" class="button secondary" data-transfer-print-list disabled>Imprimir listado</button><button type="button" class="button secondary" data-transfer-excel-list disabled>Descargar Excel</button></div>
           <p role="status" data-transfer-list-status></p></div>
         <div class="transfer-list-scroll"><table class="transfer-history-table">
           <thead><tr><th scope="col">Documento</th><th scope="col">Fecha</th><th scope="col">Origen</th><th scope="col">Destino</th><th scope="col">Estado</th><th scope="col">Acción</th></tr></thead>
@@ -138,11 +139,24 @@
     const list = select('list'), detail = select('detail'), content = select('content'), back = select('back');
     const prev = select('prev'), next = select('next'), pageLabel = select('page'), listStatus = select('list-status');
     const notice = select('notice');
+    const printList = select('print-list'), excelList = select('excel-list');
     const pageSize = 12;
     let page = 1;
     let listVersion = 0, detailVersion = 0, searchTimer;
+    let listTotal = 0, loadedQuery = null, reporting = false, reportVersion = 0, reportAbort;
     let posting = false;
     const current = () => dialog.open && companyIsActive(company);
+    const updateReports = () => {
+      printList.disabled = excelList.disabled = reporting || !current() || list.hidden || !listTotal || loadedQuery !== search.value.trim();
+    };
+    const invalidateReports = () => {
+      reportVersion++;
+      reportAbort?.abort();
+      reportAbort = null;
+      reporting = false;
+      loadedQuery = null;
+      updateReports();
+    };
     const message = (value, error = false) => {
       notice.textContent = value;
       notice.hidden = !value;
@@ -151,6 +165,7 @@
 
     async function loadList(requestedPage = 1) {
       const version = ++listVersion;
+      invalidateReports();
       const params = new URLSearchParams({page:requestedPage, pageSize, q:search.value.trim()});
       prev.disabled = next.disabled = true;
       listStatus.textContent = 'Consultando…';
@@ -167,6 +182,9 @@
         const pages = Math.max(1, Math.ceil(result.total / result.pageSize));
         pageLabel.textContent = `Página ${page} de ${pages}`;
         listStatus.textContent = `${result.total} ${result.total === 1 ? 'traslado' : 'traslados'}`;
+        listTotal = result.total;
+        loadedQuery = search.value.trim();
+        updateReports();
         prev.disabled = page <= 1;
         next.disabled = page >= pages;
       } catch (error) {
@@ -176,8 +194,55 @@
       }
     }
 
+    async function reportList(kind) {
+      if (printList.disabled || excelList.disabled) return;
+      const query = loadedQuery, expectedTotal = listTotal, version = ++reportVersion;
+      const reportCompany = {...state.erpSession.company};
+      const controller = new AbortController();
+      reportAbort = controller;
+      reporting = true;
+      updateReports();
+      const active = () => current() && !list.hidden && version === reportVersion && query === search.value.trim();
+      try {
+        const items = [], ids = new Set();
+        let at = 1;
+        while (items.length < expectedTotal) {
+          const params = new URLSearchParams({page:at, pageSize:100, q:query});
+          const result = await apiRequest(`${endpoint(company)}?${params}`, {cache:'no-store', signal:controller.signal});
+          if (!active()) return;
+          if (result.total !== expectedTotal || result.page !== at || !result.items?.length
+              || result.items.some(item => ids.has(item.trasladoId))) {
+            throw new Error('El listado cambió. Actualiza la búsqueda y vuelve a generar el informe.');
+          }
+          result.items.forEach(item => {
+            if (ids.has(item.trasladoId)) throw new Error('El listado cambió. Actualiza la búsqueda y vuelve a generar el informe.');
+            ids.add(item.trasladoId);
+          });
+          items.push(...result.items);
+          if (items.length > expectedTotal) throw new Error('El listado cambió. Vuelve a consultar los traslados.');
+          listStatus.textContent = `Preparando informe: ${items.length} de ${expectedTotal} traslados…`;
+          at++;
+        }
+        if (!active()) return;
+        const formats = window.kardexReportFormats;
+        const report = formats.model(items, {view:'transfers',company:reportCompany,query,warehouseLabel:'Todas las bodegas',demo:false});
+        if (kind === 'print') formats.print(report);
+        else formats.download(report);
+        listStatus.textContent = `${expectedTotal} traslados incluidos en el informe`;
+      } catch (error) {
+        if (active() && error.name !== 'AbortError') listStatus.textContent = error.message;
+      } finally {
+        if (version === reportVersion) {
+          reporting = false;
+          reportAbort = null;
+          updateReports();
+        }
+      }
+    }
+
     async function openDocument(id, success = '') {
       const version = ++detailVersion;
+      invalidateReports();
       list.hidden = true;
       detail.hidden = false;
       title.textContent = 'Traslado entre bodegas';
@@ -300,6 +365,7 @@
     close.addEventListener('click', () => dialog.close());
     search.addEventListener('input', () => {
       clearTimeout(searchTimer);
+      invalidateReports();
       listVersion++;
       searchTimer = setTimeout(() => void loadList(), 220);
     });
@@ -309,6 +375,8 @@
     });
     prev.addEventListener('click', () => void loadList(page - 1));
     next.addEventListener('click', () => void loadList(page + 1));
+    printList.addEventListener('click', () => void reportList('print'));
+    excelList.addEventListener('click', () => void reportList('excel'));
     back.addEventListener('click', () => {
       detailVersion++;
       detail.hidden = true;
@@ -320,6 +388,7 @@
     dialog.addEventListener('cancel', event => { if (posting) event.preventDefault(); });
     dialog.addEventListener('close', () => {
       clearTimeout(searchTimer);
+      invalidateReports();
       dialog.remove();
     }, {once:true});
     document.body.append(dialog);

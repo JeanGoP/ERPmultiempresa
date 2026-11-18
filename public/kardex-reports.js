@@ -26,6 +26,7 @@
   function model(source,context){
     if(context.view==='aging')return agingModel(source,context);
     if(context.view==='stock')return stockModel(source,context);
+    if(['receiving','receipt-history','receipt-issues','serials','expiry','transfers'].includes(context.view))return window.inventoryReportFormats.model(source,context);
     const report=JSON.parse(JSON.stringify(context));
     const unitId=report.unit?.unidadSerializadaId;
     const entries=unitId?source.filter(item=>item.unidades?.some(unit=>Number(unit.unidadSerializadaId)===Number(unitId))):source;
@@ -52,7 +53,7 @@
     return report;
   }
   function heading(report,title,label){
-    return `<header class="kardex-print-heading"><div><p>${esc(report.company.name)}</p><h1>${title}</h1>${report.company.nit?`<span>NIT ${esc(String(report.company.nit).replace(/^NIT\s*/i,''))}</span>`:''}<span>${report.view==='aging'?'Edad desde la fecha contable de la entrada original':`Valores en ${esc(report.company.currency||'COP')}`}</span></div><div><strong>${report.rows.length} ${label}</strong><span>Generado ${esc(new Date(report.generatedAt).toLocaleString('es-CO',{timeZone:'America/Bogota'}))}</span>${report.demo?'<span>Datos de demostración</span>':''}</div></header>`;
+    return `<header class="kardex-print-heading"><div><p>${esc(report.company.name)}</p><h1>${esc(title)}</h1>${report.company.nit?`<span>NIT ${esc(String(report.company.nit).replace(/^NIT\s*/i,''))}</span>`:''}${report.view==='aging'?'<span>Edad desde la fecha contable de la entrada original</span>':report.columns.some(col=>col.type==='money')?`<span>Valores en ${esc(report.company.currency||'COP')}</span>`:''}</div><div><strong>${report.rows.length} ${esc(label)}</strong><span>Generado ${esc(new Date(report.generatedAt).toLocaleString('es-CO',{timeZone:'America/Bogota'}))}</span>${report.demo?'<span>Datos de demostración</span>':''}</div></header>`;
   }
   function agingHtml(report){
     return heading(report,'Edad de artículos','entradas / bodegas')
@@ -66,9 +67,32 @@
       +`<section class="kardex-print-summary"><div><span>Referencias</span><strong>${new Set(report.rows.map(row=>row[2])).size}</strong></div><div><span>Total unidades</span><strong>${number(report.totals[6])}</strong></div><div><span>Valor de inventario</span><strong>$ ${money(report.totals[8])}</strong></div></section>`
       +`<table class="kardex-print-table stock"><thead><tr>${report.columns.map(col=>`<th scope="col">${col.label}</th>`).join('')}</tr></thead><tbody>${report.rows.map(row=>`<tr>${row.map((value,index)=>`<td class="${index>=6?'numeric':''}">${index>=7?money(value):index===6?number(value):index===5?(value?date(value):'—'):esc(value||'—')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   }
+  function inventoryHtml(report){
+    const display=(value,col)=>value==null||value===''?'—':col.type==='money'?money(value):col.type==='quantity'?number(value):col.type==='date'?date(value):esc(value);
+    // Group related fields on paper; the workbook keeps each original column.
+    const groups=report.view==='receipt-issues'
+      ? [[0],[1,2,3,4,5],[6],[7,8,9,10],[11,12,13,14,15,16],[17,18],[19,20]]
+      : ['receiving','receipt-history'].includes(report.view)
+        ? [[0,1],[2,3,4],[6,7],[5],...report.columns.slice(8).map((_,index)=>[index+8])]
+        : report.columns.map((_,index)=>[index]);
+    const groupedLabels=report.view==='receipt-issues'?['Recepción','Documento / proveedor','Bodega','Artículo / unidad','Identificadores','Novedad / observación','Revisión']:['Recepción / estado','Documento / proveedor','Fechas','Bodega'];
+    const receipts=['receiving','receipt-history'].includes(report.view);
+    const widths=report.view==='receipt-issues'?[10,17,10,17,20,16,14]:receipts?[12,24,16,12,6,6,6,6,6,6]:groups.map(group=>Math.max(...group.map(index=>Number(report.columns[index]?.width)||16)));
+    const widthSum=widths.reduce((sum,value)=>sum+value,0);
+    const headerLabel=(group,index)=>receipts&&index>=4?['Líneas','Unidades','Revisadas','Conformes','Con novedad','No recibidas'][index-4]:group.length>1?groupedLabels[index]:report.columns[group[0]].label;
+    const headers=groups.map((group,index)=>`<th scope="col" style="width:${(widths[index]/widthSum*100).toFixed(2)}%">${esc(headerLabel(group,index))}</th>`).join('');
+    const fieldLabel=index=>receipts?({2:'Tipo',3:'Factura',6:'Factura',7:'Contable'}[index]||report.columns[index].label):report.columns[index].label;
+    const rows=report.rows.map(row=>`<tr>${groups.map(group=>`<td class="${group.length===1&&['money','quantity'].includes(report.columns[group[0]].type)?'numeric':''}">${group.map(index=>group.length===1?display(row[index],report.columns[index]):`<span>${receipts&&index===0?'':`<b>${esc(fieldLabel(index))}:</b> `}${display(row[index],report.columns[index])}</span>`).join('')}</td>`).join('')}</tr>`).join('');
+    const totals=report.columns.map((col,index)=>col.total?`<div><span>${esc(col.label)}</span><strong>${col.type==='money'?money(report.totals[index]):number(report.totals[index])}</strong></div>`:'').join('');
+    return heading(report,report.title,report.recordLabel||'registros')
+      +`<section class="kardex-print-filters"><div><b>Bodega</b> ${esc(report.warehouseLabel||'Todas las bodegas')}</div><div><b>Búsqueda</b> ${esc(report.query||'Sin filtro')}</div>${['receipt-history','receipt-issues'].includes(report.view)?`<div><b>Desde</b> ${date(report.from)} <b>Hasta</b> ${date(report.until)}</div>`:''}${report.view==='receipt-issues'?`<div><b>Novedad</b> ${esc(report.issueTypeLabel||'Todas')}</div>`:''}${report.view==='expiry'?'<div>Vencidos y próximos a vencer en 365 días</div>':''}</section>`
+      +(totals?`<section class="kardex-print-summary">${totals}</section>`:'')
+      +`<table class="kardex-print-table inventory-report"><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+  }
   function html(report){
     if(report.view==='aging')return agingHtml(report);
     if(report.view==='stock')return stockHtml(report);
+    if(report.view!=='kardex'&&report.title)return inventoryHtml(report);
     const individual=Boolean(report.unit?.unidadSerializadaId);
     const display=(value,index)=>report.columns[index].type==='money'?money(value):report.columns[index].type==='quantity'?number(value):report.columns[index].type==='date'?date(value):esc(value||'—');
     const cell=(row,index)=>`<td class="${['money','quantity'].includes(report.columns[index].type)?'numeric':''}">${display(row[index],index)}</td>`;
@@ -90,29 +114,36 @@
     try{window.print();}catch(error){cleanup();throw error;}
     window.setTimeout(cleanup,120000);
   }
-  window.kardexReportFormats={model,html,print};
+  const fileNames={aging:'edad-articulos',stock:'existencias',receiving:'recepcion-fisica','receipt-history':'historial-recepciones','receipt-issues':'novedades-pendientes',serials:'seriales',expiry:'vencimientos',transfers:'traslados'};
+  function download(report){
+    const blob=window.kardexExcel.workbook(report),url=URL.createObjectURL(blob),link=document.createElement('a');
+    link.href=url;link.download=report.view==='kardex'?`kardex-${report.from||'inicio'}-${report.until||'actual'}${report.unit?'-unidad':''}.xlsx`:`${fileNames[report.view]||'inventario'}-${new Date(report.generatedAt).toLocaleDateString('sv-SE',{timeZone:'America/Bogota'})}.xlsx`;
+    document.body.append(link);try{link.click();}finally{link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+  }
+  window.kardexReportFormats={model,html,print,download};
 
   const actions=document.querySelector('#kardexReportActions');if(!actions)return;
   const status=actions.querySelector('[data-report-status]'),printButton=actions.querySelector('[data-print-kardex]'),excelButton=actions.querySelector('[data-excel-kardex]');
   let snapshot=null,busy=false;
-  const supported=view=>['kardex','stock','aging'].includes(view);
+  const supported=view=>['kardex',...Object.keys(fileNames).filter(view=>view!=='transfers')].includes(view);
+  const labels={kardex:'Kardex',stock:'existencias',aging:'edad de artículos',receiving:'recepciones','receipt-history':'historial de recepciones','receipt-issues':'novedades',serials:'seriales',expiry:'vencimientos'};
   function capture(){
     const company=state.erpSession?.company||{};
-    const view=state.inventoryView,history=view==='kardex';
+    const view=state.inventoryView,history=['kardex','receipt-history','receipt-issues'].includes(view);
     const ageBandIndex=view==='aging'&&typeof originAgeBand==='number'?originAgeBand:null;
     const ageBandLabel=ageBandIndex!==null&&typeof originAgeBands!=='undefined'?originAgeBands[ageBandIndex]?.[0]:'Todas las edades';
-    return {view:supported(view)?view:'kardex',company:{...company},from:history?elements.inventoryDateFrom.value:'',until:history?elements.inventoryDateTo.value:'',warehouseId:elements.inventoryWarehouse.value,warehouseLabel:elements.inventoryWarehouse.selectedOptions?.[0]?.textContent||'Todas las bodegas',query:elements.inventorySearch.value.trim(),unit:history?selectedInventoryUnit():null,ageBandIndex,ageBandLabel,demo:state.runtimeMode!=='api'||!state.erpSession?.api};
+    return {view:supported(view)?view:'kardex',company:{...company},from:history?elements.inventoryDateFrom.value:'',until:history?elements.inventoryDateTo.value:'',warehouseId:elements.inventoryWarehouse.value,warehouseLabel:elements.inventoryWarehouse.selectedOptions?.[0]?.textContent||'Todas las bodegas',query:elements.inventorySearch.value.trim(),unit:view==='kardex'?selectedInventoryUnit():null,issueType:view==='receipt-issues'?elements.inventoryIssueType?.value||'':'',issueTypeLabel:view==='receipt-issues'?elements.inventoryIssueType?.selectedOptions?.[0]?.textContent||'Todas':'',ageBandIndex,ageBandLabel,demo:state.runtimeMode!=='api'||!state.erpSession?.api};
   }
-  const key=context=>JSON.stringify([context.view||'kardex',String(context.company.id),context.from,context.until,context.warehouseId,context.query,context.unit?.unidadSerializadaId||null,context.demo,context.ageBandIndex??null]);
+  const key=context=>JSON.stringify([context.view||'kardex',String(context.company.id),context.from,context.until,context.warehouseId,context.query,context.unit?.unidadSerializadaId||null,context.demo,context.ageBandIndex??null,context.issueType||'']);
   function available(){return !busy&&snapshot?.report.rows.length>0&&supported(state.inventoryView)&&snapshot.key===key(capture());}
   function disable(message){snapshot=null;printButton.disabled=excelButton.disabled=true;status.textContent=message;}
   function reset(){busy=false;disable('');actions.hidden=true;clearPrint();}
-  function loading(view){actions.hidden=!supported(view);printButton.textContent=view==='aging'?'Imprimir edad de artículos':view==='stock'?'Imprimir existencias':'Imprimir Kardex';disable(supported(view)?view==='aging'?'Consultando antigüedad…':view==='stock'?'Consultando existencias…':'Consultando movimientos…':'');}
+  function loading(view){actions.hidden=!supported(view);printButton.textContent=`Imprimir ${labels[view]||'informe'}`;disable(supported(view)?'Consultando registros…':'');}
   function loaded(rows,context){
     if(!context||!supported(state.inventoryView)||key(context)!==key(capture()))return;
     const report=model(rows,context);snapshot={report,key:key(context)};actions.hidden=false;
     printButton.disabled=excelButton.disabled=!report.rows.length;
-    const records=report.view==='aging'?'entradas / bodegas':report.view==='stock'?'registros':'movimientos';
+    const records=report.recordLabel||(report.view==='aging'?'entradas / bodegas':report.view==='stock'?'registros':'movimientos');
     status.textContent=report.rows.length?`${report.rows.length} ${records} para imprimir o descargar`:`No hay ${records} con estos filtros`;
   }
   printButton.addEventListener('click',()=>{
@@ -123,11 +154,10 @@
     if(!available())return;
     busy=true;excelButton.disabled=true;
     try{
-      const report=snapshot.report,blob=window.kardexExcel.workbook(report),url=URL.createObjectURL(blob),link=document.createElement('a');
-      link.href=url;link.download=report.view==='aging'?`edad-articulos-${new Date(report.generatedAt).toLocaleDateString('sv-SE',{timeZone:'America/Bogota'})}.xlsx`:report.view==='stock'?`existencias-${new Date(report.generatedAt).toLocaleDateString('sv-SE',{timeZone:'America/Bogota'})}.xlsx`:`kardex-${report.from||'inicio'}-${report.until||'actual'}${report.unit?'-unidad':''}.xlsx`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+      download(snapshot.report);
     }catch(error){status.textContent=`No fue posible descargar el Excel. ${error.message}`;}
     finally{busy=false;excelButton.disabled=!available();}
   });
-  for(const input of [elements.inventorySearch,elements.inventoryDateFrom,elements.inventoryDateTo,elements.inventoryWarehouse])input.addEventListener('input',()=>{if(supported(state.inventoryView)&&(state.inventoryView==='kardex'||[elements.inventorySearch,elements.inventoryWarehouse].includes(input)))disable('Actualizando filtros…');});
+  for(const input of [elements.inventorySearch,elements.inventoryDateFrom,elements.inventoryDateTo,elements.inventoryWarehouse,elements.inventoryIssueType].filter(Boolean))input.addEventListener('input',()=>{if(supported(state.inventoryView)&&(['kardex','receipt-history','receipt-issues'].includes(state.inventoryView)||[elements.inventorySearch,elements.inventoryWarehouse].includes(input)))disable('Actualizando filtros…');});
   window.kardexReports={capture,loading,loaded,failed:()=>disable('Consulta nuevamente para imprimir o descargar.'),reset};
 })();

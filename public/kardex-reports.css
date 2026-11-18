@@ -18,7 +18,7 @@
   #kardexPrint .kardex-print-filters { display:grid; grid-template-columns:1fr 1fr 1.4fr; gap:2mm 5mm; margin:4mm 0; }
   #kardexPrint .kardex-print-filters b { margin-right:1mm; }
   #kardexPrint .kardex-print-filters .unit { grid-column:1/-1; }
-  #kardexPrint .kardex-print-summary { display:flex; gap:10mm; padding:3mm; margin-bottom:4mm; border:1px solid #ceded6; }
+  #kardexPrint .kardex-print-summary { display:flex; flex-wrap:wrap; gap:3mm 8mm; padding:3mm; margin-bottom:4mm; border:1px solid #ceded6; }
   #kardexPrint .kardex-print-summary span { display:block; margin-bottom:1mm; font-size:7pt; }
   #kardexPrint .kardex-print-summary strong { font-size:10pt; }
   #kardexPrint .kardex-print-table { width:100%; table-layout:fixed; border-collapse:collapse; font:7.5pt/1.25 Arial,sans-serif; }
@@ -28,6 +28,8 @@
   #kardexPrint td span { display:block; margin-top:1mm; }
   #kardexPrint td.numeric { text-align:right; overflow-wrap:normal; }
   #kardexPrint td.identifiers { white-space:pre-line; font-size:7pt; }
+  #kardexPrint .inventory-report td { white-space:pre-line; }
+  #kardexPrint .inventory-report td span { margin-top:0; }
   #kardexPrint tbody tr:nth-child(even) { background:#f7faf8; }
   #kardexPrint th:nth-child(1) { width:6%; }
   #kardexPrint th:nth-child(2) { width:11%; }

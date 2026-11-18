@@ -95,10 +95,14 @@
         || report.columns.length > 16384 || !Array.isArray(report.rows)) {
       throw new Error('No se pudo preparar la estructura del informe para Excel.');
     }
-    const stock = report.view === 'stock';
-    const aging = report.view === 'aging';
-    const sheetName = aging ? 'Edad de artículos' : stock ? 'Existencias' : 'Kardex';
-    const title = aging ? 'EDAD DE ARTÍCULOS' : stock ? 'EXISTENCIAS' : 'KARDEX';
+    const view = report.view || 'kardex';
+    const stock = view === 'stock';
+    const aging = view === 'aging';
+    const sheetName = report.sheetName || (aging ? 'Edad de artículos' : stock ? 'Existencias' : 'Kardex');
+    if (sheetName.length > 31 || /[\\/?*\[\]:]/.test(sheetName)) throw new Error('El nombre de la hoja del informe no es válido.');
+    const sheetReference = escape(sheetName.replaceAll("'", "''"));
+    const title = report.title?.toLocaleUpperCase('es-CO') || (aging ? 'EDAD DE ARTÍCULOS' : stock ? 'EXISTENCIAS' : 'KARDEX');
+    const dated = ['kardex','receipt-history','receipt-issues'].includes(view);
     const columns = report.columns;
     if (report.rows.length > 1048566 || columns.some(column => !['text','date','quantity','money'].includes(column.type)
         || column.total === true && !['quantity','money'].includes(column.type))) {
@@ -116,11 +120,11 @@
     const context = [
       [report.demo ? title + ' · Datos de demostración' : title, 1],
       [report.company.name, 2],
-      [`NIT ${String(report.company.nit ?? '').replace(/^NIT\s*/i, '')}${aging ? '' : ' · Moneda ' + (report.company.currency || 'COP')}`, 3],
-      [aging ? 'Edad desde la fecha contable de la entrada original' : stock ? 'Existencias actuales' : `Desde ${report.from || 'Sin límite'} · Hasta ${report.until || 'Sin límite'}`, 3],
+      [`NIT ${String(report.company.nit ?? '').replace(/^NIT\s*/i, '')}${report.columns.some(col => col.type === 'money') ? ' · Moneda ' + (report.company.currency || 'COP') : ''}`, 3],
+      [aging ? 'Edad desde la fecha contable de la entrada original' : stock ? 'Existencias actuales' : dated ? `Desde ${report.from || 'Sin límite'} · Hasta ${report.until || 'Sin límite'}` : report.view === 'expiry' ? 'Vencidos y próximos a vencer en 365 días' : 'Consulta actual', 3],
       [`Bodega ${report.warehouseLabel || 'Todas las bodegas'}`, 3],
       [`Búsqueda ${report.query || 'Sin filtro'}`, 3],
-      [aging ? `Antigüedad ${report.ageBandLabel || 'Todas las edades'}` : stock ? `Registros ${report.rows.length}` : unit ? `Unidad ${identifiers || unit.unidadSerializadaId || unit.id || ''}` : 'Unidad Todas las unidades', 3],
+      [aging ? `Antigüedad ${report.ageBandLabel || 'Todas las edades'}` : view === 'receipt-issues' ? `Novedad ${report.issueTypeLabel || 'Todas'}` : view !== 'kardex' ? `Registros ${report.rows.length}` : unit ? `Unidad ${identifiers || unit.unidadSerializadaId || unit.id || ''}` : 'Unidad Todas las unidades', 3],
       [`Generado ${generatedLabel} · Bogotá, Colombia`, 3]
     ];
     const last = columnName(columns.length - 1);
@@ -166,8 +170,8 @@
     const files = {
       '[Content_Types].xml':`${xmlHeader}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`,
       '_rels/.rels':`${xmlHeader}<Relationships xmlns="${relationshipNs}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`,
-      'docProps/core.xml':`${xmlHeader}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${sheetName}</dc:title><dc:creator>Nexo ERP</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${generated.toISOString()}</dcterms:created></cp:coreProperties>`,
-      'xl/workbook.xml':`${xmlHeader}<workbook xmlns="${spreadsheetNs}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="${sheetName}" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm.Print_Titles" localSheetId="0">'${sheetName}'!$1:$9</definedName><definedName name="_xlnm.Print_Area" localSheetId="0">'${sheetName}'!$A$1:$${last}$${finalRow}</definedName></definedNames><calcPr calcId="191029" calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>`,
+      'docProps/core.xml':`${xmlHeader}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${escape(sheetName)}</dc:title><dc:creator>Nexo ERP</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${generated.toISOString()}</dcterms:created></cp:coreProperties>`,
+      'xl/workbook.xml':`${xmlHeader}<workbook xmlns="${spreadsheetNs}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="${escape(sheetName)}" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm.Print_Titles" localSheetId="0">'${sheetReference}'!$1:$9</definedName><definedName name="_xlnm.Print_Area" localSheetId="0">'${sheetReference}'!$A$1:$${last}$${finalRow}</definedName></definedNames><calcPr calcId="191029" calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>`,
       'xl/_rels/workbook.xml.rels':`${xmlHeader}<Relationships xmlns="${relationshipNs}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
       'xl/styles.xml':styles(),
       'xl/worksheets/sheet1.xml':`${xmlHeader}<worksheet xmlns="${spreadsheetNs}"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension ref="A1:${last}${finalRow}"/><sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="9" topLeftCell="A10" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A10" sqref="A10"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="24"/><cols>${columns.map((_, index) => `<col min="${index + 1}" max="${index + 1}" width="${widths[index]}" customWidth="1"/>`).join('')}</cols><sheetData>${sheet.join('')}</sheetData><autoFilter ref="A9:${last}${dataEnd}"/>${mergeCells}<pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.15" footer="0.15"/><pageSetup paperSize="1" orientation="landscape" fitToWidth="1" fitToHeight="0"/><headerFooter><oddFooter>&amp;L Nexo ERP&amp;R Página &amp;P de &amp;N</oddFooter></headerFooter></worksheet>`
