@@ -188,11 +188,13 @@ public sealed class InventoryRepository(TenantConnectionFactory connections)
                         AND (@UnidadId IS NULL OR mu.UnidadSerializadaId=@UnidadId)
                     ORDER BY mu.UnidadSerializadaId
                     FOR JSON PATH
-                ) Unidades
+                ) Unidades,m.TipoDocumentoOrigen,m.DocumentoOrigenId,receipt.DocumentoProveedorId
             FROM inv.MovimientoInventario m
             JOIN inv.Bodega b ON b.EmpresaId=m.EmpresaId AND b.BodegaId=m.BodegaId
             JOIN inv.Articulo a ON a.EmpresaId=m.EmpresaId AND a.ArticuloId=m.ArticuloId
             LEFT JOIN inv.Lote l ON l.EmpresaId=m.EmpresaId AND l.LoteId=m.LoteId
+            LEFT JOIN inv.RecepcionMercancia receipt ON receipt.EmpresaId=m.EmpresaId
+                AND receipt.RecepcionMercanciaId=m.DocumentoOrigenId AND m.TipoDocumentoOrigen='RECEPCION_MERCANCIA'
             WHERE m.EmpresaId=@EmpresaId
                 AND (@Desde IS NULL OR m.FechaContable>=@Desde) AND (@Hasta IS NULL OR m.FechaContable<=@Hasta)
                 AND (@BodegaId IS NULL OR m.BodegaId=@BodegaId) AND (@ArticuloId IS NULL OR m.ArticuloId=@ArticuloId)
@@ -232,7 +234,9 @@ public sealed class InventoryRepository(TenantConnectionFactory connections)
                 reader.GetString(3),reader.GetString(4),reader.GetInt64(5),reader.GetString(6),reader.GetInt64(7),
                 reader.GetString(8),reader.GetString(9),reader.IsDBNull(10)?null:reader.GetString(10),
                 reader.GetDecimal(11),reader.GetDecimal(12),reader.GetDecimal(13),reader.GetDecimal(14),
-                reader.GetDecimal(15),reader.GetDecimal(16),units));
+                reader.GetDecimal(15),reader.GetDecimal(16),units,
+                reader.IsDBNull(18)?null:reader.GetString(18),reader.IsDBNull(19)?null:reader.GetInt64(19),
+                reader.IsDBNull(20)?null:reader.GetInt64(20)));
         }
         return result;
     }

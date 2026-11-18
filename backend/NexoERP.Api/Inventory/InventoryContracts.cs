@@ -18,7 +18,7 @@ public sealed record KardexMovementResponse(
     long MovimientoInventarioId,DateTime FechaMovimiento,DateOnly FechaContable,string TipoMovimiento,string NumeroDocumento,
     long BodegaId,string Bodega,long ArticuloId,string Codigo,string Descripcion,string? NumeroLote,
     decimal Entrada,decimal Salida,decimal CostoUnitario,decimal ValorMovimiento,decimal ExistenciaPosterior,decimal CostoPromedioPosterior,
-    IReadOnlyList<KardexUnitResponse>? Unidades=null);
+    IReadOnlyList<KardexUnitResponse>? Unidades=null,string? TipoDocumentoOrigen=null,long? DocumentoOrigenId=null,long? DocumentoProveedorId=null);
 
 public sealed record KardexUnitResponse(long UnidadSerializadaId,string? Serial,string? Motor,string? Chasis,string? Vin,string? Placa,
     string? EstadoAnterior,string EstadoPosterior);

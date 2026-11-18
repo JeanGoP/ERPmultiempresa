@@ -32,6 +32,7 @@ try
                 EmpresaId bigint,MovimientoInventarioId bigint,UnidadSerializadaId bigint,EstadoAnterior varchar(20) NULL,EstadoPosterior varchar(20));
             CREATE TABLE inv.UnidadIdentificador(EmpresaId bigint,UnidadSerializadaId bigint,Tipo varchar(20),Valor nvarchar(120));
             CREATE TABLE inv.RecepcionMercanciaLinea(EmpresaId bigint,RecepcionMercanciaId bigint,RecepcionMercanciaLineaId bigint);
+            CREATE TABLE inv.RecepcionMercancia(EmpresaId bigint,RecepcionMercanciaId bigint,DocumentoProveedorId bigint NULL);
             CREATE TABLE inv.RecepcionMercanciaUnidad(EmpresaId bigint,RecepcionMercanciaLineaId bigint,UnidadSerializadaId bigint);
             INSERT inv.Bodega VALUES(1,1,'Origen'),(1,2,'Destino'),(2,1,'Otra empresa');
             INSERT inv.Articulo VALUES(1,1,'DR150','Motocicleta DR150'),(1,2,'REP-1','Repuesto sin serial'),(2,1,'DR150','Motocicleta ajena');
@@ -55,6 +56,7 @@ try
                 (1,4,11,'DISPONIBLE','VENDIDA'),(1,5,11,'VENDIDA','DISPONIBLE'),
                 (1,6,11,'DISPONIBLE','BAJA'),(1,7,12,'DISPONIBLE','VENDIDA'),(2,9,21,NULL,'DISPONIBLE');
             INSERT inv.RecepcionMercanciaLinea VALUES(1,1,1),(1,8,8);
+            INSERT inv.RecepcionMercancia VALUES(1,1,101),(2,1,201),(1,8,NULL),(2,10,210);
             INSERT inv.RecepcionMercanciaUnidad VALUES(1,1,11),(1,1,12),(1,8,14);
             """;
         await setup.ExecuteNonQueryAsync();
@@ -81,6 +83,17 @@ try
     var purchase = general.Single(row => row.MovimientoInventarioId == 1);
     Check(general.Count == 8 && purchase.Entrada == 2 && purchase.ValorMovimiento == 2000
         && purchase.Unidades?.Count == 2, "La consulta general conserva cantidades, importes y movimientos sin duplicarlos");
+    Check(purchase.TipoDocumentoOrigen=="RECEPCION_MERCANCIA" && purchase.DocumentoOrigenId==1 && purchase.DocumentoProveedorId==101,
+        "La entrada enlaza su recepción y la factura de proveedor persistidas de la misma empresa");
+    Check(general.Where(row=>row.TipoMovimiento.StartsWith("TRASLADO")).All(row=>row.TipoDocumentoOrigen=="TRASLADO" && row.DocumentoOrigenId==1 && row.DocumentoProveedorId is null)
+        && general.Single(row=>row.MovimientoInventarioId==4) is {TipoDocumentoOrigen:"FACTURA_VENTA",DocumentoOrigenId:1,DocumentoProveedorId:null},
+        "Ventas y traslados conservan el tipo e ID reales aunque coincidan con una recepción");
+    Check(general.Single(row=>row.MovimientoInventarioId==5) is {TipoDocumentoOrigen:"DEVOLUCION_VENTA",DocumentoOrigenId:1,DocumentoProveedorId:null}
+        && general.Single(row=>row.MovimientoInventarioId==6) is {TipoDocumentoOrigen:"REVERSA_MOVIMIENTO",DocumentoOrigenId:1,DocumentoProveedorId:null},
+        "Devoluciones y reversiones conservan la identidad de su documento de origen");
+    Check(sparePart.TipoDocumentoOrigen=="RECEPCION_MERCANCIA" && sparePart.DocumentoOrigenId==10 && sparePart.DocumentoProveedorId is null
+        && general.Single(row=>row.MovimientoInventarioId==8).DocumentoProveedorId is null,
+        "Recepciones sin factura o con cabecera disponible solo en otra empresa devuelven proveedor nulo");
     var chassis = await Read("lc6-aaa");
     Check(chassis.Count == 6 && chassis.Select(row => row.MovimientoInventarioId).Distinct().Count() == 6,
         "El chasis encuentra compra, traslado, venta, devolución y reversión una sola vez");
@@ -93,6 +106,8 @@ try
         "El historial de una moto excluye las operaciones de otra del mismo artículo");
     Check((await Read("lc6-aaa",company:2)).Count == 1 && (await Read(unit:21)).Count == 0,
         "Los identificadores compartidos entre empresas mantienen el aislamiento");
+    Check((await Read("lc6-aaa",company:2)).Single().DocumentoProveedorId==201,
+        "La referencia de proveedor depende de EmpresaId aunque el ID de recepción coincida");
     var old = await Read("old-chassis");
     Check(old.Count == 1 && old[0].Unidades is { Count: 1 } && old[0].Unidades![0].UnidadSerializadaId == 14
         && (await Read(unit:14)).Count == 1, "La recepción histórica conserva el vehículo aunque preceda a la bitácora por unidad");

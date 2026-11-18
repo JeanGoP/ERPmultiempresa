@@ -297,7 +297,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         while(await r.ReadAsync(ct))items.Add(new{codigo=r.GetString(0),descripcion=r.GetString(1),bodegaCodigo=r.GetString(2),bodega=r.GetString(3),
             cantidad=r.GetDecimal(4),precio=r.GetDecimal(5),ivaTarifa=r.GetDecimal(6),@base=r.GetDecimal(7),iva=r.GetDecimal(8),
             unidad=r.IsDBNull(9)?null:r.GetString(9),lote=r.IsDBNull(10)?null:r.GetString(10),
-            unidades=JsonSerializer.Deserialize<SalesInvoicePrintedUnit[]>(r.GetString(11))??[],
+            unidades=r.IsDBNull(11)?Array.Empty<SalesInvoicePrintedUnit>():JsonSerializer.Deserialize<SalesInvoicePrintedUnit[]>(r.GetString(11))??[],
             precioBaseConIva=r.IsDBNull(12)?(decimal?)null:r.GetDecimal(12),descuentoPorcentaje=r.IsDBNull(13)?(decimal?)null:r.GetDecimal(13)});
         var concepts=new List<object>();
         await r.NextResultAsync(ct);

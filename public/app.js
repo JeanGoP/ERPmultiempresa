@@ -303,6 +303,7 @@ function enterErp(session) {
   window.resetHomeDashboard?.();
   window.resetEgresos?.();
   window.resetCustomerDocuments?.();
+  window.kardexDocuments?.close();
   window.resetSalesReceivables?.();
   window.resetZeus?.();
   state.securityData=null;state.securityEditingUserId=null;state.securityEditingRoleId=null;state.securityPasswordUserId=null;
@@ -321,6 +322,7 @@ function enterErp(session) {
 function leaveErp() {
   window.resetEgresos?.();
   window.resetCustomerDocuments?.();
+  window.kardexDocuments?.close();
   window.resetSalesReceivables?.();
   window.resetZeus?.();
   state.securityData=null;
@@ -1061,6 +1063,7 @@ function renderInventoryUnitFilter(){
 function buildInventoryTable(view,rows,unitId){
   const data=inventoryRows(view,rows,unitId);
   const table=buildDataTable(data.headers,data.rows);
+  if(view==='kardex'&&typeof window!=='undefined')window.kardexDocuments?.attach(table,rows);
   if(view==='kardex'&&unitId)table.classList.add('inventory-unit-kardex-table');
   if(!rows.length||!['kardex','serials'].includes(view)||unitId)return table;
   const tableRows=table.tBodies[0].rows;
