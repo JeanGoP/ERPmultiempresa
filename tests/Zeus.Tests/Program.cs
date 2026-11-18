@@ -15,6 +15,8 @@ var settings=new ZeusSettings(true,"server","db","01","01","01","ERP","FA",
 var source=new ZeusSource(20,10,"F&123",new(2026,9,21),new(2026,2,1),new(2026,3,1),116.5m,19,2.5m,[new(50,100)],ProveedorNombre:"Proveedor de prueba");
 var input=new ZeusPreviewRequest([new("IVA",19,100,19)],[new("RETEFUENTE",2.5m,100,2.5m)]);
 var journal=ZeusJournal.Build(settings,source,input);
+PurchaseEntryReversalTests.Run(Check,Reject,settings,source,input);
+if(args.Contains("--purchase-reversal-sql"))await PurchaseEntryReversalTests.SqlAsync(settings,source,input,Check);
 TaxRoundingTests.Run(Check,Reject,settings,source);
 LineRoundingTests.Run(Check,settings,source);
 RoutingTests.Run(Check,Reject,settings);

@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="sales-invoice-print.css">
   <link rel="stylesheet" href="purchase-entry-print.css">
   <link rel="stylesheet" href="transfer-documents.css">
+  <link rel="stylesheet" href="purchase-entry-reversal.css">
   <link rel="stylesheet" href="accounting-reports.css">
   <link rel="stylesheet" href="navigation.css">
   <link rel="stylesheet" href="home-dashboard.css">
@@ -237,7 +238,7 @@
           <section class="saved-purchases-workspace">
             <div class="saved-purchases-toolbar">
               <label><span>Buscar</span><input id="savedPurchasesSearch" type="search" placeholder="Factura, proveedor, NIT, motor, chasis o VIN"></label>
-              <label><span>Estado</span><select id="savedPurchasesState"><option value="">Todos</option><option value="BORRADOR">Borrador</option><option value="VALIDADO">Preparado</option><option value="CONTABILIZADO">Contabilizado</option><option value="RECHAZADO">Anulado</option></select></label>
+              <label><span>Estado</span><select id="savedPurchasesState"><option value="">Todos</option><option value="BORRADOR">Borrador</option><option value="VALIDADO">Preparado</option><option value="CONTABILIZADO">Contabilizado</option><option value="REVERTIDO">Revertido</option><option value="RECHAZADO">Anulado</option></select></label>
               <button id="refreshSavedPurchases" class="button primary" type="button">Actualizar</button>
             </div>
             <div id="savedPurchasesNotice" class="inventory-notice" hidden></div>
@@ -561,6 +562,7 @@
 
   <script src="vendor/jspdf.umd.min.js"></script>
   <script src="purchase-entry-print.js"></script>
+  <script src="purchase-entry-reversal.js"></script>
   <script src="transfer-documents.js"></script>
   <script src="app.js"></script>
   <script src="kardex-documents.js"></script>

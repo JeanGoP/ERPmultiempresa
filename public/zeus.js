@@ -34,7 +34,7 @@ function zeusSupplierSendButton(supplier){
   });return button;
 }
 const zeusConcepts={INVENTARIO:'Inventario',PROVEEDOR:'Cuenta por pagar · proveedor',IVA:'IVA',OTRO_IMPUESTO:'Otro impuesto',RETEFUENTE:'Retención en la fuente',RETEIVA:'Retención de IVA',RETEICA:'Retención de ICA',CUENTA_POR_COBRAR:'Cuenta por cobrar (futuro)',GASTO:'Gasto (futuro)',FLETE:'Flete (futuro)',ANTICIPO:'Anticipo (futuro)',DESCUENTO:'Descuento (futuro)',DESCUENTO_PRONTO_PAGO:'Descuento por pronto pago',REDONDEO:'Redondeo (futuro)'};
-const zeusStates={SIN_PREPARAR:'Sin preparar',REQUIERE_REVISION:'Por revisar',POR_APROBAR:'Por aprobar',PENDIENTE:'En cola',ENVIANDO:'Enviando',CONTABILIZADO:'Contabilizado',RECHAZADO:'Rechazado',INCIERTO:'Por conciliar',CANCELADO:'Descartado'};
+const zeusStates={SIN_ENVIO:'Sin envío necesario',SIN_PREPARAR:'Sin preparar',REQUIERE_REVISION:'Por revisar',POR_APROBAR:'Por aprobar',PENDIENTE:'En cola',ENVIANDO:'Enviando',CONTABILIZADO:'Contabilizado',RECHAZADO:'Rechazado',INCIERTO:'Por conciliar',CANCELADO:'Descartado'};
 const zeusUI={epoch:0,company:null,tab:'jobs',version:0,settings:null,collectionPolicy:null,jobs:[],receipts:[],offset:0,receipt:null,preview:null,dirty:false,busy:false,status:null};
 const zeusPanel=document.createElement('section');zeusPanel.id='zeusModule';zeusPanel.className='zeus-workspace';zeusPanel.hidden=true;elements.purchaseModule.before(zeusPanel);
 function zeusEscape(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -42,7 +42,7 @@ function zeusNormalize(row){return Object.fromEntries(Object.entries(row).map(([
 function zeusMoney(value){return new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:2}).format(Number(value)||0);}
 function zeusAdmin(){return hasPermission('SEGURIDAD.PERMISOS.ADMINISTRAR');}
 function zeusTrackTransfers(){return zeusAdmin()||['INVENTARIO.TRASLADO.DESPACHAR','INVENTARIO.TRASLADO.RECIBIR'].some(hasPermission);}
-function zeusPosting(){return zeusTrackTransfers()||['COMPRAS.RECEPCION.CONTABILIZAR','TESORERIA.EGRESO.CONTABILIZAR','VENTAS.FACTURA.CONTABILIZAR','TESORERIA.RECIBO.CONTABILIZAR'].some(hasPermission);}
+function zeusPosting(){return hasPermission('INVENTARIO.AJUSTE.REVERSAR')||zeusTrackTransfers()||['COMPRAS.RECEPCION.CONTABILIZAR','TESORERIA.EGRESO.CONTABILIZAR','VENTAS.FACTURA.CONTABILIZAR','TESORERIA.RECIBO.CONTABILIZAR'].some(hasPermission);}
 function zeusScope(){return {epoch:zeusUI.epoch,company:String(state.erpSession?.company?.id),base:`/api/v1/companies/${state.erpSession?.company?.id}/zeus`};}
 function zeusCurrent(s){return s.epoch===zeusUI.epoch&&s.company===String(state.erpSession?.company?.id);}
 function closeZeus(){zeusPanel.hidden=true;$('#zeusNav').classList.remove('active');}
@@ -100,12 +100,16 @@ async function zeusLoadJobs(scope){
   const filter=$('#zeusState').value;const rows=await apiRequest(`${scope.base}/jobs?offset=${zeusUI.offset}&estado=${encodeURIComponent(filter)}&pendientes=${zeusUI.tab==='prepare'}`);
   if(!zeusCurrent(scope))return;zeusUI.jobs=rows.map(zeusNormalize);
   $('#zeusKpis').innerHTML=[['Por revisar',['SIN_PREPARAR','REQUIERE_REVISION','POR_APROBAR','RECHAZADO']],['En proceso',['PENDIENTE','ENVIANDO']],['Contabilizados',['CONTABILIZADO']],['Por conciliar',['INCIERTO']]].map(([title,statuses])=>`<article><span>${title}</span><strong>${zeusUI.jobs.filter(j=>statuses.includes(j.estado)).length}</strong><small>En esta página</small></article>`).join('');
-  $('#zeusJobs').innerHTML=zeusUI.jobs.length?`<table><thead><tr><th>Documento / detalle</th><th>Fecha contable</th><th>Valor</th><th>Estado</th><th>Comprobante Zeus</th><th>Detalle / acción</th></tr></thead><tbody>${zeusUI.jobs.map(j=>`<tr><td><small>${({EGRESO:'Comprobante de egreso',FACTURA_VENTA:'Factura de venta',RECIBO_CAJA:'Recibo de caja',NOTA_CARTERA:'Nota de cartera',TRASLADO:'Traslado entre bodegas'})[j.tipoDocumento]||'Entrada de mercancía'}</small><strong>${zeusEscape(j.factura||'Entrada '+j.recepcionMercanciaId)}</strong><small>${zeusEscape(j.proveedor)}</small></td><td>${zeusEscape(String(j.fechaContable||'').slice(0,10))}</td><td class="zeus-money">${zeusMoney(j.total)}</td><td>${zeusBadge(j.estado)}<small>${j.intentos} intento(s)</small></td><td>${zeusEscape([j.fuente,j.documento].filter(Boolean).join(' · ')||'—')}</td><td><span class="zeus-error-detail">${zeusEscape(j.error||'')}</span>${zeusJobActions(j)}</td></tr>`).join('')}</tbody></table>`:'<div class="zeus-empty"><h3>No hay documentos con este filtro</h3></div>';
+  $('#zeusJobs').innerHTML=zeusUI.jobs.length?`<table><thead><tr><th>Documento / detalle</th><th>Fecha contable</th><th>Valor</th><th>Estado</th><th>Comprobante Zeus</th><th>Detalle / acción</th></tr></thead><tbody>${zeusUI.jobs.map(j=>`<tr><td><small>${({EGRESO:'Comprobante de egreso',FACTURA_VENTA:'Factura de venta',RECIBO_CAJA:'Recibo de caja',NOTA_CARTERA:'Nota de cartera',TRASLADO:'Traslado entre bodegas',REVERSO_ENTRADA:'Reversión de entrada'})[j.tipoDocumento]||'Entrada de mercancía'}</small><strong>${zeusEscape(j.factura||'Entrada '+j.recepcionMercanciaId)}</strong><small>${zeusEscape(j.proveedor)}</small></td><td>${zeusEscape(String(j.fechaContable||'').slice(0,10))}</td><td class="zeus-money">${zeusMoney(j.total)}</td><td>${zeusBadge(j.estado)}<small>${j.intentos} intento(s)</small></td><td>${zeusEscape([j.fuente,j.documento].filter(Boolean).join(' · ')||'—')}</td><td><span class="zeus-error-detail">${zeusEscape(j.error||'')}</span>${zeusJobActions(j)}</td></tr>`).join('')}</tbody></table>`:'<div class="zeus-empty"><h3>No hay documentos con este filtro</h3></div>';
   $('#zeusPage').textContent=`Página ${Math.floor(zeusUI.offset/100)+1} · ${rows.length} envíos`;
   $('[data-zeus="previous"]').disabled=zeusUI.offset===0;$('[data-zeus="next"]').disabled=rows.length<100;
 }
 function zeusJobActions(j){
   const payment=j.tipoDocumento==='EGRESO',id=Number(j.origenId||j.recepcionMercanciaId);
+  if(j.tipoDocumento==='REVERSO_ENTRADA'){
+    if(!hasPermission('INVENTARIO.AJUSTE.REVERSAR'))return '';
+    return j.estado==='INCIERTO'?`<button type="button" class="button secondary" data-zeus-purchase-reversal="${id}" data-reversal-action="reconcile">Conciliar sin reenviar</button>`:j.estado==='RECHAZADO'?`<button type="button" class="button secondary" data-zeus-purchase-reversal="${id}" data-reversal-action="retry">Reintentar solo Zeus</button>`:'';
+  }
   if(j.tipoDocumento==='TRASLADO'){
     if(j.estado==='INCIERTO'&&zeusAdmin())return `<button type="button" class="button secondary" data-zeus-transfer="${id}" data-transfer-action="reconcile">Conciliar en Zeus</button>`;
     return ['REQUIERE_REVISION','RECHAZADO'].includes(j.estado)&&zeusTrackTransfers()?`<button type="button" class="button secondary" data-zeus-transfer="${id}" data-transfer-action="retry">Reintentar solo Zeus</button>`:'';
@@ -182,6 +186,14 @@ zeusPanel.addEventListener('click',event=>{
     else if(action==='refresh'){zeusUI.dirty=false;await zeusLoadStatus(scope);if(zeusCurrent(scope))await zeusLoadTab(scope);}
     else if(action==='check'){if(zeusUI.dirty)throw new Error('Guarda los cambios antes de comprobar la conexión.');const result=await apiRequest(`${scope.base}/connection/check`,{method:'POST'});if(zeusCurrent(scope))zeusNotice(result.contratoDisponible?`Conexión correcta a ${result.baseDatos}. Esto no es una prueba de contabilización.`:'Conecta con SQL, pero faltan objetos del contrato Zeus.',!result.contratoDisponible);}
     else if(action==='previous'||action==='next'){zeusUI.offset=Math.max(0,zeusUI.offset+(action==='next'?100:-100));await zeusLoadJobs(scope);}
+    else if(button.dataset.zeusPurchaseReversal){
+      const reversalAction=button.dataset.reversalAction;
+      if(!['retry','reconcile'].includes(reversalAction))return;
+      const result=await apiRequest(`/api/v1/companies/${scope.company}/supplier-documents/${Number(button.dataset.zeusPurchaseReversal)}/reversal/${reversalAction}`,{method:'POST',body:'{}'});
+      if(!zeusCurrent(scope))return;
+      await zeusLoadJobs(scope);
+      if(zeusCurrent(scope))zeusNotice(result.zeus?.mensaje||'Consulta de la reversión completada.',!['PENDIENTE','ENVIANDO','CONTABILIZADO'].includes(result.zeus?.estado));
+    }
     else if(button.dataset.zeusTransfer){
       const transferAction=button.dataset.transferAction;
       if(!['retry','reconcile'].includes(transferAction)||!confirm(transferAction==='retry'?'¿Reintentar la contabilización de este traslado en Zeus?':'¿Consultar el comprobante de este traslado en Zeus?'))return;

@@ -58,9 +58,9 @@ EXEC inv.usp_ContabilizarRecepcion @EmpresaId=@EmpresaId,@RecepcionMercanciaId=@
 SELECT @RecepcionLineaId=RecepcionMercanciaLineaId FROM inv.RecepcionMercanciaLinea WHERE EmpresaId=@EmpresaId AND RecepcionMercanciaId=@RecepcionId;
 SELECT @MotoId=UnidadSerializadaId FROM inv.RecepcionMercanciaUnidad WHERE EmpresaId=@EmpresaId AND RecepcionMercanciaLineaId=@RecepcionLineaId;
 SELECT @MovimientoRecepcionId=MovimientoInventarioId FROM inv.MovimientoInventario WHERE EmpresaId=@EmpresaId AND TipoDocumentoOrigen='RECEPCION_MERCANCIA' AND DocumentoOrigenId=@RecepcionId;
-EXEC inv.usp_ReversarMovimientoInventario @EmpresaId=@EmpresaId,@MovimientoOriginalId=@MovimientoRecepcionId,@PeriodoInventarioId=@PeriodoId,
-    @FechaContable='2026-08-06',@Motivo=N'Anulacion autorizada de recepcion serial',@IdempotencyKey='31313131-5555-5555-5555-555555555555';
-SELECT @ReversaMotoId=MovimientoReversionId FROM inv.ReversionMovimientoInventario WHERE EmpresaId=@EmpresaId AND IdempotencyKey='31313131-5555-5555-5555-555555555555';
+EXEC inv.usp_RevertirEntradaMercancia @EmpresaId=@EmpresaId,@RecepcionMercanciaId=@RecepcionId,@PeriodoInventarioId=@PeriodoId,
+    @FechaContable='2026-08-06',@Motivo=N'Anulacion autorizada de recepcion serial';
+SELECT @ReversaMotoId=MovimientoReversionId FROM inv.ReversionMovimientoInventario WHERE EmpresaId=@EmpresaId AND MovimientoOriginalId=@MovimientoRecepcionId;
 IF NOT EXISTS(SELECT 1 FROM inv.UnidadSerializada WHERE EmpresaId=@EmpresaId AND UnidadSerializadaId=@MotoId AND Estado='BAJA' AND BodegaActualId IS NULL)
     THROW 51983,'La unidad serializada no quedo dada de baja al reversar su recepcion.',1;
 IF NOT EXISTS(SELECT 1 FROM inv.MovimientoInventarioUnidad WHERE EmpresaId=@EmpresaId AND MovimientoInventarioId=@ReversaMotoId AND UnidadSerializadaId=@MotoId AND EstadoPosterior='BAJA')

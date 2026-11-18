@@ -262,6 +262,14 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             LEFT JOIN ter.Tercero t ON t.EmpresaId=r.EmpresaId AND t.TerceroId=r.TerceroId
             WHERE r.EmpresaId=@E AND @Receipts=1 AND r.Estado='CONTABILIZADA' AND d.Estado='CONTABILIZADO'
             UNION ALL
+            SELECT 'REVERSO_ENTRADA',v.DocumentoProveedorId,NULL,v.RecepcionMercanciaId,v.OperacionGuid,v.ZeusEstado,v.ZeusIntentos,
+                   v.ZeusFuente,v.ZeusDocumento,v.ZeusError,v.CreadoEnUtc,v.ZeusActualizadoEnUtc,
+                   CONCAT('Reversión ',d.NumeroDocumento),t.RazonSocial,v.FechaContable,d.TotalPagar
+            FROM inv.ReversionEntradaMercancia v
+            JOIN comp.DocumentoProveedor d ON d.EmpresaId=v.EmpresaId AND d.DocumentoProveedorId=v.DocumentoProveedorId
+            JOIN ter.Tercero t ON t.EmpresaId=d.EmpresaId AND t.TerceroId=d.TerceroId
+            WHERE v.EmpresaId=@E AND @Receipts=1
+            UNION ALL
             SELECT 'EGRESO',e.EgresoId,NULL,NULL,e.OperacionGuid,e.ZeusEstado,e.Intentos,e.ZeusFuente,e.ZeusDocumento,e.ZeusError,e.CreadoEnUtc,e.ActualizadoEnUtc,
                    CONCAT('CE-',e.EgresoId),t.RazonSocial,e.FechaContable,e.Total
             FROM cxp.Egreso e JOIN ter.Tercero t ON t.EmpresaId=e.EmpresaId AND t.TerceroId=e.TerceroId
@@ -289,7 +297,7 @@ public sealed partial class ZeusRepository(TenantConnectionFactory connections)
             JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
             WHERE n.EmpresaId=@E AND @Sales=1
             {transferJobs})
-            SELECT * FROM Envio WHERE (@S IS NULL OR Estado=@S) AND (@Pending=0 OR Estado NOT IN('CONTABILIZADO','CANCELADO','REVERTIDO'))
+            SELECT * FROM Envio WHERE (@S IS NULL OR Estado=@S) AND (@Pending=0 OR Estado NOT IN('CONTABILIZADO','CANCELADO','REVERTIDO','SIN_ENVIO'))
             ORDER BY FechaContable DESC,TipoDocumento,OrigenId DESC OFFSET @O ROWS FETCH NEXT 100 ROWS ONLY;
             """,company);
         Add(q,"@S",string.IsNullOrWhiteSpace(state)?DBNull.Value:state);Add(q,"@O",Math.Max(0,offset));

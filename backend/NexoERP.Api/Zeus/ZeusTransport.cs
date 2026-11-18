@@ -54,6 +54,11 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             await VerifyTransferLinesAsync(c,tx,s,number,ct);
             return number;
         }
+        if(s.ReversionEntrada is not null)
+        {
+            await VerifyPurchaseEntryLinesAsync(c,tx,s,number,ct);
+            return number;
+        }
         q.CommandText="""
             SELECT RTRIM(CODICTA),CASE WHEN VALORTRA>0 THEN 1 ELSE -1 END,SUM(VALORTRA)
             FROM dbo.TRANSAC WHERE IDFUENTE=@F AND NUMDOCTRA=@N AND STATUSTRA IN('AC','XA') AND (@Payment=1 OR BU=@B)
@@ -215,6 +220,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
         try
         {
             ZeusJournal.ValidateTransfer(s);
+            ZeusPurchaseEntryReversalPolicy.Validate(s);
             diagnosticConnection=await ConnectionAsync(company,ct);
             c=await OpenAsync(company,s.Configuracion,ct,diagnosticConnection);
             stage="inicio de transacción y bloqueo del envío";
@@ -230,6 +236,11 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
             stage="comprobación de envío previo";
             var existing=await VerifyAsync(c,tx,s,key,ct);
             if(existing is not null) { await tx.RollbackAsync(CancellationToken.None);return new("CONTABILIZADO",s.Configuracion.Fuente,existing); }
+            if(s.ReversionEntrada is not null)
+            {
+                stage="validación del comprobante y saldo original de la entrada";
+                await CheckPurchaseEntryReversalAsync(c,tx,s,ct);
+            }
             if(s.Egreso is not null)
             {
                 stage="validación del egreso";
@@ -323,7 +334,8 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                        OR (a.Cliente=1 AND ISNULL(m.INDCPICTA,0)<>2)
                        OR (a.Caja=1 AND ISNULL(m.INDCPICTA,0) NOT IN(1,6))
                        OR (a.Proveedor=0 AND a.Cliente=0 AND a.Caja=0 AND m.INDCPICTA IN(2,3,6))
-                       OR (a.Retencion=1 AND (m.PORCEIMPUESTO IS NULL OR m.PORCEIMPUESTO<>a.Tarifa OR ISNULL(m.IndValorRetenido,0)<>0)))
+                       OR (a.Retencion=1 AND (ISNULL(m.IndValorRetenido,0)<>0 OR @PurchaseReversal=0
+                           AND (m.PORCEIMPUESTO IS NULL OR m.PORCEIMPUESTO<>a.Tarifa))))
                     THROW 51711,'Cuenta no habilitada, incompatible o tarifa de retencion distinta a PORCEIMPUESTO en Zeus. Revisa y guarda las cuentas de la empresa.',1;
                 """;
             // Zeus puede conservar compatibilidad 100: XML evita depender de OPENJSON (130+).
@@ -331,6 +343,7 @@ public sealed partial class ZeusTransport(IConfiguration configuration,ZeusConne
                 .Select(m=>(m.Regla.Cuenta,Proveedor:m.Regla.Concepto=="PROVEEDOR",Cliente:m.Regla.Concepto=="CLIENTE",Caja:m.Regla.Concepto=="BANCO_CAJA",Retencion:ZeusJournal.IsRetention(m.Regla.Concepto),m.Tarifa)).Distinct()
                 .Select(a=>new XElement("Cuenta",new XAttribute("Cuenta",a.Cuenta),new XAttribute("Proveedor",a.Proveedor?1:0),new XAttribute("Cliente",a.Cliente?1:0),new XAttribute("Caja",a.Caja?1:0),new XAttribute("Retencion",a.Retencion?1:0),new XAttribute("Tarifa",a.Tarifa))))
                 .ToString(SaveOptions.DisableFormatting);
+            q.Parameters.AddWithValue("@PurchaseReversal",s.ReversionEntrada is null?0:1);
             q.Parameters.AddWithValue("@Payment",s.Egreso is null&&s.ClienteDocumento?.Tipo is not("RECIBO" or "REVERSO_RECIBO")&&s.NotaCartera is null?0:1);
             await q.ExecuteNonQueryAsync(ct);q.Parameters.Clear();
             stage="dbo.spWSG_Contabilidad";

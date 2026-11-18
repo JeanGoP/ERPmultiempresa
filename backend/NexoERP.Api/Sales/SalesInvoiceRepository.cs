@@ -233,7 +233,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
                      SELECT TOP(1) u.Color,u.Modelo
                      FROM inv.RecepcionMercanciaUnidad u
                      WHERE u.EmpresaId=unit.EmpresaId AND u.UnidadSerializadaId=unit.UnidadSerializadaId
-                     ORDER BY u.RecepcionMercanciaUnidadId
+                     ORDER BY u.RecepcionMercanciaUnidadId DESC
                  ) reception
                  ORDER BY TRY_CONVERT(int,savedUnit.[key]) FOR JSON PATH) Unidades,
                  frozen.PrecioBaseConIva,frozen.DescuentoPorcentaje

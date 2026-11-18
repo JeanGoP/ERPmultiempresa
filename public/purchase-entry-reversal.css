@@ -1,0 +1,20 @@
+.purchase-entry-reversal.erp-dialog { width:min(94vw,680px); max-height:90dvh; }
+.purchase-entry-reversal .dialog-heading { padding:18px 24px; }
+.purchase-entry-reversal h2 { margin:4px 0 0; font-size:22px; }
+.purchase-reversal-body { padding:0 24px 24px; display:grid; gap:14px; }
+.purchase-reversal-document { display:grid; gap:4px; padding:14px 16px; background:#f1f7f4; border:1px solid var(--line); border-radius:9px; }
+.purchase-reversal-document span,.purchase-reversal-explanation,.purchase-reversal-limit,.purchase-reversal-result p { font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.purchase-reversal-explanation { margin:0 0 16px; }
+.purchase-reversal-date { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:end; gap:16px; margin-bottom:14px; }
+.purchase-entry-reversal label { display:grid; gap:6px; font-size:13px; font-weight:700; }
+.purchase-entry-reversal input,.purchase-entry-reversal textarea { width:100%; min-height:40px; padding:9px 11px; border:1px solid var(--line); border-radius:7px; color:var(--ink); background:white; font:inherit; }
+.purchase-entry-reversal textarea { resize:vertical; }
+.purchase-reversal-date p { margin:0; font-size:12px; color:var(--muted); }
+.purchase-reversal-limit { color:var(--muted); }
+.purchase-reversal-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:10px; }
+.purchase-entry-reversal [data-reversal-notice] { margin:0; padding:10px 12px; border-radius:7px; background:#edf5f0; font-size:13px; }
+.purchase-entry-reversal [data-reversal-notice].error { background:#fff0eb; color:#9b3729; }
+.purchase-entry-reversal [data-reversal-notice][hidden] { display:none; }
+.purchase-reversal-result h3 { margin:0 0 10px; color:#17684f; }
+.saved-purchase-badge.state-revertida { background:#f7dfda; color:#874237; }
+@media(max-width:520px) { .purchase-reversal-date { grid-template-columns:1fr; gap:8px; } .purchase-reversal-body { padding-inline:16px; } }

@@ -540,7 +540,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             JOIN inv.RecepcionMercanciaLinea l ON l.EmpresaId=r.EmpresaId AND l.RecepcionMercanciaId=r.RecepcionMercanciaId
             LEFT JOIN inv.RecepcionMercanciaUnidad u ON u.EmpresaId=l.EmpresaId AND u.RecepcionMercanciaLineaId=l.RecepcionMercanciaLineaId
             LEFT JOIN inv.RecepcionMercanciaRevisionUnidad rv ON rv.EmpresaId=u.EmpresaId AND rv.RecepcionMercanciaUnidadId=u.RecepcionMercanciaUnidadId
-            WHERE r.EmpresaId=@EmpresaId AND r.Estado<>'CONTABILIZADA' AND (@BodegaId IS NULL OR r.BodegaId=@BodegaId)
+            WHERE r.EmpresaId=@EmpresaId AND r.Estado IN('BORRADOR','VALIDADA') AND (@BodegaId IS NULL OR r.BodegaId=@BodegaId)
               AND (@Query IS NULL OR r.Numero LIKE '%'+@Query+'%' OR d.NumeroDocumento LIKE '%'+@Query+'%' OR t.RazonSocial COLLATE Latin1_General_CI_AI LIKE '%'+@Query+'%'
                    OR EXISTS(SELECT 1 FROM inv.RecepcionMercanciaUnidad xu JOIN inv.RecepcionMercanciaLinea xl ON xl.EmpresaId=xu.EmpresaId AND xl.RecepcionMercanciaLineaId=xu.RecepcionMercanciaLineaId WHERE xl.EmpresaId=r.EmpresaId AND xl.RecepcionMercanciaId=r.RecepcionMercanciaId AND (xu.Serial LIKE '%'+@Query+'%' OR xu.Motor LIKE '%'+@Query+'%' OR xu.Chasis LIKE '%'+@Query+'%' OR xu.Vin LIKE '%'+@Query+'%')))
             GROUP BY r.RecepcionMercanciaId,r.Numero,r.Estado,d.DocumentoProveedorId,d.TipoDocumento,d.NumeroDocumento,t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre
@@ -622,7 +622,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
                 JOIN inv.RecepcionMercanciaLinea l ON l.EmpresaId=r.EmpresaId AND l.RecepcionMercanciaId=r.RecepcionMercanciaId
                 LEFT JOIN inv.RecepcionMercanciaUnidad u ON u.EmpresaId=l.EmpresaId AND u.RecepcionMercanciaLineaId=l.RecepcionMercanciaLineaId
                 LEFT JOIN inv.RecepcionMercanciaRevisionUnidad rv ON rv.EmpresaId=u.EmpresaId AND rv.RecepcionMercanciaUnidadId=u.RecepcionMercanciaUnidadId
-                WHERE r.EmpresaId=@EmpresaId AND r.RecepcionMercanciaId=@RecepcionMercanciaId AND (@IncludePosted=1 OR r.Estado<>'CONTABILIZADA')
+                WHERE r.EmpresaId=@EmpresaId AND r.RecepcionMercanciaId=@RecepcionMercanciaId AND (@IncludePosted=1 OR r.Estado IN('BORRADOR','VALIDADA'))
                 GROUP BY r.RecepcionMercanciaId,r.Numero,r.Estado,d.DocumentoProveedorId,d.TipoDocumento,d.NumeroDocumento,t.RazonSocial,d.FechaDocumento,r.FechaContable,b.Nombre;
                 """;
             Add(headerCommand,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(headerCommand,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
@@ -772,7 +772,7 @@ public sealed class PurchasingRepository(TenantConnectionFactory connections)
             Add(receipt,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(receipt,"@RecepcionMercanciaId",SqlDbType.BigInt,recepcionId);
             var state=Convert.ToString(await receipt.ExecuteScalarAsync(cancellationToken));
             if(string.IsNullOrWhiteSpace(state)) throw new InvalidOperationException("La recepción no existe.");
-            if(state=="CONTABILIZADA") throw new InvalidOperationException("La recepción ya fue contabilizada. La revisión física quedó cerrada.");
+            if(state is not ("BORRADOR" or "VALIDADA")) throw new ArgumentException("La revisión física está cerrada: la recepción fue contabilizada o revertida.");
         }
         foreach(var review in input.Revisiones)
         {

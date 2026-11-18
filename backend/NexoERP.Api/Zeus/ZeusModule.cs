@@ -232,7 +232,8 @@ public static class ZeusModule
         }).RequireErpPermission(posting);
         group.MapGet("/jobs",async(long empresaId,string? estado,int? offset,bool? pendientes,HttpContext http,AuthRepository auth,ZeusRepository repo,CancellationToken ct)=>{
             if(!http.Items.TryGetValue("UsuarioId",out var user))return Results.Unauthorized();
-            var receipts=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,posting,ct);
+            var receipts=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,posting,ct)
+                ||await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,"INVENTARIO.AJUSTE.REVERSAR",ct);
             var payments=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,"TESORERIA.EGRESO.CONTABILIZAR",ct);
             var sales=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,"VENTAS.FACTURA.CONTABILIZAR",ct);
             var cash=await auth.HasPermissionAsync(Convert.ToInt64(user),empresaId,"TESORERIA.RECIBO.CONTABILIZAR",ct);

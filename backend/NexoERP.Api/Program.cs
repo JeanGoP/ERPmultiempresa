@@ -47,6 +47,8 @@ builder.Services.AddHostedService<CustomerPostingWorker>();
 builder.Services.AddHostedService<CustomerZeusWorker>();
 builder.Services.AddScoped<BrandCatalogRepository>();
 builder.Services.AddScoped<PurchasingRepository>();
+builder.Services.AddScoped<PurchaseEntryReversalRepository>();
+builder.Services.AddHostedService<ZeusPurchaseEntryReversalWorker>();
 builder.Services.AddScoped<AccountingReports>();
 builder.Services.AddScoped<ZeusHistoricalPortfolio>();
 builder.Services.AddScoped<DisbursementRepository>();
@@ -583,6 +585,37 @@ app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:
     try{return Results.Ok(await purchasing.RejectDocumentAsync(empresaId,documentoId,Convert.ToInt64(context.Items["UsuarioId"]),cancellationToken));}
     catch(SqlException error) when(error.Number is >=51340 and <=51349){return Results.Conflict(new{error=error.Message,code=error.Number});}
 }).RequireErpPermission("COMPRAS.DOCUMENTO.CREAR");
+
+app.MapGet("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:long}/reversal",async(long empresaId,long documentoId,PurchaseEntryReversalRepository reversals,CancellationToken ct)=>
+{
+    try { var result=await reversals.StatusAsync(empresaId,documentoId,ct);return result is null?Results.NotFound():Results.Ok(result); }
+    catch(ArgumentException error) { return Results.Conflict(new{error=error.Message}); }
+}).RequireErpPermission("INVENTARIO.AJUSTE.REVERSAR");
+
+app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:long}/reversal/retry",async(long empresaId,long documentoId,HttpContext context,PurchaseEntryReversalRepository reversals,CancellationToken ct)=>
+{
+    try { return Results.Ok(await reversals.RetryAsync(empresaId,documentoId,Convert.ToInt64(context.Items["UsuarioId"]),ct)); }
+    catch(ArgumentException error) { return Results.Conflict(new{error=error.Message}); }
+    catch(InvalidOperationException error) { return Results.Conflict(new{error=error.Message}); }
+    catch(SqlException error) when(error.Number is >=50000 and <60000) { return Results.Conflict(new{error=error.Message,code=error.Number}); }
+}).RequireErpPermission("INVENTARIO.AJUSTE.REVERSAR");
+
+app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:long}/reversal/reconcile",async(long empresaId,long documentoId,PurchaseEntryReversalRepository reversals,CancellationToken ct)=>
+{
+    try { return Results.Ok(await reversals.ReconcileAsync(empresaId,documentoId,ct)); }
+    catch(ArgumentException error) { return Results.Conflict(new{error=error.Message}); }
+    catch(InvalidOperationException error) { return Results.Conflict(new{error=error.Message}); }
+}).RequireErpPermission("INVENTARIO.AJUSTE.REVERSAR");
+
+app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:long}/reverse",async(long empresaId,long documentoId,PurchaseEntryReversalInput input,HttpContext context,PurchaseEntryReversalRepository reversals,CancellationToken ct)=>
+{
+    if(input.PeriodoInventarioId<=0||string.IsNullOrWhiteSpace(input.Motivo)||input.Motivo.Trim().Length is <10 or >500)
+        return Results.ValidationProblem(new Dictionary<string,string[]> { ["reversion"]=["Escoge una fecha con período abierto y escribe un motivo de entre 10 y 500 caracteres."] });
+    try { return Results.Ok(await reversals.RequestAsync(empresaId,documentoId,input,Convert.ToInt64(context.Items["UsuarioId"]),ct)); }
+    catch(ArgumentException error) { return Results.Conflict(new{error=error.Message}); }
+    catch(InvalidOperationException error) { return Results.Conflict(new{error=error.Message}); }
+    catch(SqlException error) when(error.Number is >=50000 and <60000) { return Results.Conflict(new{error=error.Message,code=error.Number}); }
+}).RequireErpPermission("INVENTARIO.AJUSTE.REVERSAR");
 
 app.MapPost("/api/v1/companies/{empresaId:long}/supplier-documents/{documentoId:long}/prepare", async (long empresaId, long documentoId, PrepareSupplierDocumentRequest input, HttpContext context, PurchasingRepository purchasing, CancellationToken cancellationToken) =>
 {

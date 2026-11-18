@@ -25,6 +25,7 @@ public static class ZeusXml
     public static string Build(ZeusSnapshot s,Guid key,string? invoiceDocument=null,IReadOnlyDictionary<string,string>? transferIndicators=null)
     {
         ZeusJournal.ValidateTransfer(s);
+        ZeusPurchaseEntryReversalPolicy.Validate(s);
         var config=s.Configuracion;var origin=s.Origen;
         var date=origin.FechaContable.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture);
         var period=origin.FechaContable.ToString("yyyyMM",CultureInfo.InvariantCulture);
@@ -45,6 +46,11 @@ public static class ZeusXml
         {
             var description="FACTURA DE VENTA - "+(origin.ProveedorNombre??s.Proveedor.CodigoTercero)+" - "+origin.Factura;
             Set(header,"DESCDCTO",description[..Math.Min(120,description.Length)]);
+            Set(header,"XmlAdicionales",Marker(key));
+        }
+        if(s.ReversionEntrada is { } purchaseReversal)
+        {
+            Set(header,"DESCDCTO",CompactDescription($"REVERSIÓN ENTRADA {purchaseReversal.FuenteOriginal} {purchaseReversal.DocumentoOriginal} - {purchaseReversal.Motivo}",120));
             Set(header,"XmlAdicionales",Marker(key));
         }
         if (s.Traslado is { } transfer)

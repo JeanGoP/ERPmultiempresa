@@ -18,4 +18,8 @@ assert.doesNotMatch(html,/Servicio/);
 assert.match(html,/incluye líneas que no son mercancía/);
 detail.documento.recepcionEstado='BORRADOR';
 assert.match(context.window.purchaseEntryPrint.html(detail,company),/BORRADOR \/ PENDIENTE DE CONTABILIZAR/);
+detail.documento.estado='REVERTIDO';detail.documento.recepcionEstado='REVERTIDA';
+assert.match(context.window.purchaseEntryPrint.html(detail,company),/ENTRADA REVERTIDA/);
+assert.match(context.window.purchaseEntryPrint.html(detail,company),/no acredita existencias vigentes/);
+assert.doesNotMatch(context.window.purchaseEntryPrint.html(detail,company),/ENTRADA CONTABILIZADA|Documento aún no contabilizado/);
 console.log('Impresión de entrada de mercancía: OK');
