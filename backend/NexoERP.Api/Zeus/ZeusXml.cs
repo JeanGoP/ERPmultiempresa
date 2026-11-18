@@ -63,8 +63,9 @@ public static class ZeusXml
             Set(header,"IDCLIPRV","");
         }
         var document=new XElement("Documento",header,new XElement("General",new XElement("AgruparNIT","N")));
-        foreach(var movement in s.Movimientos)
+        for(var movementIndex=0;movementIndex<s.Movimientos.Length;movementIndex++)
         {
+            var movement=s.Movimientos[movementIndex];
             var a=movement.Regla;var line=Create("Transac",DetailText,DetailNumber);
             Set(line,"ANOTRA",period);Set(line,"IDFUENTE",config.Fuente);Set(line,"NUMDOCTRA",number);Set(line,"FECHATRA",date);
             Set(line,"CODICTA",a.Cuenta);Set(line,"NITTRA",string.IsNullOrWhiteSpace(a.TerceroCodigo)?s.Proveedor.CodigoTercero:a.TerceroCodigo);Set(line,"CLIPRV",string.IsNullOrWhiteSpace(a.ClienteProveedorCodigo)?s.Proveedor.CodigoProveedor:a.ClienteProveedorCodigo);
@@ -79,6 +80,19 @@ public static class ZeusXml
             Set(line,"BASERETETRA",movement.Base);Set(line,"PORRETETRA",movement.Tarifa);Set(line,"TasaCambio",1);
             Set(line,"IDCENCO",a.CentroCosto);Set(line,"AUXIAUX",a.Auxiliar);Set(line,"IDITEM",a.Item);
             Set(line,"CODPRESU",a.Presupuesto);Set(line,"NRESERVA",a.Reserva);Set(line,"Aplicacion","CONTABILIDAD");
+            if(s.ReversionEntrada?.LineasOriginales is { } postedLines)
+            {
+                var posted=postedLines[movementIndex];
+                // Los blancos de TRANSAC son datos reales, no valores a reemplazar por el proveedor del XML original.
+                Set(line,"CODICTA",posted.Cuenta);Set(line,"INDCPITRA",posted.IndicadorCartera);
+                Set(line,"NITTRA",posted.Tercero);Set(line,"CLIPRV",posted.ClienteProveedor);
+                Set(line,"TIPOFAC",posted.TipoFactura);Set(line,"NUMEFAC",posted.NumeroFactura);
+                Set(line,"VENCEFAC",posted.Vencimiento);Set(line,"REFEFAC",posted.Referencia);
+                Set(line,"Fechafact",posted.FechaFactura);Set(line,"BU",posted.UnidadNegocio);
+                Set(line,"IDCENCO",posted.CentroCosto);Set(line,"AUXIAUX",posted.Auxiliar);Set(line,"IDITEM",posted.Item);
+                Set(line,"CODPRESU",posted.Presupuesto);Set(line,"NRESERVA",posted.Reserva);
+                Set(line,"VALORTRA",-posted.Valor);Set(line,"BASERETETRA",-posted.Base);Set(line,"PORRETETRA",posted.Tarifa);
+            }
             if (s.Traslado is { } warehouseTransfer)
             {
                 var description = movement.Valor < 0

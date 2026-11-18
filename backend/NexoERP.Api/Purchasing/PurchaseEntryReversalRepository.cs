@@ -82,7 +82,7 @@ public sealed class PurchaseEntryReversalRepository(TenantConnectionFactory conn
                     throw new ArgumentException("La entrada no conserva el comprobante original confirmado de Zeus.");
                 ZeusPurchaseEntryReversalPolicy.EnsureFullInvoice(original,receipt,supplier,invoice,total);
                 reversal=ZeusPurchaseEntryReversalPolicy.Build(original,originalKey,source,number,input.FechaContable,reason!);
-                try{await transport.CheckPurchaseEntryReversalAsync(company,reversal,ct);}
+                try{reversal=await transport.CheckPurchaseEntryReversalAsync(company,reversal,ct);}
                 catch(SqlException){throw new ArgumentException("No se pudo comprobar el comprobante y el saldo exacto de la factura en Zeus. La entrada no fue revertida.");}
                 catch(InvalidOperationException error){throw new ArgumentException("El comprobante original de Zeus requiere revisión. "+error.Message);}
             }
@@ -202,18 +202,42 @@ public sealed class PurchaseEntryReversalRepository(TenantConnectionFactory conn
     public async Task<PurchaseEntryReversalStatus> RetryAsync(long company,long document,long user,CancellationToken ct)
     {
         await using var connection=await connections.OpenAsync(company,false,ct);
+        await using var transaction=(SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable,ct);
         await using var command=ZeusRepository.Command(connection,"""
-            SET XACT_ABORT ON; BEGIN TRANSACTION;
-            UPDATE inv.ReversionEntradaMercancia SET ZeusEstado='PENDIENTE',ZeusError=NULL,ZeusActualizadoEnUtc=SYSUTCDATETIME()
+            SELECT ReversionEntradaMercanciaId,OperacionGuid,ZeusSnapshot
+            FROM inv.ReversionEntradaMercancia WITH(UPDLOCK,HOLDLOCK)
             WHERE EmpresaId=@E AND DocumentoProveedorId=@Document AND ZeusEstado='RECHAZADO' AND ZeusSnapshot IS NOT NULL;
-            IF @@ROWCOUNT<>1 THROW 51993,'Solo puede reintentarse una reversión rechazada con comprobante congelado.',1;
-            INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,AplicacionOrigen)
-            VALUES(@E,@User,'REINTENTAR_REVERSIÓN_ENTRADA','comp.DocumentoProveedor',CONVERT(nvarchar(100),@Document),'ZEUS');
-            COMMIT;
-            """,company);
-        ZeusRepository.Add(command,"@Document",document);ZeusRepository.Add(command,"@User",user);
+            """,company,transaction);
+        ZeusRepository.Add(command,"@Document",document);
+        long reversalId;Guid key;ZeusSnapshot snapshot;
+        await using(var reader=await command.ExecuteReaderAsync(ct))
+        {
+            if(!await reader.ReadAsync(ct))throw new ArgumentException("Solo puede reintentarse una reversión rechazada con comprobante congelado.");
+            reversalId=reader.GetInt64(0);key=reader.GetGuid(1);
+            try{snapshot=JsonSerializer.Deserialize<ZeusSnapshot>(reader.GetString(2))
+                ??throw new ArgumentException("La reversión no conserva un comprobante válido para reintentar.");}
+            catch(JsonException){throw new ArgumentException("La reversión no conserva un comprobante válido para reintentar.");}
+        }
+        // Completar la huella real de envíos antiguos antes de volver a ponerlos en cola.
+        // Se conserva la operación original: no se crean otra reversión ni otra clave de envío.
+        var prepared=await transport.CheckPurchaseEntryReversalAsync(company,snapshot,ct);
+        command.CommandText="""
+            UPDATE inv.ReversionEntradaMercancia
+            SET ZeusEstado='PENDIENTE',ZeusSnapshot=@Snapshot,ZeusError=NULL,ZeusActualizadoEnUtc=SYSUTCDATETIME()
+            WHERE EmpresaId=@E AND ReversionEntradaMercanciaId=@Id AND OperacionGuid=@Key AND ZeusEstado='RECHAZADO';
+            IF @@ROWCOUNT<>1 THROW 51993,'La reversión cambió de estado. Consulta el documento antes de reintentar.',1;
+            INSERT audit.Evento(EmpresaId,UsuarioId,Operacion,Entidad,EntidadId,ValoresPosteriores,AplicacionOrigen)
+            VALUES(@E,@User,'REINTENTAR_REVERSIÓN_ENTRADA','comp.DocumentoProveedor',CONVERT(nvarchar(100),@Document),
+                (SELECT @Key operacionGuid,@Fingerprint huella FOR JSON PATH,WITHOUT_ARRAY_WRAPPER),'ZEUS');
+            """;
+        ZeusRepository.Add(command,"@Id",reversalId);ZeusRepository.Add(command,"@Key",key);
+        ZeusRepository.Add(command,"@User",user);ZeusRepository.Add(command,"@Snapshot",JsonSerializer.Serialize(prepared));
+        ZeusRepository.Add(command,"@Fingerprint",ZeusRepository.Fingerprint(prepared));
         await command.ExecuteNonQueryAsync(ct);
-        return (await StatusAsync(company,document,ct))!;
+        var status=await ReadStatusAsync(connection,transaction,company,document,ct)
+            ??throw new InvalidOperationException("No se encontró la reversión después de preparar el reintento.");
+        await transaction.CommitAsync(ct);
+        return status;
     }
 
     public async Task<PurchaseEntryReversalStatus> ReconcileAsync(long company,long document,CancellationToken ct)

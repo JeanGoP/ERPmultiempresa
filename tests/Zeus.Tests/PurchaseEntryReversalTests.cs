@@ -67,7 +67,7 @@ internal static class PurchaseEntryReversalTests
         await using var command=connection.CreateCommand();
         async Task Run(string sql){command.CommandText=sql;await command.ExecuteNonQueryAsync();}
         async Task<object?> Scalar(string sql){command.CommandText=sql;return await command.ExecuteScalarAsync();}
-        await Run("CREATE SCHEMA comp");await Run("CREATE SCHEMA inv");await Run("CREATE SCHEMA core");await Run("CREATE SCHEMA cont");
+        await Run("CREATE SCHEMA comp");await Run("CREATE SCHEMA inv");await Run("CREATE SCHEMA core");await Run("CREATE SCHEMA cont");await Run("CREATE SCHEMA audit");
         await Run("""
             CREATE TABLE comp.DocumentoProveedor(EmpresaId bigint,DocumentoProveedorId bigint,TerceroId bigint,NumeroDocumento nvarchar(50),TotalPagar decimal(20,4),Estado varchar(25),PRIMARY KEY(EmpresaId,DocumentoProveedorId));
             CREATE TABLE inv.RecepcionMercancia(EmpresaId bigint,RecepcionMercanciaId bigint,DocumentoProveedorId bigint,Estado varchar(25),FechaContable date,PRIMARY KEY(EmpresaId,RecepcionMercanciaId));
@@ -78,6 +78,7 @@ internal static class PurchaseEntryReversalTests
                 Estado varchar(25),FechaContable date,Motivo nvarchar(500),OperacionGuid uniqueidentifier DEFAULT NEWID(),ZeusEstado varchar(25) DEFAULT 'SIN_ENVIO',
                 ZeusError nvarchar(2000),ZeusFuente varchar(2),ZeusDocumento varchar(20),ZeusSnapshotOriginal nvarchar(max),ZeusSnapshot nvarchar(max),ZeusActualizadoEnUtc datetime2);
             CREATE TABLE inv.ReversionEntradaComprobante(EmpresaId bigint,ReversionEntradaMercanciaId bigint,ComprobanteOriginalId bigint,ComprobanteReversionId bigint,CausacionServicioId bigint);
+            CREATE TABLE audit.Evento(EmpresaId bigint,UsuarioId bigint,Operacion nvarchar(100),Entidad nvarchar(100),EntidadId nvarchar(100),ValoresPosteriores nvarchar(max),AplicacionOrigen nvarchar(50));
             """);
         await Run("""
             CREATE PROCEDURE inv.usp_RevertirEntradaMercancia @EmpresaId bigint,@RecepcionMercanciaId bigint,@PeriodoInventarioId bigint,
@@ -143,6 +144,19 @@ internal static class PurchaseEntryReversalTests
         check(repeated.YaExistia&&repeated.ReversionId==reversed.ReversionId
             &&(Guid)(await Scalar("SELECT OperacionGuid FROM inv.ReversionEntradaMercancia WHERE DocumentoProveedorId=100"))! ==operationKey,
             "Repetir reversión mixta conserva cola y clave sin volver a comprobar saldo ni duplicar");
+        var legacy=ZeusPurchaseEntryReversalPolicy.Build(original,originalKey,original.Configuracion.Fuente,"0100000001",request.FechaContable,request.Motivo);
+        command.CommandText="UPDATE inv.ReversionEntradaMercancia SET ZeusEstado='RECHAZADO',ZeusSnapshot=@Legacy WHERE DocumentoProveedorId=100";
+        command.Parameters.AddWithValue("@Legacy",JsonSerializer.Serialize(legacy));await command.ExecuteNonQueryAsync();command.Parameters.Clear();
+        var retried=await repository.RetryAsync(1,100,1,default);
+        var upgraded=JsonSerializer.Deserialize<ZeusSnapshot>((string)(await Scalar("SELECT ZeusSnapshot FROM inv.ReversionEntradaMercancia WHERE DocumentoProveedorId=100"))!)!;
+        check(retried.Zeus.Estado=="PENDIENTE"&&upgraded.ReversionEntrada!.LineasOriginales!.Single(line=>line.Cuenta=="1435").IndicadorCartera=="4"
+            &&(Guid)(await Scalar("SELECT OperacionGuid FROM inv.ReversionEntradaMercancia WHERE DocumentoProveedorId=100"))! ==operationKey
+            &&Convert.ToInt32(await Scalar("SELECT COUNT(*) FROM audit.Evento WHERE Operacion='REINTENTAR_REVERSIÓN_ENTRADA'"))==1,
+            "Reintento legado congela asiento real, mantiene GUID y audita antes de encolarse");
+        await Run("UPDATE inv.ReversionEntradaMercancia SET ZeusEstado='INCIERTO' WHERE DocumentoProveedorId=100");
+        try{await repository.RetryAsync(1,100,1,default);throw new Exception("Reintentó resultado incierto.");}
+        catch(ArgumentException){check((string)(await Scalar("SELECT ZeusEstado FROM inv.ReversionEntradaMercancia WHERE DocumentoProveedorId=100"))! =="INCIERTO",
+            "Actualización canónica de reintento no permite reenviar resultados inciertos");}
         var serviceOnly=await repository.RequestAsync(1,101,request,1,default);
         var serviceStatus=await repository.StatusAsync(1,101,default);
         check(serviceOnly.Zeus.Estado=="SIN_ENVIO"&&serviceOnly.ComprobantesRevertidos==1&&serviceOnly.CausacionEstado=="REVERTIDA"
@@ -182,12 +196,12 @@ internal static class PurchaseEntryReversalTests
                 CREATE TABLE dbo.TRANSAC(IDFUENTE varchar(2),NUMDOCTRA varchar(10),ANOTRA varchar(6),FECHATRA varchar(10),
                     CODICTA varchar(20),NITTRA varchar(25),CLIPRV varchar(10),INDCPITRA char(1),TIPOFAC varchar(3),NUMEFAC varchar(15),
                     VENCEFAC varchar(10),REFEFAC varchar(25),BU varchar(25),IDCENCO varchar(16),AUXIAUX varchar(16),IDITEM varchar(16),
-                    CODPRESU varchar(16),NRESERVA varchar(16),PORRETETRA decimal(18,4),BASERETETRA money,VALORTRA money,STATUSTRA char(2));
+                    CODPRESU varchar(16),NRESERVA varchar(16),PORRETETRA decimal(18,4),BASERETETRA money,VALORTRA money,STATUSTRA char(2),FECHAFACT varchar(10),CONSECUTRA int IDENTITY);
                 CREATE TABLE dbo.FACTURAS_BU(BU varchar(25),CODICTA varchar(20),IDUNIDAD char(3),IDCLIPRV varchar(10),
                     TIPOFACT varchar(3),NUMEFAC varchar(15),VENCFAC char(10),REFEFAC varchar(25),ANOMESFAC varchar(6),SACTFAC money);
                 CREATE TABLE dbo.PROVEEDORES(IDPROVE varchar(10),IDTERCERO varchar(25));
                 CREATE TABLE dbo.MAECONT(CODICTA varchar(20),HABILITARCTA bit,TIPOCTA char(1),INDCPICTA int,PORCEIMPUESTO decimal(18,4),IndValorRetenido bit);
-                INSERT dbo.MAECONT VALUES('1435',1,'D',1,NULL,0),('2408',1,'D',1,NULL,0),('2365',1,'D',1,2.5,0),('2205',1,'D',3,NULL,0),('513595',1,'D',1,NULL,0);
+                INSERT dbo.MAECONT VALUES('1435',1,'D',4,NULL,0),('2408',1,'D',1,NULL,0),('2365',1,'D',1,2.5,0),('2205',1,'D',3,NULL,0),('513595',1,'D',1,NULL,0);
                 INSERT dbo.PROVEEDORES VALUES('P10','N10');
                 CREATE TABLE dbo.TestMode(Mode varchar(30));INSERT dbo.TestMode VALUES('OK');
                 """);
@@ -205,7 +219,7 @@ internal static class PurchaseEntryReversalTests
                       ISNULL(n.value('(CODPRESU/text())[1]','varchar(16)'),''),ISNULL(n.value('(NRESERVA/text())[1]','varchar(16)'),''),
                       n.value('(PORRETETRA/text())[1]','decimal(18,4)'),
                       CASE WHEN @mode='WRONG_BASIS' THEN ABS(n.value('(BASERETETRA/text())[1]','money')) ELSE n.value('(BASERETETRA/text())[1]','money') END,
-                      n.value('(VALORTRA/text())[1]','money'),'AC'
+                      n.value('(VALORTRA/text())[1]','money'),'AC',ISNULL(n.value('(Fechafact/text())[1]','varchar(10)'),'')
                     FROM @x.nodes('/ZEUS_SQL/Documento/Transac') t(n);
                     INSERT dbo.DOCUMENT
                     SELECT h.value('(FNTEDCTO/text())[1]','varchar(2)'),@Number,h.value('(FECHDCTO/text())[1]','varchar(10)'),
@@ -236,12 +250,44 @@ internal static class PurchaseEntryReversalTests
             command.Parameters.AddWithValue("@Bu",config.UnidadNegocio);command.Parameters.AddWithValue("@Invoice",source.Factura);
             command.Parameters.AddWithValue("@Due",source.Vencimiento.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture));
             command.Parameters.AddWithValue("@Balance",-source.Total);await command.ExecuteNonQueryAsync();command.Parameters.Clear();
+            await Run("UPDATE dbo.TRANSAC SET INDCPITRA='4',NITTRA='',CLIPRV='',TIPOFAC='',NUMEFAC='',VENCEFAC='',FECHAFACT='' WHERE CODICTA='1435'");
             var configuration=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{
                 ["Zeus:Companies:1:ConnectionString"]=cs
             }).Build();
             var transport=new ZeusTransport(configuration);
-            await transport.CheckPurchaseEntryReversalAsync(1,reversal,default);
+            var oldPending=await transport.SendAsync(1,reversal,reversalKey,default);
+            check(oldPending.Estado=="RECHAZADO"&&await Count()==1,
+                "Cola antigua sin canónico no envía datos transitorios: exige preparar y guardar el reintento");
+            reversal=await transport.CheckPurchaseEntryReversalAsync(1,reversal,default);
             check(true,"Preflight de reversión confirma el comprobante y la obligación exacta en Zeus");
+            var realInventory=reversal.ReversionEntrada!.LineasOriginales!.Single(line=>line.Cuenta=="1435");
+            var realXml=XDocument.Parse(ZeusXml.Build(reversal,reversalKey));
+            var inventoryXml=realXml.Descendants("Transac").Single(line=>line.Element("CODICTA")!.Value=="1435");
+            check(realInventory.IndicadorCartera=="4"&&inventoryXml.Element("INDCPITRA")!.Value=="4"
+                &&new[]{"NITTRA","CLIPRV","TIPOFAC","NUMEFAC","VENCEFAC","Fechafact"}.All(field=>inventoryXml.Element(field)!.Value==""),
+                "Inventario real indicador 4 conserva blancos explícitos en reverso sin rellenarlos con proveedor");
+            var payableXml=realXml.Descendants("Transac").Single(line=>line.Element("CODICTA")!.Value=="2205");
+            check(payableXml.Element("TIPOFAC")!.Value=="FA"&&payableXml.Element("NUMEFAC")!.Value==source.Factura
+                &&payableXml.Element("VALORTRA")!.Value==source.Total.ToString(CultureInfo.InvariantCulture)
+                &&realXml.Descendants("Document").Single().Element("FNTEDCTO")!.Value==config.Fuente
+                &&realXml.Descendants("Document").Single().Element("NUMEDCTO")!.Value==config.Serie+"NUEVO",
+                "Obligación exacta se invierte en comprobante nuevo de la misma fuente y serie");
+            await Run("UPDATE dbo.TRANSAC SET BASERETETRA=BASERETETRA+1 WHERE CODICTA='2408'");
+            var changedBasis=await transport.SendAsync(1,reversal,reversalKey,default);
+            check(changedBasis.Estado=="RECHAZADO"&&await Count()==1,"Modificar base tributaria original después de congelar bloquea el envío");
+            await Run("UPDATE dbo.TRANSAC SET BASERETETRA=BASERETETRA-1,PORRETETRA=18 WHERE CODICTA='2408'");
+            var changedRate=await transport.SendAsync(1,reversal,reversalKey,default);
+            check(changedRate.Estado=="RECHAZADO"&&await Count()==1,"Modificar tarifa original después de congelar bloquea el envío");
+            await Run("UPDATE dbo.TRANSAC SET PORRETETRA=19 WHERE CODICTA='2408';UPDATE dbo.TRANSAC SET REFEFAC='OTRA' WHERE CODICTA='2205'");
+            var changedPayable=await transport.SendAsync(1,reversal,reversalKey,default);
+            check(changedPayable.Estado=="RECHAZADO"&&await Count()==1,"Modificar referencia de la obligación original después de congelar bloquea el envío");
+            await Run("UPDATE dbo.TRANSAC SET REFEFAC='' WHERE CODICTA='2205';UPDATE dbo.TRANSAC SET IDCENCO='CAMBIADO' WHERE CODICTA='1435'");
+            var changedCenter=await transport.SendAsync(1,reversal,reversalKey,default);
+            check(changedCenter.Estado=="RECHAZADO"&&await Count()==1,"Modificar dimensión original después de congelar bloquea el envío");
+            await Run("UPDATE dbo.TRANSAC SET IDCENCO='',CODICTA='1436' WHERE CODICTA='1435'");
+            var changedAccount=await transport.SendAsync(1,reversal,reversalKey,default);
+            check(changedAccount.Estado=="RECHAZADO"&&await Count()==1,"Modificar cuenta original después de congelar bloquea el envío");
+            await Run("UPDATE dbo.TRANSAC SET CODICTA='1435' WHERE CODICTA='1436'");
             await Run("UPDATE dbo.FACTURAS_BU SET SACTFAC=SACTFAC+1");
             try{await transport.CheckPurchaseEntryReversalAsync(1,reversal,default);throw new Exception("Aceptó pago externo.");}
             catch(ArgumentException){check(true,"Un pago externo en Zeus bloquea la solicitud de reversión");}
@@ -249,7 +295,7 @@ internal static class PurchaseEntryReversalTests
             await transport.CheckPurchaseEntryReversalAsync(1,reversal,default);
             await Run("""
                 INSERT dbo.TRANSAC SELECT IDFUENTE,'9900000001',ANOTRA,FECHATRA,CODICTA,NITTRA,CLIPRV,INDCPITRA,TIPOFAC,NUMEFAC,
-                    VENCEFAC,REFEFAC,BU,IDCENCO,AUXIAUX,IDITEM,CODPRESU,NRESERVA,0,0,1,'AC'
+                    VENCEFAC,REFEFAC,BU,IDCENCO,AUXIAUX,IDITEM,CODPRESU,NRESERVA,0,0,1,'AC',FECHAFACT
                 FROM dbo.TRANSAC WHERE INDCPITRA='3';
                 """);
             var paid=await transport.SendAsync(1,reversal,reversalKey,default);
@@ -267,6 +313,10 @@ internal static class PurchaseEntryReversalTests
             var repeated=await transport.SendAsync(1,reversal,reversalKey,default);
             check(reconciled.Estado=="CONTABILIZADO"&&repeated.Estado=="CONTABILIZADO"
                 &&repeated.Documento==sent.Documento&&await Count()==2,"Respuesta perdida y reenvío conservan GUID y comprobante sin duplicar");
+            var oldReversal=ZeusPurchaseEntryReversalPolicy.Build(original,originalKey,config.Fuente,"0100000001",new(2026,10,1),"Corrección de la entrada equivocada");
+            var oldReconciled=await transport.ReconcileAsync(1,oldReversal,reversalKey,default);
+            check(oldReconciled.Estado=="CONTABILIZADO"&&oldReconciled.Documento==sent.Documento&&await Count()==2,
+                "Reversión antigua incierta se concilia contra asiento real aunque el saldo original ya sea cero");
             await Run("DELETE dbo.TRANSAC WHERE NUMDOCTRA='0100000002';DELETE dbo.DOCUMENT WHERE NUMEDCTO='0100000002';UPDATE dbo.FACTURAS_BU SET SACTFAC="+(-source.Total).ToString(CultureInfo.InvariantCulture));
             await RepositorySqlAsync(cs,original,originalKey,transport,check);
         }
