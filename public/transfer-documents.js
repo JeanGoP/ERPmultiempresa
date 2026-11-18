@@ -331,5 +331,5 @@
     }
   }
 
-  window.transferDocuments = { attachHistory, appendActions, receiptHtml };
+  window.transferDocuments = { attachHistory, appendActions, receiptHtml, print };
 })();

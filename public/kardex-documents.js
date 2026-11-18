@@ -50,7 +50,7 @@
     const companyId=String(company.id),documentSource=source(entry);
     const dialog=document.createElement('dialog');dialog.className='erp-dialog kardex-document-dialog';
     dialog.setAttribute('aria-labelledby','kardexDocumentTitle');
-    dialog.innerHTML=`<header class="dialog-heading"><div><span class="dialog-kicker">${documentSource?'Documento de origen':'Detalle del movimiento'}</span><h2 id="kardexDocumentTitle"></h2><p data-movement-context></p></div><button type="button" class="dialog-close" data-close-document aria-label="Cerrar y volver al Kardex">×</button></header><div class="kardex-document-body" data-document-body aria-busy="true"><p role="status">Cargando documento…</p></div><footer class="kardex-document-footer"><p role="status" data-document-status></p><button type="button" class="button secondary" data-print-document hidden>Imprimir</button><button type="button" class="button primary" data-close-document>Volver al Kardex</button></footer>`;
+    dialog.innerHTML=`<header class="dialog-heading"><div><span class="dialog-kicker">${documentSource?'Documento de origen':'Detalle del movimiento'}</span><h2 id="kardexDocumentTitle"></h2><p data-movement-context></p></div><button type="button" class="dialog-close" data-close-document aria-label="Cerrar y volver al Kardex">×</button></header><div class="kardex-document-body" data-document-body aria-busy="true"><p role="status">Cargando documento…</p></div><footer class="kardex-document-footer"><p role="status" data-document-status></p><button type="button" class="button secondary" data-print-document hidden>Imprimir documento</button><button type="button" class="button primary" data-close-document>Volver al Kardex</button></footer>`;
     const title=dialog.querySelector('h2'),body=dialog.querySelector('[data-document-body]'),status=dialog.querySelector('[data-document-status]'),print=dialog.querySelector('[data-print-document]');
     title.textContent=[labels[entry.tipoDocumentoOrigen],entry.numeroDocumento].filter(Boolean).join(' · ')||'Movimiento de inventario';
     dialog.querySelector('[data-movement-context]').textContent=`${date(entry.fechaContable)} · ${entry.bodega||''}`;
@@ -72,6 +72,7 @@
         }else{
           title.textContent=`${data.trasladoOriginalId?'Reversión de traslado':'Traslado'} · ${data.numero}`;
           body.innerHTML=window.transferDocuments.receiptHtml(data);
+          if(['RECIBIDO','REVERTIDO'].includes(data.estado)&&data.lineas?.length){print.onclick=()=>{try{window.transferDocuments.print(data);}catch(error){status.textContent=error.message;}};print.hidden=false;}
         }
       }catch(error){
         if(!current())return;
