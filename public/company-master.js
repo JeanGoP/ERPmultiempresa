@@ -60,6 +60,18 @@ function openCompanyMasterForm(record=null){
   field('Moneda funcional','monedaFuncional',3,record?.monedaFuncional||'COP',!!record);
   field('Zona horaria','zonaHoraria',80,record?.zonaHoraria||'America/Bogota',!!record);
   const marcoLabel=document.createElement('label');marcoLabel.textContent='Marco contable';const marco=document.createElement('select');marco.name='marcoContable';['GRUPO_1','GRUPO_2','GRUPO_3'].forEach(v=>marco.add(new Option(v.replace('_',' '),v)));marco.value=record?.marcoContable||'GRUPO_2';marco.disabled=!!record;marcoLabel.append(marco);form.append(marcoLabel);
+  if(record){
+    const printFields=document.createElement('fieldset');printFields.className='company-invoice-fields wide';
+    const legend=document.createElement('legend');legend.textContent='Impresión de factura';printFields.append(legend);
+    for(const [label,name,max,key] of [['Dirección','invoiceAddress',300,'direccion'],['Teléfono','invoicePhone',50,'telefono'],['Ciudad','invoiceCity',100,'ciudad']]){
+      const input=field(label,name,max,record.formatoFactura?.[key]);
+      input.required=false;printFields.append(input.parentElement);
+    }
+    const note=document.createElement('label');note.className='wide';
+    const noteLabel=document.createElement('span');noteLabel.textContent='Leyenda de la factura (opcional)';
+    const noteInput=document.createElement('textarea');noteInput.name='invoiceLegend';noteInput.rows=3;noteInput.maxLength=2000;noteInput.value=record.formatoFactura?.leyenda||'';
+    note.append(noteLabel,noteInput);printFields.append(note);form.append(printFields);
+  }
   const zeus=companyZeusFields(form,record,token);
   const technical=document.createElement('details');technical.className='company-technical wide';
   const technicalTitle=document.createElement('summary');technicalTitle.textContent='Conexión técnica de Zeus · solo si necesitas modificarla';
@@ -70,6 +82,7 @@ function openCompanyMasterForm(record=null){
   form.onsubmit=async event=>{
     event.preventDefault();if(busy)return;if(!state.erpSession?.superAdmin||token!==apiToken()){dialog.close();return;}
     const data=Object.fromEntries(new FormData(form));const payload=record?{codigo:data.codigo,nit:data.nit,digitoVerificacion:data.digitoVerificacion||null,razonSocial:data.razonSocial,version:record.version,maxDescuentoVentaPct:Number(data.maxDescuentoVentaPct)}:{codigo:data.codigo,nit:data.nit,digitoVerificacion:data.digitoVerificacion||null,razonSocial:data.razonSocial,monedaFuncional:data.monedaFuncional,zonaHoraria:data.zonaHoraria,marcoContable:data.marcoContable};
+    if(record)payload.formatoFactura={direccion:data.invoiceAddress||null,telefono:data.invoicePhone||null,ciudad:data.invoiceCity||null,leyenda:data.invoiceLegend||null};
     busy=true;save.disabled=cancel.disabled=true;error.textContent='';
     try{
       payload.zeus=zeus.read();

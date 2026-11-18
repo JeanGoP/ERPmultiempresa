@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using NexoERP.Api.Data;
 using NexoERP.Api.Inventory;
+using NexoERP.Api.Security;
 using NexoERP.Api.Zeus;
 
 namespace NexoERP.Api.Sales;
@@ -13,6 +14,7 @@ public sealed record SaleAdvance(long ReciboCajaId,decimal Valor);
 public sealed record SaleConceptLine(long ConceptoVentaId,decimal Valor,string? CentroCosto);
 public sealed record SalesCostCenterCorrection(string CentroCosto);
 public sealed record SalesPortfolioClassification(string ClaseCartera);
+public sealed record SalesInvoicePrintedUnit(string? Serial,string? Motor,string? Chasis,string? Vin,string? Color,string? Modelo);
 public sealed record SalesInvoiceInput(Guid OperacionGuid,string Numero,long ClienteId,long SucursalId,
     DateOnly FechaContable,DateOnly Vencimiento,SaleItem[] Lineas,SaleConceptLine[] Conceptos,
     int Cuotas,string FrecuenciaCuotas,SaleAdvance[] Anticipos,long? BodegaCarteraId,string? CentroCostoIngreso,
@@ -199,15 +201,67 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             SELECT f.Numero,f.FechaContable,f.Vencimiento,f.Cuotas,f.FrecuenciaCuotas,f.Total,
                 f.AnticipoAplicado,f.SaldoPendiente,f.ZeusEstado,f.ZeusFuente,f.ZeusDocumento,f.ZeusError,
                 t.NumeroIdentificacion,t.RazonSocial,s.Codigo,s.Nombre,f.CentroCostoIngresoZeus,
-                f.ClaseCartera,f.Observacion,f.SucursalId,f.ClienteId
+                f.ClaseCartera,f.Observacion,f.SucursalId,f.ClienteId,
+                t.Direccion,t.Telefono,t.Ciudad,client.VendedorZeus,creator.NombreCompleto,f.CreadoEnUtc,e.MonedaFuncional,
+                t.TipoIdentificacion,t.DigitoVerificacion,e.RazonSocial,e.Nit,e.DigitoVerificacion,e.FormatoFacturaJson
             FROM ven.FacturaVenta f
             JOIN ter.Tercero t ON t.EmpresaId=f.EmpresaId AND t.TerceroId=f.ClienteId
             JOIN core.Sucursal s ON s.EmpresaId=f.EmpresaId AND s.SucursalId=f.SucursalId
+            JOIN core.Empresa e ON e.EmpresaId=f.EmpresaId
+            LEFT JOIN ven.ClientePerfil client ON client.EmpresaId=f.EmpresaId AND client.TerceroId=f.ClienteId
+            LEFT JOIN seg.Usuario creator ON creator.UsuarioId=f.CreadoPor
             WHERE f.EmpresaId=@E AND f.FacturaVentaId=@Id;
-            SELECT a.Codigo,a.Descripcion,b.Codigo,b.Nombre,l.Cantidad,l.PrecioConIva,l.TarifaIva,l.Base,l.Iva
-            FROM ven.FacturaVentaLinea l
+            WITH saleLines AS (
+                SELECT l.*,ROW_NUMBER() OVER(ORDER BY l.FacturaVentaLineaId)-1 LinePosition
+                FROM ven.FacturaVentaLinea l WHERE l.EmpresaId=@E AND l.FacturaVentaId=@Id
+            )
+            SELECT a.Codigo,a.Descripcion,b.Codigo,b.Nombre,l.Cantidad,l.PrecioConIva,l.TarifaIva,l.Base,l.Iva,
+                measure.Simbolo,lots.NumeroLote,
+                (SELECT ids.Serial,ids.Motor,ids.Chasis,ids.Vin,reception.Color,reception.Modelo
+                 FROM OPENJSON(l.UnidadesJson) savedUnit
+                 JOIN inv.UnidadSerializada unit ON unit.EmpresaId=l.EmpresaId AND unit.ArticuloId=l.ArticuloId
+                    AND unit.UnidadSerializadaId=TRY_CONVERT(bigint,savedUnit.[value])
+                 OUTER APPLY (
+                     SELECT MAX(CASE WHEN i.Tipo='SERIAL' THEN i.Valor END) Serial,
+                         MAX(CASE WHEN i.Tipo='MOTOR' THEN i.Valor END) Motor,
+                         MAX(CASE WHEN i.Tipo='CHASIS' THEN i.Valor END) Chasis,
+                         MAX(CASE WHEN i.Tipo='VIN' THEN i.Valor END) Vin
+                     FROM inv.UnidadIdentificador i
+                     WHERE i.EmpresaId=unit.EmpresaId AND i.UnidadSerializadaId=unit.UnidadSerializadaId
+                 ) ids
+                 OUTER APPLY (
+                     SELECT TOP(1) u.Color,u.Modelo
+                     FROM inv.RecepcionMercanciaUnidad u
+                     WHERE u.EmpresaId=unit.EmpresaId AND u.UnidadSerializadaId=unit.UnidadSerializadaId
+                     ORDER BY u.RecepcionMercanciaUnidadId
+                 ) reception
+                 ORDER BY TRY_CONVERT(int,savedUnit.[key]) FOR JSON PATH) Unidades,
+                 frozen.PrecioBaseConIva,frozen.DescuentoPorcentaje
+            FROM saleLines l
+            JOIN ven.FacturaVenta f ON f.EmpresaId=l.EmpresaId AND f.FacturaVentaId=l.FacturaVentaId
             JOIN inv.Articulo a ON a.EmpresaId=l.EmpresaId AND a.ArticuloId=l.ArticuloId
             JOIN inv.Bodega b ON b.EmpresaId=l.EmpresaId AND b.BodegaId=l.BodegaId
+            LEFT JOIN inv.UnidadMedida measure ON measure.EmpresaId=a.EmpresaId AND measure.UnidadMedidaId=a.UnidadBaseId
+            OUTER APPLY (
+                SELECT STRING_AGG(NumeroLote,N', ') NumeroLote
+                FROM (
+                    SELECT DISTINCT lot.NumeroLote
+                    FROM inv.MovimientoInventario movement
+                    JOIN inv.Lote lot ON lot.EmpresaId=movement.EmpresaId AND lot.LoteId=movement.LoteId
+                    WHERE movement.EmpresaId=l.EmpresaId AND movement.TipoDocumentoOrigen='FACTURA_VENTA'
+                        AND movement.DocumentoOrigenId=l.FacturaVentaId AND movement.DocumentoLineaOrigenId=l.FacturaVentaLineaId
+                ) names
+            ) lots
+            OUTER APPLY (
+                SELECT saved.PrecioBaseConIva,saved.DescuentoPorcentaje
+                FROM OPENJSON(f.Contenido,'$.Lineas') original
+                CROSS APPLY OPENJSON(original.[value]) WITH(
+                    ArticuloId bigint, BodegaId bigint, Cantidad decimal(20,6), PrecioUnitarioConIva decimal(18,2),
+                    PrecioBaseConIva decimal(18,2), DescuentoPorcentaje decimal(9,4)
+                ) saved
+                WHERE TRY_CONVERT(bigint,original.[key])=l.LinePosition AND saved.ArticuloId=l.ArticuloId
+                    AND saved.BodegaId=l.BodegaId AND saved.Cantidad=l.Cantidad AND saved.PrecioUnitarioConIva=l.PrecioConIva
+            ) frozen
             WHERE l.EmpresaId=@E AND l.FacturaVentaId=@Id ORDER BY l.FacturaVentaLineaId;
             SELECT Codigo,Nombre,CuentaIngresoZeus,CentroCostoZeus,Valor,MostrarEnCuerpo,MostrarEnTotales,UbicacionFormato
             FROM ven.FacturaVentaConcepto WHERE EmpresaId=@E AND FacturaVentaId=@Id ORDER BY FacturaVentaConceptoId;
@@ -228,11 +282,23 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
             zeusEstado=r.GetString(8),fuente=r.IsDBNull(9)?null:r.GetString(9),documento=r.IsDBNull(10)?null:r.GetString(10),
             error=r.IsDBNull(11)?null:r.GetString(11),identificacion=r.GetString(12),cliente=r.GetString(13),
             sucursalCodigo=r.GetString(14),sucursal=r.GetString(15),centroCosto=r.IsDBNull(16)?null:r.GetString(16),
-            claseCartera=r.GetString(17),observacion=r.IsDBNull(18)?null:r.GetString(18),sucursalId=r.GetInt64(19),clienteId=r.GetInt64(20)
+            claseCartera=r.GetString(17),observacion=r.IsDBNull(18)?null:r.GetString(18),sucursalId=r.GetInt64(19),clienteId=r.GetInt64(20),
+            direccionCliente=r.IsDBNull(21)?null:r.GetString(21),telefonoCliente=r.IsDBNull(22)?null:r.GetString(22),
+            ciudadCliente=r.IsDBNull(23)?null:r.GetString(23),vendedor=r.IsDBNull(24)?null:r.GetString(24),
+            elaboradoPor=r.IsDBNull(25)?null:r.GetString(25),creadoEnUtc=DateTime.SpecifyKind(r.GetDateTime(26),DateTimeKind.Utc),
+            moneda=r.GetString(27),tipoIdentificacionCliente=r.GetString(28),digitoVerificacionCliente=r.IsDBNull(29)?null:r.GetString(29),
+            modalidad=r.GetDecimal(5)>r.GetDecimal(6)?"Crédito":"Contado"
         };
+        var invoiceFormat=CompanyInvoiceFormat.Read(r.IsDBNull(33)?null:r.GetString(33));
+        var companyDetails=new{razonSocial=r.GetString(30),nit=r.GetString(31),digitoVerificacion=r.IsDBNull(32)?null:r.GetString(32),
+            direccion=invoiceFormat?.Direccion,telefono=invoiceFormat?.Telefono,ciudad=invoiceFormat?.Ciudad,leyenda=invoiceFormat?.Leyenda};
         var items=new List<object>();
         await r.NextResultAsync(ct);
-        while(await r.ReadAsync(ct))items.Add(new{codigo=r.GetString(0),descripcion=r.GetString(1),bodegaCodigo=r.GetString(2),bodega=r.GetString(3),cantidad=r.GetDecimal(4),precio=r.GetDecimal(5),ivaTarifa=r.GetDecimal(6),@base=r.GetDecimal(7),iva=r.GetDecimal(8)});
+        while(await r.ReadAsync(ct))items.Add(new{codigo=r.GetString(0),descripcion=r.GetString(1),bodegaCodigo=r.GetString(2),bodega=r.GetString(3),
+            cantidad=r.GetDecimal(4),precio=r.GetDecimal(5),ivaTarifa=r.GetDecimal(6),@base=r.GetDecimal(7),iva=r.GetDecimal(8),
+            unidad=r.IsDBNull(9)?null:r.GetString(9),lote=r.IsDBNull(10)?null:r.GetString(10),
+            unidades=JsonSerializer.Deserialize<SalesInvoicePrintedUnit[]>(r.GetString(11))??[],
+            precioBaseConIva=r.IsDBNull(12)?(decimal?)null:r.GetDecimal(12),descuentoPorcentaje=r.IsDBNull(13)?(decimal?)null:r.GetDecimal(13)});
         var concepts=new List<object>();
         await r.NextResultAsync(ct);
         while(await r.ReadAsync(ct))concepts.Add(new{codigo=r.GetString(0),nombre=r.GetString(1),cuenta=r.GetString(2),centroCosto=r.IsDBNull(3)?null:r.GetString(3),valor=r.GetDecimal(4),mostrarEnCuerpo=r.GetBoolean(5),mostrarEnTotales=r.GetBoolean(6),ubicacionFormato=r.GetString(7)});
@@ -242,7 +308,7 @@ public sealed class SalesInvoiceRepository(TenantConnectionFactory connections,Z
         var installments=new List<object>();
         await r.NextResultAsync(ct);
         while(await r.ReadAsync(ct))installments.Add(new{numero=r.GetInt32(0),vence=r.GetDateTime(1).ToString("yyyy-MM-dd"),valor=r.GetDecimal(2),saldo=r.GetDecimal(3),tipo=r.GetString(4)});
-        return new{header,articulos=items,conceptos=concepts,anticipos=receipts,cuotas=installments};
+        return new{header,empresa=companyDetails,articulos=items,conceptos=concepts,anticipos=receipts,cuotas=installments};
     }
     public async Task<object> OptionsAsync(long company,long? client,CancellationToken ct)
     {

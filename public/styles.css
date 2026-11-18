@@ -410,6 +410,9 @@ footer p { margin: 0; }
 .company-create-form label > span { display: block; margin-bottom: 5px; color: #52655d; font-size: 8px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
 .company-create-form input, .company-create-form select { width: 100%; min-height: 39px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: white; font: inherit; font-size: 10px; }
 .company-create-form .wide { grid-column: 1 / -1; }
+.company-invoice-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:11px; margin:4px 0; padding:12px; border:1px solid var(--line); border-radius:8px; min-width:0; }
+.company-invoice-fields legend { padding:0 6px; font-size:12px; font-weight:700; }
+.company-invoice-fields textarea { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; font-size:12px; resize:vertical; }
 .dialog-footnote { margin: 0; padding: 0 28px 24px; color: var(--muted); font-size: 9px; line-height: 1.55; }
 .compact-dialog { width: min(92vw, 520px); }
 .environment-message { min-height: 17px; margin: 13px 0; color: #95502f; font-size: 10px; line-height: 1.45; }
