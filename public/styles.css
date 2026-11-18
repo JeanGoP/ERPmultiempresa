@@ -672,6 +672,24 @@ footer p { margin: 0; }
 .inventory-table td:nth-child(n+7) { white-space: nowrap; }
 .inventory-table td:last-child { text-align: right; }
 .inventory-table td:last-child .button { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; }
+.inventory-unit-filter { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:14px 20px; padding:12px 14px; border:1px solid #cde0d5; border-radius:8px; background:#f0f8f3; }
+.inventory-unit-filter > div { display:grid; gap:4px; min-width:0; }
+.inventory-unit-filter strong { font-size:13px; color:var(--green-dark); overflow-wrap:anywhere; }
+.inventory-unit-filter span { font-size:12px; color:var(--muted); }
+.inventory-unit-filter .button { flex-shrink:0; }
+.inventory-table .inventory-unit-links { min-width:220px; max-width:360px; text-align:left; white-space:normal; }
+.inventory-unit-history { display:block; max-width:100%; padding:5px 0; border:0; color:var(--green-dark); background:none; text-align:left; font-size:12px; }
+.inventory-unit-history:hover { text-decoration:underline; }
+.inventory-unit-history:focus-visible { outline:2px solid var(--green); outline-offset:3px; border-radius:3px; }
+.inventory-unit-history + .inventory-unit-history { border-top:1px solid var(--line); }
+.inventory-unit-history strong { display:block; font-weight:600; line-height:1.4; overflow-wrap:anywhere; }
+.inventory-unit-history span { display:block; margin-top:2px; font-size:11px; text-decoration:underline; }
+.inventory-unit-links summary { padding:5px 0; color:var(--green-dark); font-size:12px; font-weight:650; cursor:pointer; }
+.inventory-unit-links details[open] { max-height:200px; overflow:auto; }
+.inventory-unit-kardex-table td:last-child { text-align:left; }
+@media(max-width:600px) {
+  .inventory-unit-filter { align-items:flex-start; flex-direction:column; margin:12px; }
+}
 .warehouse-receipts-table th:last-child,.warehouse-receipts-table td:last-child { width: 120px; padding-left: 8px; text-align: center; }
 .warehouse-receipts-table th:nth-last-child(2),.warehouse-receipts-table td:nth-last-child(2) { width: 150px; padding-right: 8px; }
 .warehouse-history-table th:last-child,.warehouse-history-table td:last-child { width: 130px; padding-left: 8px; text-align: center; }

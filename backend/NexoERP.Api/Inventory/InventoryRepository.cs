@@ -144,14 +144,96 @@ public sealed class InventoryRepository(TenantConnectionFactory connections)
         while(await reader.ReadAsync(cancellationToken)){var quantity=reader.GetDecimal(10);var value=reader.GetDecimal(11);result.Add(new(reader.GetInt64(0),reader.GetString(1),reader.IsDBNull(2)?null:reader.GetInt64(2),reader.IsDBNull(3)?null:reader.GetString(3),reader.GetInt64(4),reader.GetString(5),reader.GetString(6),reader.IsDBNull(7)?null:reader.GetInt64(7),reader.IsDBNull(8)?null:reader.GetString(8),reader.IsDBNull(9)?null:DateOnly.FromDateTime(reader.GetDateTime(9)),quantity,value,value/quantity,reader.GetString(12),reader.GetDecimal(13)));}return result;
     }
 
-    public async Task<IReadOnlyList<KardexMovementResponse>> GetKardexAsync(long empresaId,DateOnly? desde,DateOnly? hasta,long? bodegaId,long? articuloId,string? q,CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<KardexMovementResponse>> GetKardexAsync(long empresaId,DateOnly? desde,DateOnly? hasta,long? bodegaId,long? articuloId,string? q,CancellationToken cancellationToken,long? unidadSerializadaId=null)
     {
-        await using var connection=await connections.OpenAsync(empresaId,false,cancellationToken);await using var command=connection.CreateCommand();command.CommandText="""
-            SELECT m.MovimientoInventarioId,m.FechaMovimiento,m.FechaContable,m.TipoMovimiento,m.NumeroDocumento,m.BodegaId,b.Nombre,m.ArticuloId,a.Codigo,a.Descripcion,l.NumeroLote,m.CantidadEntrada,m.CantidadSalida,m.CostoUnitarioMovimiento,m.ValorMovimiento,m.ExistenciaPosterior,m.CostoPromedioPosterior
-            FROM inv.MovimientoInventario m JOIN inv.Bodega b ON b.EmpresaId=m.EmpresaId AND b.BodegaId=m.BodegaId JOIN inv.Articulo a ON a.EmpresaId=m.EmpresaId AND a.ArticuloId=m.ArticuloId LEFT JOIN inv.Lote l ON l.EmpresaId=m.EmpresaId AND l.LoteId=m.LoteId
-            WHERE m.EmpresaId=@EmpresaId AND (@Desde IS NULL OR m.FechaContable>=@Desde) AND (@Hasta IS NULL OR m.FechaContable<=@Hasta) AND (@BodegaId IS NULL OR m.BodegaId=@BodegaId) AND (@ArticuloId IS NULL OR m.ArticuloId=@ArticuloId) AND (@Q IS NULL OR a.Codigo LIKE '%'+@Q+'%' OR a.Descripcion LIKE '%'+@Q+'%' OR m.NumeroDocumento LIKE '%'+@Q+'%') ORDER BY m.FechaContable DESC,m.MovimientoInventarioId DESC;
-            """;Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);Add(command,"@Desde",SqlDbType.Date,desde?.ToDateTime(TimeOnly.MinValue));Add(command,"@Hasta",SqlDbType.Date,hasta?.ToDateTime(TimeOnly.MinValue));Add(command,"@BodegaId",SqlDbType.BigInt,bodegaId);Add(command,"@ArticuloId",SqlDbType.BigInt,articuloId);Add(command,"@Q",SqlDbType.NVarChar,string.IsNullOrWhiteSpace(q)?null:q.Trim(),120);
-        await using var reader=await command.ExecuteReaderAsync(cancellationToken);var result=new List<KardexMovementResponse>();while(await reader.ReadAsync(cancellationToken))result.Add(new(reader.GetInt64(0),reader.GetDateTime(1),DateOnly.FromDateTime(reader.GetDateTime(2)),reader.GetString(3),reader.GetString(4),reader.GetInt64(5),reader.GetString(6),reader.GetInt64(7),reader.GetString(8),reader.GetString(9),reader.IsDBNull(10)?null:reader.GetString(10),reader.GetDecimal(11),reader.GetDecimal(12),reader.GetDecimal(13),reader.GetDecimal(14),reader.GetDecimal(15),reader.GetDecimal(16)));return result;
+        await using var connection = await connections.OpenAsync(empresaId,false,cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            WITH unidadesMovimiento AS (
+                SELECT mu.EmpresaId,mu.MovimientoInventarioId,mu.UnidadSerializadaId,mu.EstadoAnterior,mu.EstadoPosterior
+                FROM inv.MovimientoInventarioUnidad mu
+                WHERE mu.EmpresaId=@EmpresaId AND (@UnidadId IS NULL OR mu.UnidadSerializadaId=@UnidadId)
+                UNION ALL
+                SELECT m.EmpresaId,m.MovimientoInventarioId,ru.UnidadSerializadaId,NULL,'DISPONIBLE'
+                FROM inv.MovimientoInventario m
+                JOIN inv.RecepcionMercanciaLinea rl ON rl.EmpresaId=m.EmpresaId
+                    AND rl.RecepcionMercanciaId=m.DocumentoOrigenId AND rl.RecepcionMercanciaLineaId=m.DocumentoLineaOrigenId
+                JOIN inv.RecepcionMercanciaUnidad ru ON ru.EmpresaId=rl.EmpresaId AND ru.RecepcionMercanciaLineaId=rl.RecepcionMercanciaLineaId
+                WHERE m.EmpresaId=@EmpresaId AND m.TipoDocumentoOrigen='RECEPCION_MERCANCIA' AND m.CantidadEntrada>0
+                    AND ru.UnidadSerializadaId IS NOT NULL AND (@UnidadId IS NULL OR ru.UnidadSerializadaId=@UnidadId)
+                    AND NOT EXISTS (
+                        SELECT 1 FROM inv.MovimientoInventarioUnidad known
+                        WHERE known.EmpresaId=m.EmpresaId AND known.MovimientoInventarioId=m.MovimientoInventarioId
+                            AND known.UnidadSerializadaId=ru.UnidadSerializadaId
+                    )
+            )
+            SELECT m.MovimientoInventarioId,m.FechaMovimiento,m.FechaContable,m.TipoMovimiento,m.NumeroDocumento,
+                m.BodegaId,b.Nombre,m.ArticuloId,a.Codigo,a.Descripcion,l.NumeroLote,
+                m.CantidadEntrada,m.CantidadSalida,m.CostoUnitarioMovimiento,m.ValorMovimiento,
+                m.ExistenciaPosterior,m.CostoPromedioPosterior,
+                (
+                    SELECT mu.UnidadSerializadaId,k.Serial,k.Motor,k.Chasis,k.Vin,k.Placa,
+                        mu.EstadoAnterior,mu.EstadoPosterior
+                    FROM unidadesMovimiento mu
+                    OUTER APPLY (
+                        SELECT MAX(CASE WHEN ui.Tipo='SERIAL' THEN ui.Valor END) Serial,
+                            MAX(CASE WHEN ui.Tipo='MOTOR' THEN ui.Valor END) Motor,
+                            MAX(CASE WHEN ui.Tipo='CHASIS' THEN ui.Valor END) Chasis,
+                            MAX(CASE WHEN ui.Tipo='VIN' THEN ui.Valor END) Vin,
+                            MAX(CASE WHEN ui.Tipo='PLACA' THEN ui.Valor END) Placa
+                        FROM inv.UnidadIdentificador ui
+                        WHERE ui.EmpresaId=mu.EmpresaId AND ui.UnidadSerializadaId=mu.UnidadSerializadaId
+                    ) k
+                    WHERE mu.EmpresaId=m.EmpresaId AND mu.MovimientoInventarioId=m.MovimientoInventarioId
+                        AND (@UnidadId IS NULL OR mu.UnidadSerializadaId=@UnidadId)
+                    ORDER BY mu.UnidadSerializadaId
+                    FOR JSON PATH
+                ) Unidades
+            FROM inv.MovimientoInventario m
+            JOIN inv.Bodega b ON b.EmpresaId=m.EmpresaId AND b.BodegaId=m.BodegaId
+            JOIN inv.Articulo a ON a.EmpresaId=m.EmpresaId AND a.ArticuloId=m.ArticuloId
+            LEFT JOIN inv.Lote l ON l.EmpresaId=m.EmpresaId AND l.LoteId=m.LoteId
+            WHERE m.EmpresaId=@EmpresaId
+                AND (@Desde IS NULL OR m.FechaContable>=@Desde) AND (@Hasta IS NULL OR m.FechaContable<=@Hasta)
+                AND (@BodegaId IS NULL OR m.BodegaId=@BodegaId) AND (@ArticuloId IS NULL OR m.ArticuloId=@ArticuloId)
+                AND (@UnidadId IS NULL OR EXISTS (
+                    SELECT 1 FROM unidadesMovimiento selected
+                    WHERE selected.EmpresaId=m.EmpresaId AND selected.MovimientoInventarioId=m.MovimientoInventarioId
+                        AND selected.UnidadSerializadaId=@UnidadId
+                ))
+                AND (@Q IS NULL OR a.Codigo COLLATE Latin1_General_100_CI_AI LIKE '%'+@Q+'%'
+                    OR a.Descripcion COLLATE Latin1_General_100_CI_AI LIKE '%'+@Q+'%'
+                    OR m.NumeroDocumento COLLATE Latin1_General_100_CI_AI LIKE '%'+@Q+'%'
+                    OR l.NumeroLote COLLATE Latin1_General_100_CI_AI LIKE '%'+@Q+'%'
+                    OR EXISTS (
+                        SELECT 1 FROM unidadesMovimiento searched
+                        JOIN inv.UnidadIdentificador ui ON ui.EmpresaId=searched.EmpresaId
+                            AND ui.UnidadSerializadaId=searched.UnidadSerializadaId
+                        WHERE searched.EmpresaId=m.EmpresaId AND searched.MovimientoInventarioId=m.MovimientoInventarioId
+                            AND (@UnidadId IS NULL OR searched.UnidadSerializadaId=@UnidadId)
+                            AND ui.Valor COLLATE Latin1_General_100_CI_AI LIKE '%'+@Q+'%'
+                    ))
+            ORDER BY m.FechaContable DESC,m.MovimientoInventarioId DESC;
+            """;
+        Add(command,"@EmpresaId",SqlDbType.BigInt,empresaId);
+        Add(command,"@Desde",SqlDbType.Date,desde?.ToDateTime(TimeOnly.MinValue));
+        Add(command,"@Hasta",SqlDbType.Date,hasta?.ToDateTime(TimeOnly.MinValue));
+        Add(command,"@BodegaId",SqlDbType.BigInt,bodegaId);
+        Add(command,"@ArticuloId",SqlDbType.BigInt,articuloId);
+        Add(command,"@UnidadId",SqlDbType.BigInt,unidadSerializadaId);
+        Add(command,"@Q",SqlDbType.NVarChar,string.IsNullOrWhiteSpace(q)?null:q.Trim(),120);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var result = new List<KardexMovementResponse>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var units = System.Text.Json.JsonSerializer.Deserialize<KardexUnitResponse[]>(reader.GetString(17)) ?? [];
+            result.Add(new(reader.GetInt64(0),reader.GetDateTime(1),DateOnly.FromDateTime(reader.GetDateTime(2)),
+                reader.GetString(3),reader.GetString(4),reader.GetInt64(5),reader.GetString(6),reader.GetInt64(7),
+                reader.GetString(8),reader.GetString(9),reader.IsDBNull(10)?null:reader.GetString(10),
+                reader.GetDecimal(11),reader.GetDecimal(12),reader.GetDecimal(13),reader.GetDecimal(14),
+                reader.GetDecimal(15),reader.GetDecimal(16),units));
+        }
+        return result;
     }
 
     public async Task<IReadOnlyList<ExpiryAlertResponse>> GetExpiryAlertsAsync(long empresaId,int days,long? bodegaId,CancellationToken cancellationToken)

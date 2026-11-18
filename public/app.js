@@ -916,8 +916,131 @@ const warehouseIssueDemo=[
   {recepcionMercanciaRevisionUnidadId:9001,recepcionMercanciaId:501,recepcionNumero:'REC-FV-98251',documentoProveedorId:301,tipoDocumento:'FACTURA',numeroDocumento:'FV-98251',proveedor:'Motos Andinas SAS',fechaDocumento:'2026-08-28',fechaContable:'2026-08-28',bodega:'Bodega principal',recepcionMercanciaUnidadId:7001,numeroLinea:1,codigoArticulo:'357683',descripcion:'Motocicleta XR190L 2.0',numeroUnidad:2,serial:'XR190-000185',motor:'KD05E-9102842',chasis:'9FMKD0506TB001842',vin:'9FMKD0506TB001842',color:'Rojo',modelo:'2027',estadoFisico:'RECIBIDA_NOVEDAD',observacion:'Golpe visible en el guardabarros delantero derecho.',revisadoPor:'Auxiliar de bodega',revisadoEnUtc:'2026-08-28T16:42:00Z'},
   {recepcionMercanciaRevisionUnidadId:9002,recepcionMercanciaId:502,recepcionNumero:'REC-FV-98263',documentoProveedorId:302,tipoDocumento:'FACTURA',numeroDocumento:'FV-98263',proveedor:'Distribuidora Nacional de Motos',fechaDocumento:'2026-08-30',fechaContable:'2026-08-30',bodega:'Bodega principal',recepcionMercanciaUnidadId:7002,numeroLinea:2,codigoArticulo:'MOT-NAVI',descripcion:'Motocicleta Navi',numeroUnidad:1,serial:'NAVI-008241',motor:'JK07E-208241',chasis:'9FMJK0702TB008241',vin:'9FMJK0702TB008241',color:'Negro',modelo:'2027',estadoFisico:'NO_RECIBIDA',observacion:'La unidad figura en la factura pero no llegó en el vehículo transportador.',revisadoPor:'Auxiliar de bodega',revisadoEnUtc:'2026-08-30T19:15:00Z'}
 ];
-function inventoryRows(view,rows){if(view==='stock')return{headers:['Bodega','Ubicación','Artículo','Descripción','Lote','Vencimiento','Existencia','Costo promedio','Valor total'],rows:rows.map(x=>[x.bodega,x.ubicacion||'—',x.codigo,x.descripcion,x.numeroLote||'—',x.fechaVencimiento||'—',x.existencia,manualCurrency(x.costoPromedio),manualCurrency(x.valorTotal)])};if(view==='kardex')return{headers:['Fecha','Movimiento','Documento','Bodega','Artículo','Descripción','Entrada','Salida','Costo','Valor','Saldo'],rows:rows.map(x=>[x.fechaContable,x.tipoMovimiento,x.numeroDocumento,x.bodega,x.codigo,x.descripcion,x.entrada,x.salida,manualCurrency(x.costoUnitario),manualCurrency(x.valorMovimiento),x.existenciaPosterior])};if(view==='serials')return{headers:['Artículo','Descripción','Estado','Bodega actual','Serial','Motor','Chasis','VIN','Placa'],rows:rows.map(x=>[x.codigo,x.descripcion,x.estado,x.bodega||'—',x.serial||'—',x.motor||'—',x.chasis||'—',x.vin||'—',x.placa||'—'])};return{headers:['Bodega','Artículo','Descripción','Lote','Fecha de vencimiento','Días','Estado','Existencia'],rows:rows.map(x=>[x.bodega,x.codigo,x.descripcion,x.numeroLote,x.fechaVencimiento,x.diasParaVencer,x.estado,x.existencia])};}
+function inventoryRows(view,rows,unitId=null){
+  if(view==='stock')return{
+    headers:['Bodega','Ubicación','Artículo','Descripción','Lote','Vencimiento','Existencia','Costo promedio','Valor total'],
+    rows:rows.map(x=>[x.bodega,x.ubicacion||'—',x.codigo,x.descripcion,x.numeroLote||'—',x.fechaVencimiento||'—',x.existencia,manualCurrency(x.costoPromedio),manualCurrency(x.valorTotal)])
+  };
+  if(view==='kardex'){
+    if(unitId)return{
+      headers:['Fecha','Movimiento','Documento','Bodega','Artículo','Descripción','Entrada','Salida','Costo unitario','Estado anterior','Estado posterior'],
+      rows:rows.map(x=>{
+        const unit=x.unidades?.find(item=>Number(item.unidadSerializadaId)===Number(unitId));
+        return [x.fechaContable,x.tipoMovimiento,x.numeroDocumento,x.bodega,x.codigo,x.descripcion,
+          unit&&Number(x.entrada)>0?1:0,unit&&Number(x.salida)>0?1:0,manualCurrency(x.costoUnitario),
+          unit?.estadoAnterior||'—',unit?.estadoPosterior||'—'];
+      })
+    };
+    return{
+      headers:['Fecha','Movimiento','Documento','Bodega','Artículo','Descripción','Seriales / historial','Entrada','Salida','Costo unitario','Valor','Saldo'],
+      rows:rows.map(x=>[x.fechaContable,x.tipoMovimiento,x.numeroDocumento,x.bodega,x.codigo,x.descripcion,'—',x.entrada,x.salida,manualCurrency(x.costoUnitario),manualCurrency(x.valorMovimiento),x.existenciaPosterior])
+    };
+  }
+  if(view==='serials')return{
+    headers:['Artículo','Descripción','Estado','Bodega actual','Serial','Motor','Chasis','VIN','Placa','Historial'],
+    rows:rows.map(x=>[x.codigo,x.descripcion,x.estado,x.bodega||'—',x.serial||'—',x.motor||'—',x.chasis||'—',x.vin||'—',x.placa||'—',''])
+  };
+  return{
+    headers:['Bodega','Artículo','Descripción','Lote','Fecha de vencimiento','Días','Estado','Existencia'],
+    rows:rows.map(x=>[x.bodega,x.codigo,x.descripcion,x.numeroLote,x.fechaVencimiento,x.diasParaVencer,x.estado,x.existencia])
+  };
+}
+
+let inventoryKardexUnit=null;
+let inventorySearchTimer;
+function selectedInventoryUnit(){
+  return inventoryKardexUnit?.companyId===state.erpSession?.company?.id ? inventoryKardexUnit : null;
+}
+function inventoryUnitLabel(unit){
+  return [['Chasis',unit.chasis],['VIN',unit.vin],['Serial',unit.serial],['Motor',unit.motor],['Placa',unit.placa]]
+    .filter(([,value])=>value).map(([label,value])=>`${label} ${value}`).join(' · ')||`Unidad ${unit.unidadSerializadaId}`;
+}
+function openUnitKardex(unit,article){
+  if(!unit.unidadSerializadaId||!isInventoryViewAllowed('kardex'))return;
+  clearTimeout(inventorySearchTimer);
+  inventoryKardexUnit={...unit,companyId:state.erpSession?.company?.id,codigo:article.codigo,descripcion:article.descripcion};
+  elements.inventorySearch.value='';
+  elements.inventoryWarehouse.value='';
+  elements.inventoryDateFrom.value='';
+  elements.inventoryDateTo.value='';
+  showInventoryView('kardex');
+  document.querySelector('#inventoryUnitFilter button')?.focus({preventScroll:true});
+}
+function renderInventoryUnitFilter(){
+  const panel=document.querySelector('#inventoryUnitFilter');
+  const unit=state.inventoryView==='kardex'&&selectedInventoryUnit();
+  panel.hidden=!unit;
+  if(!unit)return;
+  if(panel.dataset.unitId===String(unit.unidadSerializadaId)&&panel.dataset.companyId===String(unit.companyId))return;
+  panel.dataset.unitId=unit.unidadSerializadaId;
+  panel.dataset.companyId=unit.companyId;
+  const identity=document.createElement('div');
+  const title=document.createElement('strong');title.textContent=inventoryUnitLabel(unit);
+  const description=document.createElement('span');description.textContent=[unit.codigo,unit.descripcion].filter(Boolean).join(' · ');
+  identity.append(title,description);
+  const clear=document.createElement('button');clear.type='button';clear.className='button secondary';clear.textContent='Ver Kardex general';
+  clear.addEventListener('click',()=>{
+    inventoryKardexUnit=null;
+    renderInventoryUnitFilter();
+    void refreshInventory();
+    elements.inventorySearch.focus({preventScroll:true});
+  });
+  panel.replaceChildren(identity,clear);
+}
+function buildInventoryTable(view,rows,unitId){
+  const data=inventoryRows(view,rows,unitId);
+  const table=buildDataTable(data.headers,data.rows);
+  if(view==='kardex'&&unitId)table.classList.add('inventory-unit-kardex-table');
+  if(!rows.length||!['kardex','serials'].includes(view)||unitId)return table;
+  const tableRows=table.tBodies[0].rows;
+  rows.forEach((entry,index)=>{
+    let units=view==='serials'?[entry]:entry.unidades||[];
+    const query=elements.inventorySearch.value.trim().toLocaleLowerCase('es-CO');
+    if(view==='kardex'&&query){
+      const matching=units.filter(unit=>[unit.serial,unit.motor,unit.chasis,unit.vin,unit.placa]
+        .filter(Boolean).join(' ').toLocaleLowerCase('es-CO').includes(query));
+      if(matching.length)units=matching;
+    }
+    const cell=tableRows[index].cells[view==='serials'?9:6];
+    if(!units.length)return;
+    cell.className='inventory-unit-links';cell.replaceChildren();
+    let container=cell;
+    if(units.length>2){
+      const details=document.createElement('details');
+      const summary=document.createElement('summary');summary.textContent=`Ver vehículos (${units.length})`;
+      details.append(summary);cell.append(details);container=details;
+    }
+    units.forEach(unit=>{
+      const button=document.createElement('button');button.type='button';button.className='inventory-unit-history';
+      if(view==='serials')button.textContent='Ver historial';
+      else{
+        const identity=document.createElement('strong');identity.textContent=inventoryUnitLabel(unit);
+        const action=document.createElement('span');action.textContent='Ver historial';
+        button.append(identity,action);
+      }
+      button.setAttribute('aria-label',`Ver historial de ${inventoryUnitLabel(unit)}`);
+      button.addEventListener('click',()=>openUnitKardex(unit,entry));
+      container.append(button);
+    });
+  });
+  return table;
+}
 function renderInventoryStats(rows){const apiActive=state.runtimeMode==='api'&&state.erpSession?.api;const source=state.inventoryView==='stock'?rows:(!apiActive?inventoryDemo.stock:[]);const quantity=source.reduce((sum,x)=>sum+Number(x.existencia||0),0);const value=source.reduce((sum,x)=>sum+Number(x.valorTotal||0),0);const cards=[['Referencias',new Set(source.map(x=>x.codigo)).size],['Unidades disponibles',new Intl.NumberFormat('es-CO').format(quantity)],['Valor de inventario',manualCurrency(value)],['Registros en vista',rows.length]];elements.inventoryStats.replaceChildren();cards.forEach(([label,value])=>{const card=document.createElement('article');const strong=document.createElement('strong');strong.textContent=value;const span=document.createElement('span');span.textContent=label;card.append(strong,span);elements.inventoryStats.append(card);});}
+function renderUnitKardexStats(rows,unitId){
+  const linkedRows=rows.filter(row=>row.unidades?.some(unit=>Number(unit.unidadSerializadaId)===Number(unitId)));
+  const cards=[
+    ['Movimientos de esta unidad',linkedRows.length],
+    ['Entradas',linkedRows.filter(row=>Number(row.entrada)>0).length],
+    ['Salidas',linkedRows.filter(row=>Number(row.salida)>0).length],
+    ['Bodegas en el historial',new Set(linkedRows.map(row=>row.bodegaId||row.bodega)).size]
+  ];
+  elements.inventoryStats.replaceChildren(...cards.map(([label,value])=>{
+    const card=document.createElement('article');
+    const strong=document.createElement('strong');strong.textContent=value;
+    const span=document.createElement('span');span.textContent=label;
+    card.append(strong,span);return card;
+  }));
+}
 function populateInventoryWarehouses(){const current=elements.inventoryWarehouse.value;elements.inventoryWarehouse.replaceChildren(new Option('Todas las bodegas',''));const warehouses=state.apiContext?.warehouses||getCompanyMasterData().data.warehouses.map(x=>({bodegaId:x.id,codigo:x.code,nombre:x.name}));warehouses.forEach(x=>elements.inventoryWarehouse.add(new Option(`${x.codigo} · ${x.nombre}`,x.bodegaId)));elements.inventoryWarehouse.value=[...elements.inventoryWarehouse.options].some(x=>x.value===current)?current:'';}
 function renderWarehouseReceiptStats(rows){const totals=rows.reduce((all,x)=>({units:all.units+x.unidadesSerializadas,reviewed:all.reviewed+x.revisadas,ok:all.ok+x.recibidasConforme,issues:all.issues+x.recibidasConNovedad+x.noRecibidas}),{units:0,reviewed:0,ok:0,issues:0});const cards=[['Recepciones pendientes',rows.length],['Motos en revisión',totals.units],['Checks guardados',totals.reviewed],['Con novedad / no recibidas',totals.issues]];elements.inventoryStats.replaceChildren();cards.forEach(([label,value])=>{const card=document.createElement('article');const strong=document.createElement('strong');strong.textContent=value;const span=document.createElement('span');span.textContent=label;card.append(strong,span);elements.inventoryStats.append(card);});}
 function renderWarehouseReceipts(rows){const table=document.createElement('table');table.className='warehouse-receipts-table';const head=document.createElement('thead');head.innerHTML='<tr><th>Recepción</th><th>Documento</th><th>Proveedor</th><th>Bodega</th><th>Fecha</th><th>Motos</th><th>Revisión</th><th></th></tr>';const body=document.createElement('tbody');rows.forEach(entry=>{const row=document.createElement('tr');const receipt=document.createElement('td');receipt.className='saved-document-identity';const strong=document.createElement('strong');strong.textContent=entry.numero;const small=document.createElement('small');small.textContent=entry.estado;receipt.append(strong,small);const documentCell=document.createElement('td');documentCell.textContent=`${entry.tipoDocumento} ${entry.numeroDocumento}`;const supplier=document.createElement('td');supplier.textContent=entry.proveedor;const warehouse=document.createElement('td');warehouse.textContent=entry.bodega;const date=document.createElement('td');date.textContent=entry.fechaContable;const units=document.createElement('td');units.textContent=entry.unidadesSerializadas;const review=document.createElement('td');review.textContent=`${entry.revisadas}/${entry.unidadesSerializadas} · ${entry.recibidasConNovedad+entry.noRecibidas} novedad`;const action=document.createElement('td');const open=document.createElement('button');open.type='button';open.className='button secondary';open.dataset.warehouseReceiptId=entry.recepcionMercanciaId;open.textContent='Revisar';action.append(open);row.append(receipt,documentCell,supplier,warehouse,date,units,review,action);body.append(row);});if(!rows.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=8;cell.className='empty';cell.textContent='No hay recepciones pendientes para estos filtros.';row.append(cell);body.append(row);}table.append(head,body);elements.inventoryTable.replaceChildren(table);renderWarehouseReceiptStats(rows);elements.inventoryStatus.textContent=`${rows.length} recepción(es) pendiente(s)`;}
@@ -1009,6 +1132,9 @@ async function refreshInventory(){
   const request=++inventoryRefreshVersion;
   const view=state.inventoryView;
   const companyId=state.erpSession?.company?.id;
+  if(inventoryKardexUnit?.companyId!==companyId)inventoryKardexUnit=null;
+  renderInventoryUnitFilter();
+  const unitId=view==='kardex'?selectedInventoryUnit()?.unidadSerializadaId:null;
   if(view==='operations'){renderInventoryOperationPanel();return;}
   if(view==='receiving'){await refreshWarehouseReceiving(request);return;}
   if(view==='receipt-issues'){await refreshWarehouseReceiptIssues(request);return;}
@@ -1024,6 +1150,7 @@ async function refreshInventory(){
       if(elements.inventoryWarehouse.value)params.set('bodegaId',elements.inventoryWarehouse.value);
       if(elements.inventorySearch.value.trim())params.set('q',elements.inventorySearch.value.trim());
       if(view==='kardex'){
+        if(unitId)params.set('unidadSerializadaId',unitId);
         if(elements.inventoryDateFrom.value)params.set('desde',elements.inventoryDateFrom.value);
         if(elements.inventoryDateTo.value)params.set('hasta',elements.inventoryDateTo.value);
       }
@@ -1038,19 +1165,27 @@ async function refreshInventory(){
       elements.inventoryNotice.hidden=false;
     }
     if(!current())return;
+    if(unitId){
+      if(rows.some(row=>!Array.isArray(row.unidades)))throw new Error('Actualiza el backend para consultar el Kardex de una unidad por su chasis o serial.');
+      rows=rows.filter(row=>row.unidades.some(unit=>Number(unit.unidadSerializadaId)===Number(unitId)));
+    }
     state.inventoryData=rows;
-    const table=inventoryRows(view,rows);
-    elements.inventoryTable.replaceChildren(buildDataTable(table.headers,table.rows));
-    renderInventoryStats(rows);
+    elements.inventoryTable.replaceChildren(buildInventoryTable(view,rows,unitId));
+    if(unitId)renderUnitKardexStats(rows,unitId);
+    else renderInventoryStats(rows);
     elements.inventoryStatus.textContent=`${rows.length} registros consultados`;
   }catch(error){
     if(!current())return;
+    if(unitId){
+      elements.inventoryTable.replaceChildren(emptyMessage('No fue posible cargar el historial de esta unidad.'));
+      elements.inventoryStats.replaceChildren();
+    }
     elements.inventoryNotice.textContent=error.message;
     elements.inventoryNotice.hidden=false;
     elements.inventoryStatus.textContent='No fue posible consultar';
   }
 }
-function showInventoryView(view='stock'){if(!isInventoryViewAllowed(view)){const fallback=firstAllowedInventoryView();if(fallback&&fallback!==view){showInventoryView(fallback);return;}routeToDefaultWorkspace(true);return;}state.inventoryView=view;elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.savedPurchasesModule.hidden=true;elements.accountsPayableModule.hidden=true;elements.inventoryModule.hidden=false;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.savedPurchasesNav.classList.remove('active');elements.accountsPayableNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');document.querySelector('.breadcrumb span').textContent=view==='receiving'?'Bodega':view==='receipt-history'||view==='receipt-issues'?'Administración':'Inventario';elements.breadcrumbCurrent.textContent={stock:'Existencias',receiving:'Recepción física','receipt-issues':'Novedades pendientes','receipt-history':'Historial recepciones',kardex:'Kardex',serials:'Seriales',expiry:'Vencimientos',operations:'Movimientos'}[view];document.querySelectorAll('[data-registration-mode],[data-master-view]').forEach(x=>x.classList.remove('active'));document.querySelectorAll('[data-inventory-view]').forEach(x=>x.classList.toggle('active',x.dataset.inventoryView===view));const isKardex=view==='kardex';const isOperations=view==='operations';const isReceiving=view==='receiving';const isReceiptHistory=view==='receipt-history';const isReceiptIssues=view==='receipt-issues';elements.inventoryDateFromField.hidden=!(isKardex||isReceiptHistory||isReceiptIssues);elements.inventoryDateToField.hidden=!(isKardex||isReceiptHistory||isReceiptIssues);elements.inventoryIssueTypeField.hidden=!isReceiptIssues;elements.inventoryTable.hidden=isOperations||isReceiptIssues;elements.inventoryOperationPanel.hidden=!(isOperations||isReceiving||isReceiptHistory||isReceiptIssues);elements.inventorySearch.closest('label').hidden=isOperations;elements.inventoryWarehouse.closest('label').hidden=isOperations;$('#refreshInventory').hidden=isOperations;populateInventoryWarehouses();if(isReceiving||isReceiptHistory)state.warehouseReceiptDetail=null;void refreshInventory();window.scrollTo({top:0,behavior:'smooth'});}
+function showInventoryView(view='stock'){clearTimeout(inventorySearchTimer);if(!isInventoryViewAllowed(view)){const fallback=firstAllowedInventoryView();if(fallback&&fallback!==view){showInventoryView(fallback);return;}routeToDefaultWorkspace(true);return;}if(view!=='kardex')inventoryKardexUnit=null;state.inventoryView=view;renderInventoryUnitFilter();elements.purchaseModule.hidden=true;elements.masterDataModule.hidden=true;elements.savedPurchasesModule.hidden=true;elements.accountsPayableModule.hidden=true;elements.inventoryModule.hidden=false;elements.advancedControlsModule.hidden=true;elements.securityModule.hidden=true;elements.savedPurchasesNav.classList.remove('active');elements.accountsPayableNav.classList.remove('active');elements.controlsNav.classList.remove('active');elements.securityAdminNav.classList.remove('active');document.querySelector('.breadcrumb span').textContent=view==='receiving'?'Bodega':view==='receipt-history'||view==='receipt-issues'?'Administración':'Inventario';elements.breadcrumbCurrent.textContent={stock:'Existencias',receiving:'Recepción física','receipt-issues':'Novedades pendientes','receipt-history':'Historial recepciones',kardex:'Kardex',serials:'Seriales',expiry:'Vencimientos',operations:'Movimientos'}[view];document.querySelectorAll('[data-registration-mode],[data-master-view]').forEach(x=>x.classList.remove('active'));document.querySelectorAll('[data-inventory-view]').forEach(x=>x.classList.toggle('active',x.dataset.inventoryView===view));const isKardex=view==='kardex';const isOperations=view==='operations';const isReceiving=view==='receiving';const isReceiptHistory=view==='receipt-history';const isReceiptIssues=view==='receipt-issues';elements.inventoryDateFromField.hidden=!(isKardex||isReceiptHistory||isReceiptIssues);elements.inventoryDateToField.hidden=!(isKardex||isReceiptHistory||isReceiptIssues);elements.inventoryIssueTypeField.hidden=!isReceiptIssues;elements.inventoryTable.hidden=isOperations||isReceiptIssues;elements.inventoryOperationPanel.hidden=!(isOperations||isReceiving||isReceiptHistory||isReceiptIssues);elements.inventorySearch.closest('label').hidden=isOperations;elements.inventoryWarehouse.closest('label').hidden=isOperations;$('#refreshInventory').hidden=isOperations;populateInventoryWarehouses();if(isReceiving||isReceiptHistory)state.warehouseReceiptDetail=null;void refreshInventory();window.scrollTo({top:0,behavior:'smooth'});}
 function fillOperationSelect(select,rows,valueKey,label){select.replaceChildren(new Option('Seleccionar…',''));rows.forEach(x=>select.add(new Option(label(x),x[valueKey])));}
 async function fetchTransferAvailability(base, origin, article, signal) {
   const filters = new URLSearchParams({bodegaId:origin, articuloId:article.id});
@@ -3353,7 +3488,21 @@ elements.savedPurchasesTable.addEventListener('click',event=>{const button=event
 elements.inventoryNav.addEventListener('click',()=>{if(!elements.inventoryNav.dataset.inventoryView)showInventoryView(isInventoryViewAllowed(state.inventoryView)?state.inventoryView:firstAllowedInventoryView()||'receiving');});
 document.querySelectorAll('[data-inventory-view]').forEach(button=>button.addEventListener('click',()=>showInventoryView(button.dataset.inventoryView)));
 $('#refreshInventory').addEventListener('click',()=>void refreshInventory());
-elements.inventorySearch.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();void refreshInventory();}});
+elements.inventorySearch.addEventListener('input',()=>{
+  if(!['kardex','serials'].includes(state.inventoryView))return;
+  inventoryRefreshVersion++;
+  clearTimeout(inventorySearchTimer);
+  inventoryKardexUnit=null;
+  renderInventoryUnitFilter();
+  inventorySearchTimer=setTimeout(()=>void refreshInventory(),220);
+});
+elements.inventorySearch.addEventListener('keydown',event=>{
+  if(event.key==='Enter'){
+    event.preventDefault();
+    clearTimeout(inventorySearchTimer);
+    void refreshInventory();
+  }
+});
 elements.inventoryWarehouse.addEventListener('change',()=>void refreshInventory());
 elements.inventoryIssueType.addEventListener('change',()=>void refreshInventory());
 elements.inventoryDateFrom.addEventListener('change',()=>void refreshInventory());

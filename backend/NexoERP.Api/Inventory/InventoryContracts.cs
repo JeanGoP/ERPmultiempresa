@@ -17,7 +17,11 @@ public sealed record DetailedInventoryBalanceResponse(
 public sealed record KardexMovementResponse(
     long MovimientoInventarioId,DateTime FechaMovimiento,DateOnly FechaContable,string TipoMovimiento,string NumeroDocumento,
     long BodegaId,string Bodega,long ArticuloId,string Codigo,string Descripcion,string? NumeroLote,
-    decimal Entrada,decimal Salida,decimal CostoUnitario,decimal ValorMovimiento,decimal ExistenciaPosterior,decimal CostoPromedioPosterior);
+    decimal Entrada,decimal Salida,decimal CostoUnitario,decimal ValorMovimiento,decimal ExistenciaPosterior,decimal CostoPromedioPosterior,
+    IReadOnlyList<KardexUnitResponse>? Unidades=null);
+
+public sealed record KardexUnitResponse(long UnidadSerializadaId,string? Serial,string? Motor,string? Chasis,string? Vin,string? Placa,
+    string? EstadoAnterior,string EstadoPosterior);
 
 public sealed record ExpiryAlertResponse(
     long BodegaId,string Bodega,long ArticuloId,string Codigo,string Descripcion,long LoteId,string NumeroLote,

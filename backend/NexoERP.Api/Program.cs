@@ -396,7 +396,11 @@ app.MapPost("/api/v1/companies/{empresaId:long}/master-data/item-mappings", asyn
 app.MapGet("/api/v1/companies/{empresaId:long}/inventory/balances", async (long empresaId,long? bodegaId,long? articuloId,InventoryRepository inventory,CancellationToken cancellationToken) =>
     Results.Ok(await inventory.GetBalancesAsync(empresaId,bodegaId,articuloId,cancellationToken)));
 app.MapGet("/api/v1/companies/{empresaId:long}/inventory/stock", async (long empresaId,long? bodegaId,string? q,InventoryRepository inventory,CancellationToken ct) => Results.Ok(await inventory.GetDetailedBalancesAsync(empresaId,bodegaId,q,ct)));
-app.MapGet("/api/v1/companies/{empresaId:long}/inventory/kardex", async (long empresaId,DateOnly? desde,DateOnly? hasta,long? bodegaId,long? articuloId,string? q,InventoryRepository inventory,CancellationToken ct) => Results.Ok(await inventory.GetKardexAsync(empresaId,desde,hasta,bodegaId,articuloId,q,ct)));
+app.MapGet("/api/v1/companies/{empresaId:long}/inventory/kardex", async (long empresaId,DateOnly? desde,DateOnly? hasta,long? bodegaId,long? articuloId,long? unidadSerializadaId,string? q,InventoryRepository inventory,CancellationToken ct) =>
+{
+    if (unidadSerializadaId is <=0) return Results.BadRequest(new { error="Selecciona una unidad serializada válida." });
+    return Results.Ok(await inventory.GetKardexAsync(empresaId,desde,hasta,bodegaId,articuloId,q,ct,unidadSerializadaId));
+});
 app.MapGet("/api/v1/companies/{empresaId:long}/inventory/expiry-alerts", async (long empresaId,int? dias,long? bodegaId,InventoryRepository inventory,CancellationToken ct) => Results.Ok(await inventory.GetExpiryAlertsAsync(empresaId,dias??90,bodegaId,ct)));
 
 app.MapGet("/api/v1/companies/{empresaId:long}/permissions", async (long empresaId,HttpContext context,AuthRepository auth,CancellationToken cancellationToken) =>
